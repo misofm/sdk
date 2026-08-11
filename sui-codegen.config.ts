@@ -18,7 +18,7 @@ const config: SuiCodegenConfig = {
     // `Listing<Currency>` per payment rail.
     // Path crosses org directories on disk: this repo lives under misofm/, the
     // Move package under misonetwork/, matching the GitHub orgs.
-    { package: "@local-pkg/miso_pressing", path: "../../misonetwork/miso-pressing/move" },
+    { package: "@local-pkg/miso_pressing", path: "../miso-pressing/move" },
   ],
 };
 
