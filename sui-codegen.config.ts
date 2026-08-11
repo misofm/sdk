@@ -16,7 +16,9 @@ const config: SuiCodegenConfig = {
   packages: [
     // The record production line: one uncapped run per release, plus a
     // `Listing<Currency>` per payment rail.
-    { package: "@local-pkg/miso_pressing", path: "../miso-pressing/move" },
+    // Path crosses org directories on disk: this repo lives under misofm/, the
+    // Move package under misonetwork/, matching the GitHub orgs.
+    { package: "@local-pkg/miso_pressing", path: "../../misonetwork/miso-pressing/move" },
   ],
 };
 
