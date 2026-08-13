@@ -1,7 +1,7 @@
 {
   "name": "@misofm/sdk",
   "version": "0.1.0",
-  "description": "Typed query helpers and transaction builders for the Miso platform layer on Sui — pressings, listings, and records.",
+  "description": "Typed query helpers and transaction builders for the Miso platform layer on Sui \u2014 pressings, listings, records, and opinionated work publishing.",
   "license": "Apache-2.0",
   "module": "src/index.ts",
   "types": "src/index.ts",
@@ -11,7 +11,12 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./pressing": "./src/pressing.ts",
-    "./transactions": "./src/transactions.ts"
+    "./transactions": "./src/transactions.ts",
+    "./execute": "./src/execute.ts",
+    "./share": "./src/share.ts",
+    "./share-template": "./src/share-template.ts",
+    "./release-graph": "./src/release-graph.ts",
+    "./catalog": "./src/catalog.ts"
   },
   "files": [
     "src",
@@ -20,15 +25,21 @@
   ],
   "scripts": {
     "codegen": "sui-codegen generate",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
-    "@mysten/codegen": "^0.10.6",
-    "@mysten/sui": "^2.17.0",
+    "@mysten/codegen": "^0.11.14",
+    "@mysten/move-bytecode-template": "^0.4.0",
+    "@mysten/sui": "^2.24.0",
     "@types/bun": "^1.3.14"
   },
   "peerDependencies": {
+    "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.4.0",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@misonetwork/sdk": "link:@misonetwork/sdk"
   }
 }

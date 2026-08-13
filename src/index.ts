@@ -21,4 +21,9 @@
 export { misoPlatform, MisoPlatformClient } from "./client.ts";
 export type { MisoPlatformConfig } from "./client.ts";
 export * from "./pressing.ts";
-export type { TxThunk } from "./transactions.ts";
+export * from "./transactions.ts";
+export * from "./execute.ts";
+export * from "./share.ts";
+export * from "./share-template.ts";
+export * from "./release-graph.ts";
+export * from "./catalog.ts";
