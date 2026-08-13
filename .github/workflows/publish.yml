@@ -36,6 +36,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
+      - name: Update npm
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -79,7 +83,12 @@ jobs:
             console.log(`Tarball: ${p.files.length} files, ${dist.length} under dist/`);
           '
 
+      # Trusted Publishing: npm exchanges this job's OIDC token for short-lived
+      # publish credentials, so there is no NPM_TOKEN to store, leak, or rotate,
+      # and no 2FA bypass. Provenance is attested automatically.
+      #
+      # Requires a one-time setup on npmjs.com per package: Settings ->
+      # Trusted Publisher -> GitHub Actions, naming this repo and the workflow
+      # file (publish.yml).
       - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
