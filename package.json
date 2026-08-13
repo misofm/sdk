@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed query helpers and transaction builders for the Miso platform layer on Sui \u2014 pressings, listings, records, and opinionated work publishing.",
   "license": "Apache-2.0",
   "repository": {
