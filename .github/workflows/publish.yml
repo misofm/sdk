@@ -1,0 +1,85 @@
+name: Publish to npm
+
+# Publishes on a version tag (v0.1.0, v0.2.0-rc.1, …), so a release is a
+# deliberate act rather than a side effect of merging. `workflow_dispatch` is
+# there for a manual re-run if a publish fails partway.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Required for npm provenance: npm exchanges this OIDC token for a signed
+  # attestation linking the tarball to this repo, commit, and workflow run.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bun for install/typecheck/test/build — it owns bun.lock, and this repo
+      # has no package-lock.json, so `npm ci` would fail. npm is still set up
+      # below, purely to run the publish (bun publish does not do provenance).
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Gate the publish on the same checks that run locally. A version cannot
+      # be republished once taken, so it is worth failing here.
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      # `prepack` builds dist/ during `npm publish` anyway, but running it
+      # explicitly makes a build failure legible as its own step.
+      - name: Build
+        run: bun run build
+
+      # Fail early and clearly if the tag does not match the version being
+      # published, rather than shipping something mislabelled.
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "Publishing version $PKG"
+
+      # Confirm the tarball actually contains the built output before it goes
+      # out — `files` and the build are easy to drift apart.
+      - name: Verify dist is in the tarball
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e '
+            const p = require("/tmp/pack.json")[0];
+            const dist = p.files.filter(f => f.path.startsWith("dist/"));
+            if (dist.length === 0) {
+              console.error("::error::Tarball contains no dist/ files");
+              process.exit(1);
+            }
+            console.log(`Tarball: ${p.files.length} files, ${dist.length} under dist/`);
+          '
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
