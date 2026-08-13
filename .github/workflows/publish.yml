@@ -95,10 +95,14 @@ jobs:
 
       # Trusted Publishing: npm exchanges this job's OIDC token for short-lived
       # publish credentials, so there is no NPM_TOKEN to store, leak, or rotate,
-      # and no 2FA bypass. Provenance is attested automatically.
+      # and no 2FA bypass.
+      #
+      # --provenance is passed explicitly. OIDC auth alone did NOT produce an
+      # attestation (verified on 0.2.1: dist.attestations was absent), so it is
+      # not implied by trusted publishing the way the setup docs suggest.
       #
       # Requires a one-time setup on npmjs.com per package: Settings ->
       # Trusted Publisher -> GitHub Actions, naming this repo and the workflow
       # file (publish.yml).
       - name: Publish
-        run: npm publish --access public
+        run: npm publish --provenance --access public

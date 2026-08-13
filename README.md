@@ -231,33 +231,18 @@ copies of a Mysten package" situation the peer-dependency guidance targets.
 `@mysten/sui` itself stays a peer dependency here, same as in
 `@misonetwork/sdk`.
 
-Both packages are separate private GitHub repos, not a monorepo/workspace, and
-`@misonetwork/sdk` is not published yet. Local development links the two with
-Bun's link protocol:
+`@misonetwork/sdk` is installed from npm like any other dependency — no local
+linking, no workspace, no build step on the consumer side. It ships compiled
+output plus declarations, so this package resolves it the same way a third
+party would.
 
 ```bash
-# once, in the misonetwork/sdk checkout — registers it globally
-cd ../../misonetwork/sdk && bun link
-
-# then here
-bun link @misonetwork/sdk
+bun install
 ```
 
-`package.json` records this as `"@misonetwork/sdk": "link:@misonetwork/sdk"`.
-When the package is published, that becomes a normal version range and the
-`bun link` step goes away.
-
-**Why `link:` and not `file:`.** `@misonetwork/sdk` publishes built output from
-`dist/`, which is gitignored. Bun's `file:` protocol COPIES the dependency and
-honours `.gitignore` while doing so, so the copy arrives with an empty `dist/`
-and every import fails to resolve. `link:` symlinks instead, so the built output
-is visible and a rebuild in `misonetwork/sdk` is picked up immediately with no
-reinstall. `@misonetwork/sdk` also runs its build from a `prepare` script, so a
-fresh install of it produces `dist/` without anyone having to know to run the
-build.
-
-A symlink additionally means both packages resolve a single physical
-`@mysten/sui`, which matters: TypeScript brands `Transaction` with private
-fields, so two physically distinct copies produce two incompatible types and
-every thunk crossing the package boundary fails to typecheck. Keep the two
-repos' `@mysten/sui` versions in lockstep.
+If you are changing both packages at once, `bun link` still works for a local
+loop — register the protocol SDK with `bun link` in its checkout, `bun link
+@misonetwork/sdk` here, and remember to put the version range back before
+committing. Note that `file:` does NOT work for this: Bun copies a `file:`
+dependency while honouring `.gitignore`, and `@misonetwork/sdk` builds to a
+gitignored `dist/`, so the copy arrives empty and nothing resolves.

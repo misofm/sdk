@@ -3,30 +3,83 @@
   "version": "0.1.0",
   "description": "Typed query helpers and transaction builders for the Miso platform layer on Sui \u2014 pressings, listings, records, and opinionated work publishing.",
   "license": "Apache-2.0",
-  "module": "src/index.ts",
-  "types": "src/index.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/misofm/sdk.git"
+  },
+  "homepage": "https://github.com/misofm/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/misofm/sdk/issues"
+  },
+  "keywords": [
+    "sui",
+    "move",
+    "miso",
+    "music",
+    "blockchain",
+    "sdk",
+    "pressing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
-    "./client": "./src/client.ts",
-    "./pressing": "./src/pressing.ts",
-    "./transactions": "./src/transactions.ts",
-    "./execute": "./src/execute.ts",
-    "./share": "./src/share.ts",
-    "./share-template": "./src/share-template.ts",
-    "./release-graph": "./src/release-graph.ts",
-    "./catalog": "./src/catalog.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./pressing": {
+      "types": "./dist/pressing.d.ts",
+      "default": "./dist/pressing.js"
+    },
+    "./transactions": {
+      "types": "./dist/transactions.d.ts",
+      "default": "./dist/transactions.js"
+    },
+    "./execute": {
+      "types": "./dist/execute.d.ts",
+      "default": "./dist/execute.js"
+    },
+    "./share": {
+      "types": "./dist/share.d.ts",
+      "default": "./dist/share.js"
+    },
+    "./share-template": {
+      "types": "./dist/share-template.d.ts",
+      "default": "./dist/share-template.js"
+    },
+    "./release-graph": {
+      "types": "./dist/release-graph.d.ts",
+      "default": "./dist/release-graph.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "default": "./dist/catalog.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
+    "dist",
     "src",
     "README.md",
+    "LICENSE",
     "package.json"
   ],
   "scripts": {
     "codegen": "sui-codegen generate",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json"
   },
   "devDependencies": {
     "@mysten/codegen": "^0.11.14",
@@ -40,6 +93,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@misonetwork/sdk": "link:@misonetwork/sdk"
-  }
+    "@misonetwork/sdk": "^0.2.2"
+  },
+  "main": "./dist/index.js"
 }
