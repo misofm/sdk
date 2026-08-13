@@ -78,19 +78,20 @@ jobs:
         run: echo "Manual run — publishing version $(node -p "require('./package.json').version")"
 
       # Confirm the tarball actually contains the built output before it goes
-      # out — `files` and the build are easy to drift apart.
+      # out — `files` and the build are easy to drift apart. Greps the plain
+      # text listing rather than parsing `--json`, whose schema differs across
+      # npm majors (this step previously broke on the CI-installed npm@latest
+      # while passing locally).
       - name: Verify dist is in the tarball
         run: |
-          npm pack --dry-run --json > /tmp/pack.json
-          node -e '
-            const p = require("/tmp/pack.json")[0];
-            const dist = p.files.filter(f => f.path.startsWith("dist/"));
-            if (dist.length === 0) {
-              console.error("::error::Tarball contains no dist/ files");
-              process.exit(1);
-            }
-            console.log(`Tarball: ${p.files.length} files, ${dist.length} under dist/`);
-          '
+          npm pack --dry-run > /tmp/pack.txt 2>&1
+          COUNT="$(grep -c 'dist/' /tmp/pack.txt || true)"
+          if [ "${COUNT:-0}" -eq 0 ]; then
+            echo "::error::Tarball contains no dist/ files"
+            cat /tmp/pack.txt
+            exit 1
+          fi
+          echo "Tarball contains $COUNT dist/ entries"
 
       # Trusted Publishing: npm exchanges this job's OIDC token for short-lived
       # publish credentials, so there is no NPM_TOKEN to store, leak, or rotate,
