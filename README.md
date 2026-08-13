@@ -1,7 +1,9 @@
 # @misofm/sdk
 
 Typed reads and transaction builders for the **Miso platform layer** on Sui: the
-record production line and the sale of copies off it.
+record production line and the sale of copies off it, plus the opinionated
+publish flow (share economics, minato dispersal, whole-graph orchestration)
+built on top of `@misonetwork/sdk`'s bare protocol primitives.
 
 ## The split
 
@@ -10,12 +12,21 @@ holding:
 
 | Scope | Layer | Owns |
 | --- | --- | --- |
-| `@misonetwork/*` | **Protocol** | Composition, Recording, Release — the permissionless layer anyone can build on |
-| `@misofm/*` | **Platform** | Pressing, Listing, Record — how Miso sells copies of a release |
+| `@misonetwork/*` | **Protocol** | Composition, Recording, Release as bare primitives — mint a work, don't disperse/publish/transfer it. The permissionless layer anyone can build on |
+| `@misofm/*` | **Platform** | Pressing, Listing, Record (how Miso sells copies of a release) — plus the opinionated finish for publishing works: disperse share supply via minato, publish (share), transfer the admin cap, provision share currencies, and orchestrate a whole release graph in one PTB |
 
 A release is protocol. Pressing a record off that release and selling it is
-platform. Keeping the boundary at the package line is what stops the open protocol
-from quietly growing a storefront.
+platform. So is deciding *what to do* with a freshly-minted work's share
+supply — the protocol only knows how to mint one. Keeping the boundary at the
+package line is what stops the open protocol from quietly growing a
+storefront (or an opinion about tokenomics).
+
+This package depends on `@misonetwork/sdk` and imports its bare
+`createComposition`/`createRecording` primitives, composing them with its own
+minato-dispersal and share-currency logic in the same PTB — the
+transaction-thunk composition pattern from the
+[Sui SDK building guide](https://sdk.mystenlabs.com/sui/sdk-building), just
+crossing a package boundary.
 
 ## The model
 
@@ -89,14 +100,110 @@ Purchases through Miso are sponsored, so `useGasCoin` defaults to `false`: the g
 belongs to the sponsor, and drawing a SUI payment out of it would spend the wrong
 wallet's money.
 
+## Publishing (`transactions.ts`, `share.ts`, `release-graph.ts`)
+
+`@misonetwork/sdk`'s `createComposition`/`createRecording` mint a work and hand
+back its by-value parts (the object, its admin cap, its freshly-minted share
+`Balance`) without dispersing, sharing, or transferring anything. This package
+supplies the opinionated finish on top:
+
+```ts
+import { misoPlatform } from "@misofm/sdk";
+
+const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
+  misoPlatform({
+    packageId: MISO_PRESSING_PACKAGE_ID,
+    misoPackageId: MISO_PROTOCOL_PACKAGE_ID,   // required for publish builders
+    minatoPackageId: MINATO_PACKAGE_ID,        // required — they disperse shares via minato
+  }),
+);
+
+// Mints the composition's share supply, disperses it to shareRecipients via
+// minato, publishes (shares) the composition, and transfers the
+// CompositionAdminCap to adminAddress — createComposition → finalizeComposition
+// in one PTB.
+const thunk = client.misoPlatform.tx.publishComposition({
+  title: "Song Title",
+  royaltyRateBps: 1000,
+  shareType: "0x...::share::Share",
+  shareCurrencyId: "0x...",
+  shareTreasuryCapId: "0x...",
+  shareRecipients: [{ address: ownerAddress, value: 10_000_000_000_000 }],
+  adminAddress: ownerAddress,
+});
+```
+
+`client.misoPlatform.tx.publishRecording` and `publishCompositionAndRecording`
+follow the same shape (the latter atomically, borrow-before-share, in one PTB —
+see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
+`misoPackageId`/`minatoPackageId` are optional on the client — a sell-only
+client (e.g. a storefront that never mints new works) can omit them; the
+publish builders throw at call time, not at client construction, if they're
+missing.
+
+For custom PTBs, the bare primitives (`disperseShares`, `finalizeComposition`,
+`finalizeRecording`) and the whole-graph orchestrator are exported standalone:
+
+```ts
+import { publishReleaseGraph } from "@misofm/sdk";
+
+// Every composition and recording, optional royalty pools, deals/tracks, and
+// the release — with the release id derived ON-CHAIN — in one atomic PTB.
+const thunk = publishReleaseGraph({
+  compositions: [{ shareType, shareCurrencyId, shareTreasuryCapId, title: "Song", royaltyRateBps: 1000, shareRecipients, adminAddress }],
+  recordings: [{ shareType, shareCurrencyId, shareTreasuryCapId, compositionShareType, parentCompositionIndex: 0, shareRecipients, adminAddress }],
+  release: {
+    title: "Album",
+    nonce: "42",
+    adminAddress,
+    releaseRegistryId: "0x...",
+    tracks: [{ recordingIndex: 0, splitBps: 10000 }],
+  },
+  misoPackageId: "0x...",
+  minatoPackageId: "0x...",
+});
+```
+
+### Share Currency Provisioning (`share.ts`)
+
+Every composition and recording is backed by its own fixed-supply share
+currency: an independently published `share` package (bytecode template
+embedded as `SHARE_TEMPLATE`, initializer patched via `patchInitializer`).
+Publish and initialize are necessarily two transactions:
+
+```ts
+// Sequential (one currency, two txs):
+const currency = await client.misoPlatform.createShareCurrency(signer, {
+  name: "Song Shares",
+  description: "…",
+});
+// → { packageId, currencyId, shareType, treasuryCapId, gasUsed }
+
+// Batched (many currencies, via a ParallelTransactionExecutor):
+import { publishShareCurrencies, initializeShareCurrencies } from "@misofm/sdk";
+const { packageIds } = await publishShareCurrencies(executor, initializerAddress, 10);
+const { currencies } = await initializeShareCurrencies(executor, signerAddress, packageIds, (pkg) => ({
+  name: "…", description: "…",
+}));
+```
+
+`executeViaExecutor(executor, ...thunks)` (`execute.ts`) submits a
+non-idempotent PTB through a `ParallelTransactionExecutor` exactly once (no
+auto-retry) — it's what the batched provisioning above builds on, layered over
+`@misonetwork/sdk`'s transport-agnostic `buildTx`/`toExecResult`.
+
 ## Layout
 
 ```
 src/
-  client.ts              the client extension — misoPlatform({ packageId, settingsId })
+  client.ts              the client extension — misoPlatform({ packageId, settingsId, misoPackageId?, minatoPackageId? })
   pressing.ts            facade: builders, readers, and the id derivations
   queries.ts             shared read plumbing (isNotFound)
-  transactions.ts        the TxThunk contract
+  transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
+  release-graph.ts        whole release graph in one PTB (publishReleaseGraph)
+  share.ts               share-currency provisioning (createShareCurrency, batched variants)
+  share-template.ts      embedded `share` package bytecode
+  execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult
   contracts/             GENERATED — do not edit by hand
 ```
 
@@ -109,6 +216,48 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists **platform packages only**. Protocol packages generate
-into `@misonetwork/miso-protocol`; adding one here to save an import is how the split
-this package exists to enforce gets undone.
+`sui-codegen.config.ts` lists **platform packages only** (currently just
+`miso_pressing`). Protocol packages (`miso`/composition/recording/release and
+its extensions) generate into `@misonetwork/sdk` instead, which this package
+depends on for their typed bindings — adding a protocol package here to save
+an import is how the split this package exists to enforce gets undone.
+
+## Dependency on `@misonetwork/sdk`
+
+`@misonetwork/sdk` is a `dependencies` entry (not a peer) — this package
+imports its bare primitives and types directly, rather than registering it as
+a second client extension via `$extend`, so it isn't the "avoid bundling two
+copies of a Mysten package" situation the peer-dependency guidance targets.
+`@mysten/sui` itself stays a peer dependency here, same as in
+`@misonetwork/sdk`.
+
+Both packages are separate private GitHub repos, not a monorepo/workspace, and
+`@misonetwork/sdk` is not published yet. Local development links the two with
+Bun's link protocol:
+
+```bash
+# once, in the misonetwork/sdk checkout — registers it globally
+cd ../../misonetwork/sdk && bun link
+
+# then here
+bun link @misonetwork/sdk
+```
+
+`package.json` records this as `"@misonetwork/sdk": "link:@misonetwork/sdk"`.
+When the package is published, that becomes a normal version range and the
+`bun link` step goes away.
+
+**Why `link:` and not `file:`.** `@misonetwork/sdk` publishes built output from
+`dist/`, which is gitignored. Bun's `file:` protocol COPIES the dependency and
+honours `.gitignore` while doing so, so the copy arrives with an empty `dist/`
+and every import fails to resolve. `link:` symlinks instead, so the built output
+is visible and a rebuild in `misonetwork/sdk` is picked up immediately with no
+reinstall. `@misonetwork/sdk` also runs its build from a `prepare` script, so a
+fresh install of it produces `dist/` without anyone having to know to run the
+build.
+
+A symlink additionally means both packages resolve a single physical
+`@mysten/sui`, which matters: TypeScript brands `Transaction` with private
+fields, so two physically distinct copies produce two incompatible types and
+every thunk crossing the package boundary fails to typecheck. Keep the two
+repos' `@mysten/sui` versions in lockstep.

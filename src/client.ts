@@ -27,6 +27,7 @@
 // definitions, `ids` is the address math that replaces a registry.
 
 import type { ClientWithCoreApi } from "@mysten/sui/client";
+import type { Signer } from "@mysten/sui/cryptography";
 
 import * as listingContract from "./contracts/miso_pressing/listing.ts";
 import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
@@ -56,7 +57,20 @@ import type {
   SetListingStateParams,
   SetPressingStateParams,
 } from "./pressing.ts";
-import type { TxThunk } from "./transactions.ts";
+import {
+  publishShareCurrency,
+  initializeShareCurrency,
+  publishComposition,
+  publishRecording,
+  publishCompositionAndRecording,
+} from "./transactions.ts";
+import type {
+  TxThunk,
+  PublishCompositionParams,
+  PublishRecordingParams,
+  PublishCompositionAndRecordingParams,
+} from "./transactions.ts";
+import * as share from "./share.ts";
 
 export interface MisoPlatformConfig {
   /** The published `miso_pressing` package. */
@@ -66,10 +80,26 @@ export interface MisoPlatformConfig {
    * `MintWitness`. Required to buy; optional if this client only ever reads.
    */
   settingsId?: string;
+  /**
+   * The `@misonetwork/sdk` protocol package (miso core). Required for the
+   * publish builders (`publishComposition`, `publishRecording`,
+   * `publishCompositionAndRecording`) — optional if this client only ever
+   * sells pressed records.
+   */
+  misoPackageId?: string;
+  /**
+   * The minato share-disperse package. Bound into the publish builders so
+   * callers don't repeat it; required alongside `misoPackageId` for the same
+   * builders (they disperse shares via minato).
+   */
+  minatoPackageId?: string;
 }
 
 /** Params with the ids this client already knows dropped from the call site. */
 type Configured<T> = Omit<T, "misoPressingPackageId" | "settingsId">;
+
+/** Publish-builder params with the protocol/minato ids this client already knows dropped. */
+type ConfiguredPublish<T> = Omit<T, "misoPackageId" | "minatoPackageId">;
 
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
@@ -92,6 +122,28 @@ export class MisoPlatformClient {
       );
     }
     return settingsId;
+  }
+
+  #misoPackageId(): string {
+    const { misoPackageId } = this.#config;
+    if (!misoPackageId) {
+      throw new Error(
+        "misoPlatform: `misoPackageId` is required for the publish builders " +
+          "(publishComposition, publishRecording, publishCompositionAndRecording) — pass it to misoPlatform({ misoPackageId }).",
+      );
+    }
+    return misoPackageId;
+  }
+
+  #minatoPackageId(): string {
+    const { minatoPackageId } = this.#config;
+    if (!minatoPackageId) {
+      throw new Error(
+        "misoPlatform: `minatoPackageId` is required for the publish builders that disperse shares " +
+          "(publishComposition, publishRecording, publishCompositionAndRecording) — pass it to misoPlatform({ minatoPackageId }).",
+      );
+    }
+    return minatoPackageId;
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
@@ -145,7 +197,28 @@ export class MisoPlatformClient {
       setListingState({ ...p, misoPressingPackageId: this.packageId }),
     setPressingState: (p: Configured<SetPressingStateParams>): TxThunk =>
       setPressingState({ ...p, misoPressingPackageId: this.packageId }),
+
+    // Publishing (protocol works + minato share economics) — package-id-free
+    // builders pass through unchanged; the rest bind this client's
+    // `misoPackageId`/`minatoPackageId`, throwing at call time if either is
+    // missing (kept optional on the client so a sell-only client, e.g. a
+    // storefront that never mints new works, doesn't need to carry them).
+    publishShareCurrency,
+    initializeShareCurrency,
+    publishComposition: (p: ConfiguredPublish<PublishCompositionParams>): TxThunk =>
+      publishComposition({ ...p, misoPackageId: this.#misoPackageId(), minatoPackageId: this.#minatoPackageId() }),
+    publishRecording: (p: ConfiguredPublish<PublishRecordingParams>): TxThunk =>
+      publishRecording({ ...p, misoPackageId: this.#misoPackageId(), minatoPackageId: this.#minatoPackageId() }),
+    publishCompositionAndRecording: (p: ConfiguredPublish<PublishCompositionAndRecordingParams>): TxThunk =>
+      publishCompositionAndRecording({ ...p, misoPackageId: this.#misoPackageId(), minatoPackageId: this.#minatoPackageId() }),
   };
+
+  // ── Share currency provisioning (executes; Signer pattern) ─────────────────
+
+  /** Publishes + initializes a fresh share currency (two txs). */
+  async createShareCurrency(signer: Signer, params: share.CreateShareCurrencyParams): Promise<share.ShareCurrency> {
+    return share.createShareCurrency(this.#client, signer, params);
+  }
 
   // ── Generated layer ───────────────────────────────────────────────────────
 
