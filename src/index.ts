@@ -8,13 +8,20 @@
 //
 //   @misonetwork/*  PROTOCOL — Composition, Recording, Release. The open layer
 //                   anyone can build on, and nobody needs Miso's permission to use.
-//   @misofm/*       PLATFORM — Pressing, Listing, Record. How MISO sells copies of
-//                   a release: the production line, its currencies, and the record
-//                   a buyer walks away with.
+//   @misofm/*       PLATFORM — Pressing, Listing, Record, and the first-party
+//                   EXTENSIONS. How MISO sells copies of a release, and the
+//                   opinions it attaches to a work along the way.
 //
 // A release is protocol. Pressing a record off it and selling that record is
 // platform. Keeping the split at the package boundary is what stops the protocol
 // from quietly growing a storefront.
+//
+// Extensions live on this side of the line for the same reason. An extension is
+// not part of what a Composition or Recording IS — it is a choice Miso makes
+// about how to describe one (who gets credited and in what vocabulary, what the
+// cover looks like, whether royalties accumulate in a pool). The protocol gives
+// extensions a `&mut UID` hook and stops there; every opinion about what to hang
+// off it is business logic, and business logic ships from the platform package.
 
 // The recommended entry point is the client extension (see ./client.ts); the bare
 // builders and readers stay exported for callers that hold ids themselves.
@@ -27,3 +34,12 @@ export * from "./share.ts";
 export * from "./share-template.ts";
 export * from "./release-graph.ts";
 export * from "./catalog.ts";
+
+// First-party extensions — attached to a protocol work via its cap-gated
+// `uid_mut` hook.
+export * from "./credits.ts";
+export * from "./cover.ts";
+export * from "./extensions/royalty-pool.ts";
+
+// Generated, ABI-bound bindings (BCS structs + type-safe Move calls).
+export * as contracts from "./contracts.ts";

@@ -1,9 +1,10 @@
 # @misofm/sdk
 
 Typed reads and transaction builders for the **Miso platform layer** on Sui: the
-record production line and the sale of copies off it, plus the opinionated
-publish flow (share economics, minato dispersal, whole-graph orchestration)
-built on top of `@misonetwork/sdk`'s bare protocol primitives.
+record production line and the sale of copies off it, the first-party protocol
+extensions (credits, cover art, royalty pools), and the opinionated publish flow
+(share economics, minato dispersal, whole-graph orchestration) built on top of
+`@misonetwork/sdk`'s bare protocol primitives.
 
 ## The split
 
@@ -13,13 +14,22 @@ holding:
 | Scope | Layer | Owns |
 | --- | --- | --- |
 | `@misonetwork/*` | **Protocol** | Composition, Recording, Release as bare primitives — mint a work, don't disperse/publish/transfer it. The permissionless layer anyone can build on |
-| `@misofm/*` | **Platform** | Pressing, Listing, Record (how Miso sells copies of a release) — plus the opinionated finish for publishing works: disperse share supply via minato, publish (share), transfer the admin cap, provision share currencies, and orchestrate a whole release graph in one PTB |
+| `@misofm/*` | **Platform** | Pressing, Listing, Record (how Miso sells copies of a release) — the first-party extensions (credits, cover art, royalty pools) — plus the opinionated finish for publishing works: disperse share supply via minato, publish (share), transfer the admin cap, provision share currencies, and orchestrate a whole release graph in one PTB |
 
 A release is protocol. Pressing a record off that release and selling it is
 platform. So is deciding *what to do* with a freshly-minted work's share
 supply — the protocol only knows how to mint one. Keeping the boundary at the
 package line is what stops the open protocol from quietly growing a
 storefront (or an opinion about tokenomics).
+
+**Extensions are platform too.** An extension is not part of what a Composition
+or Recording *is* — it is a choice about how to describe one: which credit roles
+exist and what they are called, what counts as a cover, whether royalties
+accumulate in a pool. The protocol offers a cap-gated `&mut UID` hook and takes
+no position on what hangs off it; every module that *does* take a position is
+business logic, and ships from here. (They lived in `@misonetwork/sdk` through
+its 0.2.x line; `@misonetwork/sdk` 0.3.0 dropped them and `@misofm/sdk` 0.2.0
+picked them up, with signatures unchanged — only the import specifier moves.)
 
 This package depends on `@misonetwork/sdk` and imports its bare
 `createComposition`/`createRecording` primitives, composing them with its own
@@ -192,18 +202,130 @@ non-idempotent PTB through a `ParallelTransactionExecutor` exactly once (no
 auto-retry) — it's what the batched provisioning above builds on, layered over
 `@misonetwork/sdk`'s transport-agnostic `buildTx`/`toExecResult`.
 
+## Extensions
+
+An extension attaches data to a protocol work through that work's cap-gated
+`uid_mut` hook. The work stays a protocol object; the opinion hanging off it is
+ours.
+
+### Credits (`credits.ts`)
+
+Contributor credits pair a party with a display name and one or more
+domain-specific roles, attached to a work as a dynamic field and gated by the
+work's admin cap. Three role vocabularies:
+
+- **Composition** (writing, 1–5 roles, no level): `Adapter`, `Arranger`, `Composer`, `Lyricist`, `Songwriter`, `Translator`, or `{ type: "Custom", name }`.
+- **Recording** (production/performance, 1–10 roles): 28 leveled roles (`Producer`, `Vocalist`, `Engineer`, …) each with an optional seniority `level` (`Lead`, `Featured`, `Executive`, …), plus `{ type: "Instrumentalist", instrument, level? }`, `{ type: "Custom", name, level? }`, and the unleveled `ArtistsAndRepertoire` / `Copyist`.
+- **Release** (top-line billing, exactly one role): `"Primary"` or `"Featured"`.
+
+Writers validate client-side, mirroring the Move aborts: display name
+non-empty and ≤200 UTF-8 bytes; role counts within the caps above; no
+duplicate roles.
+
+```ts
+import {
+  attachCompositionCredit, attachRecordingCredit, addReleaseCredit,
+  addRecordingPrimaryArtist, addRecordingFeaturedArtist,
+  getCompositionCredits, getRecordingCredits, getReleaseCredits,
+} from "@misofm/sdk";
+
+const thunk = attachRecordingCredit({
+  recordingId: "0x...",
+  recordingAdminCapId: "0x...",
+  partyId: "0x...",
+  displayName: "Jane Doe",
+  roles: [{ type: "Vocalist", level: "Lead" }, { type: "Instrumentalist", instrument: "Guitar" }],
+  recordingShareType: "0x...::share::Share",
+  compositionShareType: "0x...::share::Share",
+  recordingCreditsPackageId: "0x...",
+  misoCreditPackageId: "0x...",
+});
+
+// Designate an already-credited party (same params minus displayName/roles/misoCreditPackageId):
+addRecordingPrimaryArtist({ recordingId, recordingAdminCapId, partyId, recordingShareType, compositionShareType, recordingCreditsPackageId });
+
+// Reads return null when no credits field is attached.
+const credits = await getCompositionCredits(client, compositionId, compositionCreditsPackageId);
+// CreditView[]: { partyId, displayName, roles: string[] } — e.g. "Producer (Lead)", "Instrumentalist: Guitar"
+const rc = await getRecordingCredits(client, recordingId, recordingCreditsPackageId);
+// { credits: CreditView[], primaryArtistIds: string[], featuredArtistIds: string[] }
+```
+
+`attachCompositionCredit` takes `compositionId`/`compositionAdminCapId`/`compositionShareType`/`compositionCreditsPackageId`;
+`addReleaseCredit` takes `releaseId`/`releaseAdminCapId` and a single `role`.
+
+A recording is `Recording<RecordingShare, CompositionShare>` — the recording's
+OWN share type comes first, its parent composition's second. The recording
+writers take both as separate named params for that reason; passing them in the
+wrong order still typechecks (both are `string`) and resolves to the wrong
+on-chain type.
+
+### Cover art (`cover.ts`)
+
+A release's cover is a Walrus blob referenced on-chain via `ori::WalrusData`,
+attached under the `release_cover_art` extension:
+
+```ts
+import { setReleaseCover, getReleaseCover } from "@misofm/sdk";
+
+const thunk = setReleaseCover({
+  releaseId: "0x...",
+  releaseAdminCapId: "0x...",
+  stillBlobId: "987654321",   // Walrus blob id as u256 (decimal string or bigint)
+  animatedBlobId: null,        // optional animated cover
+  coverArtPackageId: "0x...",
+  releaseCoverArtPackageId: "0x...",
+  oriPackageId: "0x...",
+});
+
+const cover = await getReleaseCover(client, releaseId, releaseCoverArtPackageId);
+// ReleaseCoverView | null: { still, animated } as normalized Walrus refs
+// ({ kind: "blob", blobId } | { kind: "quiltPatch", quiltId, version, startIndex, endIndex })
+```
+
+### Royalty pools (`extensions/royalty-pool.ts`)
+
+`attachCompositionRoyaltyPool(tx, params)` / `attachRecordingRoyaltyPool(tx, params)`
+create and share a `RoyaltyPool<Share, Currency>` for a work inside its publish
+PTB — after `@misonetwork/sdk`'s `createComposition`/`createRecording`, before
+this package's opinionated finish. `publishReleaseGraph` accepts them as
+`royaltyPool` nodes and does the sequencing for you.
+
+### Extension types
+
+```ts
+import type {
+  CreditView, RecordingCreditsView,
+  CompositionRole, RecordingRole, RecordingRoleLevel, RecordingLeveledRoleType,
+  ReleaseRole,
+  ReleaseCoverView, CoverImageRef,
+} from "@misofm/sdk";
+```
+
+`RecordingLeveledRoleType` is the union of the 28 recording role base names that
+carry an optional `RecordingRoleLevel` (`Producer`, `Vocalist`, `Engineer`,
+`Conductor`, …) — the leveled arm of `RecordingRole`. The other arms
+(`Instrumentalist`, `Custom`, and the unleveled `ArtistsAndRepertoire` /
+`Copyist`) are spelled out separately in `RecordingRole`.
+
 ## Layout
 
 ```
 src/
   client.ts              the client extension — misoPlatform({ packageId, settingsId, misoPackageId?, minatoPackageId? })
   pressing.ts            facade: builders, readers, and the id derivations
-  queries.ts             shared read plumbing (isNotFound)
+  queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
   transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
   release-graph.ts        whole release graph in one PTB (publishReleaseGraph)
   share.ts               share-currency provisioning (createShareCurrency, batched variants)
   share-template.ts      embedded `share` package bytecode
+  credits.ts             EXTENSION: contributor credits + the three role vocabularies
+  cover.ts               EXTENSION: release cover art (Walrus blob via ori)
+  extensions/
+    royalty-pool.ts      EXTENSION: create + share a RoyaltyPool<Share, Currency>
   execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult
+  internal.ts            private helpers (the 0x1::option moveCall targets) — NOT exported
+  contracts.ts           barrel re-exporting the generated bindings as `contracts`
   contracts/             GENERATED — do not edit by hand
 ```
 
@@ -216,11 +338,17 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists **platform packages only** (currently just
-`miso_pressing`). Protocol packages (`miso`/composition/recording/release and
-its extensions) generate into `@misonetwork/sdk` instead, which this package
-depends on for their typed bindings — adding a protocol package here to save
-an import is how the split this package exists to enforce gets undone.
+`sui-codegen.config.ts` lists the **platform** package (`miso_pressing`) and the
+first-party **extension** packages (`royalty_pool`, `composition_royalty_pool`,
+`recording_royalty_pool`, `cover_art`, `release_cover_art`,
+`composition_credits`, `recording_credits`, `release_credits`). The protocol
+CORE (`miso` — composition/recording/release/deal/track) generates into
+`@misonetwork/sdk` instead, which this package depends on for those bindings —
+adding the core here to save an import is how the split this package exists to
+enforce gets undone.
+
+Paths resolve against sibling checkouts, so regenerating requires
+`~/Documents/GitHub/misofm/{sdk, pressing, protocol-extensions}`.
 
 ## Dependency on `@misonetwork/sdk`
 

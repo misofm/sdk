@@ -22,18 +22,13 @@
 //
 // This is the whole-graph orchestration half of the opinionated publish flow —
 // it composes `@misonetwork/sdk`'s bare `composition`/`recording`/`deal`/`track`/
-// `release` call bindings, its `createRelease` primitive and
-// `attachCompositionRoyaltyPool`/`attachRecordingRoyaltyPool`, plus this
-// package's own `disperseShares`/`finalizeRelease`, into one PTB.
+// `release` call bindings and its `createRelease` primitive with this package's
+// own `disperseShares`/`finalizeRelease` and royalty-pool extension helpers, into
+// one PTB.
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
-import {
-  contracts,
-  attachCompositionRoyaltyPool,
-  attachRecordingRoyaltyPool,
-  createRelease,
-  PROTOCOL_MAX_ROYALTY_RATE_BPS,
-} from "@misonetwork/sdk";
+import { contracts, createRelease, PROTOCOL_MAX_ROYALTY_RATE_BPS } from "@misonetwork/sdk";
+import { attachCompositionRoyaltyPool, attachRecordingRoyaltyPool } from "./extensions/royalty-pool.ts";
 import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
 
 const { composition, recording, deal, track, release } = contracts;
