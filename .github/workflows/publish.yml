@@ -58,7 +58,10 @@ jobs:
 
       # Fail early and clearly if the tag does not match the version being
       # published, rather than shipping something mislabelled.
+      # Only meaningful for a tag push — on workflow_dispatch GITHUB_REF_NAME is
+      # the branch, which would never match a version.
       - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG="$(node -p "require('./package.json').version")"
@@ -67,6 +70,12 @@ jobs:
             exit 1
           fi
           echo "Publishing version $PKG"
+
+      # A dispatch run has no tag to check against, so state plainly which
+      # version is about to go out.
+      - name: Report version (manual run)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: echo "Manual run — publishing version $(node -p "require('./package.json').version")"
 
       # Confirm the tarball actually contains the built output before it goes
       # out — `files` and the build are easy to drift apart.
