@@ -19,7 +19,6 @@ import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
-import { isNotFound } from "./queries.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
 
@@ -45,15 +44,27 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
     const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
     const blob = (id: bigint | string) =>
-      tx.moveCall({ target: `${p.oriPackageId}::walrus_data::new_blob`, arguments: [tx.pure.u256(id)] });
+      tx.moveCall({
+        target: `${p.oriPackageId}::walrus_data::new_blob`,
+        arguments: [tx.pure.u256(id)],
+      });
 
     const still = blob(p.stillBlobId);
     const animated =
       p.animatedBlobId == null
         ? tx.moveCall({ target: OPTION_NONE, typeArguments: [walrusType] })
-        : tx.moveCall({ target: OPTION_SOME, typeArguments: [walrusType], arguments: [blob(p.animatedBlobId)] });
+        : tx.moveCall({
+            target: OPTION_SOME,
+            typeArguments: [walrusType],
+            arguments: [blob(p.animatedBlobId)],
+          });
 
-    const cover = tx.add(coverArt._new({ package: p.coverArtPackageId, arguments: [still, animated] }));
+    const cover = tx.add(
+      coverArt._new({
+        package: p.coverArtPackageId,
+        arguments: [still, animated],
+      }),
+    );
     tx.add(
       releaseCoverArt.setCover({
         package: p.releaseCoverArtPackageId,
@@ -72,7 +83,13 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
  */
 export type CoverImageRef =
   | { kind: "blob"; blobId: string }
-  | { kind: "quiltPatch"; quiltId: string; version: number; startIndex: number; endIndex: number };
+  | {
+      kind: "quiltPatch";
+      quiltId: string;
+      version: number;
+      startIndex: number;
+      endIndex: number;
+    };
 
 /** A release's album-level cover: a still image and an optional animation. */
 export interface ReleaseCoverView {
@@ -88,17 +105,28 @@ const CoverArtField = bcs.struct("Field", {
   name: releaseCoverArt.ExtensionKey,
   value: releaseCoverArt.ReleaseCoverArt,
 });
-const COVER_ART_KEY_BYTES = releaseCoverArt.ExtensionKey.serialize([false]).toBytes();
+const COVER_ART_KEY_BYTES = releaseCoverArt.ExtensionKey.serialize([
+  false,
+]).toBytes();
 
 /** A parsed `ori::WalrusData` value (a MoveEnum: `Blob` or `QuiltPatch`). */
 type ParsedWalrusData =
   | { $kind: "Blob"; Blob: [string | number | bigint, unknown] }
-  | { $kind: "QuiltPatch"; QuiltPatch: [string | number | bigint, number, number, number] };
+  | {
+      $kind: "QuiltPatch";
+      QuiltPatch: [string | number | bigint, number, number, number];
+    };
 
 function toCoverImageRef(wd: ParsedWalrusData): CoverImageRef {
   if (wd.$kind === "Blob") return { kind: "blob", blobId: String(wd.Blob[0]) };
   const [quiltId, version, startIndex, endIndex] = wd.QuiltPatch;
-  return { kind: "quiltPatch", quiltId: String(quiltId), version, startIndex, endIndex };
+  return {
+    kind: "quiltPatch",
+    quiltId: String(quiltId),
+    version,
+    startIndex,
+    endIndex,
+  };
 }
 
 /**
@@ -112,29 +140,82 @@ export async function getReleaseCover(
   releaseId: string,
   releaseCoverArtPackageId: string,
 ): Promise<ReleaseCoverView | null> {
-  const fieldId = deriveDynamicFieldID(
-    releaseId,
-    `${releaseCoverArtPackageId}::release_cover_art::ExtensionKey`,
-    COVER_ART_KEY_BYTES,
+  return (
+    (
+      await getReleaseCoversByIds(
+        client,
+        [releaseId],
+        [releaseCoverArtPackageId],
+      )
+    )[releaseId] ?? null
   );
+}
 
-  let content: Uint8Array | null;
-  try {
-    const { object } = await client.core.getObject({ objectId: fieldId, include: { content: true } });
-    content = object?.content ?? null;
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
-  if (!content) return null;
-
-  const cover = CoverArtField.parse(content).value.cover as
-    | { still: ParsedWalrusData; animated: ParsedWalrusData | null }
-    | null;
+export function parseReleaseCoverContent(
+  content: Uint8Array,
+): ReleaseCoverView | null {
+  const cover = CoverArtField.parse(content).value.cover as {
+    still: ParsedWalrusData;
+    animated: ParsedWalrusData | null;
+  } | null;
   if (!cover) return null;
 
   return {
     still: toCoverImageRef(cover.still),
     animated: cover.animated ? toCoverImageRef(cover.animated) : null,
   };
+}
+
+/** Deterministic dynamic-field id for one release-cover package generation. */
+export function releaseCoverFieldId(
+  releaseId: string,
+  releaseCoverArtPackageId: string,
+): string {
+  return deriveDynamicFieldID(
+    releaseId,
+    `${releaseCoverArtPackageId}::release_cover_art::ExtensionKey`,
+    COVER_ART_KEY_BYTES,
+  );
+}
+
+/**
+ * Read covers for many releases and package generations in one Core request.
+ *
+ * Package IDs are ordered newest to oldest. If both fields exist, the newest
+ * wins; legacy fallbacks add bytes to the same bulk request, not serial probes.
+ */
+export async function getReleaseCoversByIds(
+  client: ClientWithCoreApi,
+  releaseIdsInput: readonly string[],
+  releaseCoverArtPackageIds: readonly string[],
+): Promise<Partial<Record<string, ReleaseCoverView>>> {
+  const releaseIds = [...new Set(releaseIdsInput)];
+  const targets = releaseIds.flatMap((releaseId) =>
+    releaseCoverArtPackageIds.map((packageId, priority) => ({
+      releaseId,
+      priority,
+      fieldId: releaseCoverFieldId(releaseId, packageId),
+    })),
+  );
+  if (targets.length === 0) return {};
+
+  const { objects } = await client.core.getObjects({
+    objectIds: targets.map((target) => target.fieldId),
+    include: { content: true },
+  });
+  const out: Partial<Record<string, ReleaseCoverView>> = {};
+  const priorities = new Map<string, number>();
+  objects.forEach((object, index) => {
+    const target = targets[index];
+    if (!target || object instanceof Error || !object.content) return;
+    const currentPriority = priorities.get(target.releaseId);
+    if (currentPriority !== undefined && currentPriority <= target.priority)
+      return;
+    const cover = parseReleaseCoverContent(object.content);
+    if (cover) {
+      out[target.releaseId] = cover;
+      priorities.set(target.releaseId, target.priority);
+    }
+  });
+  return out;
 }

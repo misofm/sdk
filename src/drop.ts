@@ -12,11 +12,13 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import { bcs } from "@mysten/sui/bcs";
 import type { TxThunk } from "./transactions.ts";
-import { isNotFound } from "./queries.ts";
 import * as drop from "./contracts/miso_drop/drop.ts";
 
 /** Pricing policy: pay exactly `amount` (fixed) or at least `amount` (floor). */
-export type DropPrice = { kind: "fixed" | "floor"; amount: bigint | number | string };
+export type DropPrice = {
+  kind: "fixed" | "floor";
+  amount: bigint | number | string;
+};
 
 export interface CreateDropParams {
   /** The `Release` object the drop sells copies of — also the drop's derivation
@@ -48,7 +50,13 @@ export function createDrop(p: CreateDropParams): TxThunk {
     tx.add(
       drop._new({
         package: p.misoDropPackageId,
-        arguments: [p.releaseId, p.releaseAdminCapId, terms.price, terms.supply, terms.window],
+        arguments: [
+          p.releaseId,
+          p.releaseAdminCapId,
+          terms.price,
+          terms.supply,
+          terms.window,
+        ],
         typeArguments: [p.currencyType],
       }),
     );
@@ -88,7 +96,14 @@ export function newEdition(p: NewEditionParams): TxThunk {
     tx.add(
       drop.newEdition({
         package: p.misoDropPackageId,
-        arguments: [p.releaseId, p.oldDropId, p.releaseAdminCapId, terms.price, terms.supply, terms.window],
+        arguments: [
+          p.releaseId,
+          p.oldDropId,
+          p.releaseAdminCapId,
+          terms.price,
+          terms.supply,
+          terms.window,
+        ],
         typeArguments: [p.oldCurrencyType, p.currencyType],
       }),
     );
@@ -99,20 +114,37 @@ export function newEdition(p: NewEditionParams): TxThunk {
  *  facade params — the flat shape stays the public API; the enums are a wire detail. */
 function buildTerms(
   tx: Parameters<TxThunk>[0],
-  p: Pick<CreateDropParams, "price" | "maxSupply" | "startTimestampMs" | "endTimestampMs" | "misoDropPackageId">,
+  p: Pick<
+    CreateDropParams,
+    | "price"
+    | "maxSupply"
+    | "startTimestampMs"
+    | "endTimestampMs"
+    | "misoDropPackageId"
+  >,
 ) {
   const pkg = { package: p.misoDropPackageId };
-  const makePrice = p.price.kind === "fixed" ? drop.newFixedPrice : drop.newFloorPrice;
-  const price = tx.add(makePrice({ ...pkg, arguments: [BigInt(p.price.amount)] }));
+  const makePrice =
+    p.price.kind === "fixed" ? drop.newFixedPrice : drop.newFloorPrice;
+  const price = tx.add(
+    makePrice({ ...pkg, arguments: [BigInt(p.price.amount)] }),
+  );
   const supply =
     p.maxSupply == null
       ? tx.add(drop.newUncappedSupply({ ...pkg, arguments: [] }))
-      : tx.add(drop.newCappedSupply({ ...pkg, arguments: [BigInt(p.maxSupply)] }));
+      : tx.add(
+          drop.newCappedSupply({ ...pkg, arguments: [BigInt(p.maxSupply)] }),
+        );
   const start = BigInt(p.startTimestampMs ?? 0);
   const window =
     p.endTimestampMs == null
       ? tx.add(drop.newUnboundedWindow({ ...pkg, arguments: [start] }))
-      : tx.add(drop.newBoundedWindow({ ...pkg, arguments: [start, BigInt(p.endTimestampMs)] }));
+      : tx.add(
+          drop.newBoundedWindow({
+            ...pkg,
+            arguments: [start, BigInt(p.endTimestampMs)],
+          }),
+        );
   return { price, supply, window };
 }
 
@@ -143,7 +175,11 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
     const [first, ...rest] = p.paymentCoinIds;
     if (!first) throw new Error("buyRecord: no payment coins provided");
     const primary = tx.object(first);
-    if (rest.length > 0) tx.mergeCoins(primary, rest.map((id) => tx.object(id)));
+    if (rest.length > 0)
+      tx.mergeCoins(
+        primary,
+        rest.map((id) => tx.object(id)),
+      );
     const [payment] = tx.splitCoins(primary, [tx.pure.u64(BigInt(p.amount))]);
     const record = tx.add(
       drop.buy({
@@ -187,21 +223,24 @@ function currencyFromType(type: string | null | undefined): string | null {
  * drop ids — a party's featured drop, a superseded edition — where "no such
  * drop" is a normal state, so absence is `null` and only transport failures throw.
  */
-export async function getDrop(client: ClientWithCoreApi, dropId: string): Promise<DropView | null> {
-  let content: Uint8Array | null | undefined;
-  let type: string | undefined;
-  try {
-    const { object } = await client.core.getObject({ objectId: dropId, include: { content: true } });
-    content = object?.content;
-    type = object?.type;
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
-  if (!content) return null;
+export async function getDrop(
+  client: ClientWithCoreApi,
+  dropId: string,
+): Promise<DropView | null> {
+  return (await getDropsByIds(client, [dropId]))[dropId] ?? null;
+}
 
+function parseDrop(
+  dropId: string,
+  content: Uint8Array,
+  type?: string,
+): DropView {
   const d = drop.Drop.parse(content);
-  const price = d.price as { $kind?: string; Fixed?: { amount: string }; Floor?: { amount: string } };
+  const price = d.price as {
+    $kind?: string;
+    Fixed?: { amount: string };
+    Floor?: { amount: string };
+  };
   const isFixed = price.$kind === "Fixed" || price.Fixed != null;
   const amount = (isFixed ? price.Fixed?.amount : price.Floor?.amount) ?? "0";
   const supply = d.supply as { $kind?: string; Capped?: { max: string } };
@@ -221,16 +260,51 @@ export async function getDrop(client: ClientWithCoreApi, dropId: string): Promis
     maxSupply: capped ? BigInt(supply.Capped?.max ?? "0") : null,
     quantitySold: BigInt(d.quantity_sold),
     startTimestampMs: BigInt(
-      (bounded ? window.Bounded?.start_timestamp_ms : window.Unbounded?.start_timestamp_ms) ?? "0",
+      (bounded
+        ? window.Bounded?.start_timestamp_ms
+        : window.Unbounded?.start_timestamp_ms) ?? "0",
     ),
-    endTimestampMs: bounded ? BigInt(window.Bounded?.end_timestamp_ms ?? "0") : null,
+    endTimestampMs: bounded
+      ? BigInt(window.Bounded?.end_timestamp_ms ?? "0")
+      : null,
     currencyType: currencyFromType(type),
   };
 }
 
+/** Fetch and parse many Drop objects through one Core bulk request. */
+export async function getDropsByIds(
+  client: ClientWithCoreApi,
+  dropIdsInput: readonly string[],
+): Promise<Partial<Record<string, DropView>>> {
+  const dropIds = [...new Set(dropIdsInput)];
+  if (dropIds.length === 0) return {};
+  const { objects } = await client.core.getObjects({
+    objectIds: dropIds,
+    include: { content: true },
+  });
+  const out: Partial<Record<string, DropView>> = {};
+  objects.forEach((object, index) => {
+    const dropId = dropIds[index];
+    if (
+      !dropId ||
+      object instanceof Error ||
+      !object.content ||
+      !/::drop::Drop</.test(object.type ?? "")
+    ) {
+      return;
+    }
+    out[dropId] = parseDrop(dropId, object.content, object.type);
+  });
+  return out;
+}
+
 // The release's `CurrentDropKey` dynamic field holds a bare `ID`; the field object
 // serializes as `Field { id, name: CurrentDropKey (unit), value: ID }`.
-const CurrentDropField = bcs.struct("Field", { id: bcs.Address, name: bcs.bool(), value: bcs.Address });
+const CurrentDropField = bcs.struct("Field", {
+  id: bcs.Address,
+  name: bcs.bool(),
+  value: bcs.Address,
+});
 
 // Unit-struct key bytes (single `0x00` for the dummy bool field).
 const CURRENT_DROP_KEY_BYTES = drop.CurrentDropKey.serialize([false]).toBytes();
@@ -247,20 +321,56 @@ export interface GetCurrentDropParams {
  * destroyed, so this — not derived-address probing — is how the current edition is
  * found.
  */
-export async function getCurrentDrop(client: ClientWithCoreApi, p: GetCurrentDropParams): Promise<DropView | null> {
-  const fieldId = deriveDynamicFieldID(
-    p.releaseId,
-    `${p.misoDropPackageId}::drop::CurrentDropKey`,
-    CURRENT_DROP_KEY_BYTES,
+export async function getCurrentDrop(
+  client: ClientWithCoreApi,
+  p: GetCurrentDropParams,
+): Promise<DropView | null> {
+  return (
+    (await getCurrentDrops(client, [p.releaseId], p.misoDropPackageId))[
+      p.releaseId
+    ] ?? null
   );
-  let content: Uint8Array | null | undefined;
-  try {
-    const { object } = await client.core.getObject({ objectId: fieldId, include: { content: true } });
-    content = object?.content;
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
+}
+
+/**
+ * Resolve the live drops for many releases in two Core bulk requests: all
+ * CurrentDrop pointer fields, then all pointed-to Drop objects.
+ */
+export async function getCurrentDrops(
+  client: ClientWithCoreApi,
+  releaseIdsInput: readonly string[],
+  misoDropPackageId: string,
+): Promise<Partial<Record<string, DropView>>> {
+  const releaseIds = [...new Set(releaseIdsInput)];
+  if (releaseIds.length === 0) return {};
+  const fieldIds = releaseIds.map((releaseId) =>
+    deriveDynamicFieldID(
+      releaseId,
+      `${misoDropPackageId}::drop::CurrentDropKey`,
+      CURRENT_DROP_KEY_BYTES,
+    ),
+  );
+  const { objects } = await client.core.getObjects({
+    objectIds: fieldIds,
+    include: { content: true },
+  });
+  const dropIdByRelease: Partial<Record<string, string>> = {};
+  objects.forEach((object, index) => {
+    const releaseId = releaseIds[index];
+    if (!releaseId || object instanceof Error || !object.content) return;
+    dropIdByRelease[releaseId] = CurrentDropField.parse(object.content).value;
+  });
+
+  const drops = await getDropsByIds(
+    client,
+    Object.values(dropIdByRelease).filter(
+      (id): id is string => id !== undefined,
+    ),
+  );
+  const out: Partial<Record<string, DropView>> = {};
+  for (const [releaseId, dropId] of Object.entries(dropIdByRelease)) {
+    const dropView = dropId ? drops[dropId] : undefined;
+    if (dropView) out[releaseId] = dropView;
   }
-  if (!content) return null;
-  return getDrop(client, CurrentDropField.parse(content).value);
+  return out;
 }

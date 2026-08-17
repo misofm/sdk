@@ -18,7 +18,14 @@ export { createMisoClient } from "./client.ts";
 export type { MisoClient, CreateMisoClientOptions } from "./client.ts";
 
 export { misoConfig, networkFrom } from "./config.ts";
-export type { MisoConfig, MisoConfigOverrides, MoneyIds, Network, PartyIds, ProtocolIds } from "./config.ts";
+export type {
+  MisoConfig,
+  MisoConfigOverrides,
+  MoneyIds,
+  Network,
+  PartyIds,
+  ProtocolIds,
+} from "./config.ts";
 
 export {
   currencyInfo,
@@ -27,12 +34,26 @@ export {
   getPressingDetail,
   getRecordAlbum,
   getReleaseDetail,
+  getReleaseResources,
   getTrackCredits,
   primaryArtistNames,
   readReleaseCover,
 } from "./catalog.ts";
+export type {
+  GetRecordAlbumOptions,
+  GetReleaseOptions,
+  RecordAlbumInclude,
+  ReleaseInclude,
+  ReleaseResourceInclude,
+} from "./catalog.ts";
+export type { ReleaseResources } from "./catalog.ts";
 
-export { getArtistProfile, getFeaturedRelease, getPartySummaries, partyAvatarUrl } from "./artist.ts";
+export {
+  getArtistProfile,
+  getFeaturedRelease,
+  getPartySummaries,
+  partyAvatarUrl,
+} from "./artist.ts";
 export type { ArtistInclude, GetArtistOptions } from "./artist.ts";
 
 export { resolveGenreNames } from "./genres.ts";

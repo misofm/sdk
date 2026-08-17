@@ -31,10 +31,13 @@
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
-import type { Transaction, TransactionArgument, TransactionObjectArgument } from "@mysten/sui/transactions";
+import type {
+  Transaction,
+  TransactionArgument,
+  TransactionObjectArgument,
+} from "@mysten/sui/transactions";
 import type { TxThunk } from "./transactions.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
-import { isNotFound } from "./queries.ts";
 import * as compositionCredits from "./contracts/composition_credits/composition_credits.ts";
 import * as compositionPartyRole from "./contracts/composition_credits/composition_party_role.ts";
 import * as recordingCredits from "./contracts/recording_credits/recording_credits.ts";
@@ -46,7 +49,15 @@ import * as releasePartyRole from "./contracts/release_credits/release_party_rol
 
 /** A composition writing role. `Custom` carries a free-form (validated) name. */
 export type CompositionRole =
-  | { type: "Adapter" | "Arranger" | "Composer" | "Lyricist" | "Songwriter" | "Translator" }
+  | {
+      type:
+        | "Adapter"
+        | "Arranger"
+        | "Composer"
+        | "Lyricist"
+        | "Songwriter"
+        | "Translator";
+    }
   | { type: "Custom"; name: string };
 
 /** Seniority/prominence level for a recording role. */
@@ -112,9 +123,15 @@ export type ReleaseRole = "Primary" | "Featured";
 // the constructor move-call; `tx.add` runs it and yields the role value.
 type RoleThunk = (tx: Transaction) => TransactionObjectArgument;
 type LevelCtor = (options: { package?: string }) => RoleThunk;
-type LeveledRoleCtor = (options: { package?: string; arguments: [TransactionArgument] }) => RoleThunk;
+type LeveledRoleCtor = (options: {
+  package?: string;
+  arguments: [TransactionArgument];
+}) => RoleThunk;
 
-const COMPOSITION_ROLE_CTOR: Record<Exclude<CompositionRole["type"], "Custom">, LevelCtor> = {
+const COMPOSITION_ROLE_CTOR: Record<
+  Exclude<CompositionRole["type"], "Custom">,
+  LevelCtor
+> = {
   Adapter: compositionPartyRole.newAdapterRole,
   Arranger: compositionPartyRole.newArrangerRole,
   Composer: compositionPartyRole.newComposerRole,
@@ -135,7 +152,10 @@ const RECORDING_LEVEL_CTOR: Record<RecordingRoleLevel, LevelCtor> = {
   Principal: recordingPartyRole.newPrincipalRoleLevel,
 };
 
-const RECORDING_LEVELED_ROLE_CTOR: Record<RecordingLeveledRoleType, LeveledRoleCtor> = {
+const RECORDING_LEVELED_ROLE_CTOR: Record<
+  RecordingLeveledRoleType,
+  LeveledRoleCtor
+> = {
   Actor: recordingPartyRole.newActorRole,
   Arranger: recordingPartyRole.newArrangerRole,
   BandLeader: recordingPartyRole.newBandLeaderRole,
@@ -173,24 +193,44 @@ function levelOption(
   level: RecordingRoleLevel | undefined,
 ): TransactionArgument {
   const levelType = `${pkg}::recording_party_role::RecordingPartyRoleLevel`;
-  if (!level) return tx.moveCall({ target: OPTION_NONE, typeArguments: [levelType] });
+  if (!level)
+    return tx.moveCall({ target: OPTION_NONE, typeArguments: [levelType] });
   const lvl = tx.add(RECORDING_LEVEL_CTOR[level]({ package: pkg }));
-  return tx.moveCall({ target: OPTION_SOME, typeArguments: [levelType], arguments: [lvl] });
+  return tx.moveCall({
+    target: OPTION_SOME,
+    typeArguments: [levelType],
+    arguments: [lvl],
+  });
 }
 
 /** Builds one `CompositionPartyRole` value in the PTB. */
-function buildCompositionRole(tx: Transaction, pkg: string, role: CompositionRole): TransactionObjectArgument {
+function buildCompositionRole(
+  tx: Transaction,
+  pkg: string,
+  role: CompositionRole,
+): TransactionObjectArgument {
   if (role.type === "Custom") {
-    return tx.add(compositionPartyRole.newCustomRole({ package: pkg, arguments: [role.name] }));
+    return tx.add(
+      compositionPartyRole.newCustomRole({
+        package: pkg,
+        arguments: [role.name],
+      }),
+    );
   }
   return tx.add(COMPOSITION_ROLE_CTOR[role.type]({ package: pkg }));
 }
 
 /** Builds one `RecordingPartyRole` value in the PTB. */
-function buildRecordingRole(tx: Transaction, pkg: string, role: RecordingRole): TransactionObjectArgument {
+function buildRecordingRole(
+  tx: Transaction,
+  pkg: string,
+  role: RecordingRole,
+): TransactionObjectArgument {
   switch (role.type) {
     case "ArtistsAndRepertoire":
-      return tx.add(recordingPartyRole.newArtistsAndRepertoireRole({ package: pkg }));
+      return tx.add(
+        recordingPartyRole.newArtistsAndRepertoireRole({ package: pkg }),
+      );
     case "Copyist":
       return tx.add(recordingPartyRole.newCopyistRole({ package: pkg }));
     case "Instrumentalist":
@@ -218,8 +258,15 @@ function buildRecordingRole(tx: Transaction, pkg: string, role: RecordingRole): 
 }
 
 /** Builds one `ReleasePartyRole` value in the PTB. */
-function buildReleaseRole(tx: Transaction, pkg: string, role: ReleaseRole): TransactionObjectArgument {
-  const ctor = role === "Primary" ? releasePartyRole.newPrimaryRole : releasePartyRole.newFeaturedRole;
+function buildReleaseRole(
+  tx: Transaction,
+  pkg: string,
+  role: ReleaseRole,
+): TransactionObjectArgument {
+  const ctor =
+    role === "Primary"
+      ? releasePartyRole.newPrimaryRole
+      : releasePartyRole.newFeaturedRole;
   return tx.add(ctor({ package: pkg }));
 }
 
@@ -237,10 +284,13 @@ const MAX_COMPOSITION_ROLES = 5;
 const MAX_RECORDING_ROLES = 10;
 
 function assertDisplayName(fn: string, displayName: string): void {
-  if (displayName.length === 0) throw new Error(`${fn}: displayName must not be empty`);
+  if (displayName.length === 0)
+    throw new Error(`${fn}: displayName must not be empty`);
   const byteLength = new TextEncoder().encode(displayName).length;
   if (byteLength > MAX_DISPLAY_NAME_BYTES) {
-    throw new Error(`${fn}: displayName must be at most ${MAX_DISPLAY_NAME_BYTES} bytes of UTF-8 (got ${byteLength})`);
+    throw new Error(
+      `${fn}: displayName must be at most ${MAX_DISPLAY_NAME_BYTES} bytes of UTF-8 (got ${byteLength})`,
+    );
   }
 }
 
@@ -255,9 +305,16 @@ function roleKey(role: CompositionRole | RecordingRole): string {
   ]);
 }
 
-function assertRoles(fn: string, roles: (CompositionRole | RecordingRole)[], max: number): void {
+function assertRoles(
+  fn: string,
+  roles: (CompositionRole | RecordingRole)[],
+  max: number,
+): void {
   if (roles.length < 1) throw new Error(`${fn}: at least one role is required`);
-  if (roles.length > max) throw new Error(`${fn}: at most ${max} roles are allowed (got ${roles.length})`);
+  if (roles.length > max)
+    throw new Error(
+      `${fn}: at most ${max} roles are allowed (got ${roles.length})`,
+    );
   const seen = new Set<string>();
   for (const role of roles) {
     const key = roleKey(role);
@@ -308,18 +365,33 @@ export interface AttachCompositionCreditParams {
  * mirroring the Move aborts) when `displayName` is empty or over 200 UTF-8
  * bytes, or `roles` is empty, has more than 5 entries, or contains duplicates.
  */
-export function attachCompositionCredit(p: AttachCompositionCreditParams): TxThunk {
+export function attachCompositionCredit(
+  p: AttachCompositionCreditParams,
+): TxThunk {
   assertDisplayName("attachCompositionCredit", p.displayName);
   assertRoles("attachCompositionCredit", p.roles, MAX_COMPOSITION_ROLES);
   return (tx) => {
     const roleType = `${p.compositionCreditsPackageId}::composition_party_role::CompositionPartyRole`;
-    const roleArgs = p.roles.map((r) => buildCompositionRole(tx, p.compositionCreditsPackageId, r));
-    const credit = buildCredit(tx, p.misoCreditPackageId, roleType, p.displayName, roleArgs);
+    const roleArgs = p.roles.map((r) =>
+      buildCompositionRole(tx, p.compositionCreditsPackageId, r),
+    );
+    const credit = buildCredit(
+      tx,
+      p.misoCreditPackageId,
+      roleType,
+      p.displayName,
+      roleArgs,
+    );
     tx.add(
       compositionCredits.addCredit({
         package: p.compositionCreditsPackageId,
         typeArguments: [p.compositionShareType],
-        arguments: [p.compositionId, p.compositionAdminCapId, p.partyId, credit],
+        arguments: [
+          p.compositionId,
+          p.compositionAdminCapId,
+          p.partyId,
+          credit,
+        ],
       }),
     );
   };
@@ -357,8 +429,16 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
   assertRoles("attachRecordingCredit", p.roles, MAX_RECORDING_ROLES);
   return (tx) => {
     const roleType = `${p.recordingCreditsPackageId}::recording_party_role::RecordingPartyRole`;
-    const roleArgs = p.roles.map((r) => buildRecordingRole(tx, p.recordingCreditsPackageId, r));
-    const credit = buildCredit(tx, p.misoCreditPackageId, roleType, p.displayName, roleArgs);
+    const roleArgs = p.roles.map((r) =>
+      buildRecordingRole(tx, p.recordingCreditsPackageId, r),
+    );
+    const credit = buildCredit(
+      tx,
+      p.misoCreditPackageId,
+      roleType,
+      p.displayName,
+      roleArgs,
+    );
     tx.add(
       recordingCredits.addCredit({
         package: p.recordingCreditsPackageId,
@@ -389,7 +469,9 @@ export interface AddRecordingArtistParams {
  * party must be credited first (via `attachRecordingCredit`) and not already a
  * primary or featured artist.
  */
-export function addRecordingPrimaryArtist(p: AddRecordingArtistParams): TxThunk {
+export function addRecordingPrimaryArtist(
+  p: AddRecordingArtistParams,
+): TxThunk {
   return (tx) => {
     tx.add(
       recordingCredits.addPrimaryArtist({
@@ -406,7 +488,9 @@ export function addRecordingPrimaryArtist(p: AddRecordingArtistParams): TxThunk 
  * party must be credited first (via `attachRecordingCredit`) and not already a
  * primary or featured artist.
  */
-export function addRecordingFeaturedArtist(p: AddRecordingArtistParams): TxThunk {
+export function addRecordingFeaturedArtist(
+  p: AddRecordingArtistParams,
+): TxThunk {
   return (tx) => {
     tx.add(
       recordingCredits.addFeaturedArtist({
@@ -445,7 +529,13 @@ export function addReleaseCredit(p: AddReleaseCreditParams): TxThunk {
   return (tx) => {
     const roleType = `${p.releaseCreditsPackageId}::release_party_role::ReleasePartyRole`;
     const roleArg = buildReleaseRole(tx, p.releaseCreditsPackageId, p.role);
-    const credit = buildCredit(tx, p.misoCreditPackageId, roleType, p.displayName, [roleArg]);
+    const credit = buildCredit(
+      tx,
+      p.misoCreditPackageId,
+      roleType,
+      p.displayName,
+      [roleArg],
+    );
     tx.add(
       releaseCredits.addCredit({
         package: p.releaseCreditsPackageId,
@@ -503,25 +593,127 @@ const ReleaseCreditsField = bcs.struct("Field", {
   value: releaseCredits.ReleaseCredits,
 });
 
-const COMPOSITION_CREDITS_KEY_BYTES = compositionCredits.ExtensionKey.serialize([false]).toBytes();
-const RECORDING_CREDITS_KEY_BYTES = recordingCredits.ExtensionKey.serialize([false]).toBytes();
-const RELEASE_CREDITS_KEY_BYTES = releaseCredits.ExtensionKey.serialize([false]).toBytes();
+const COMPOSITION_CREDITS_KEY_BYTES = compositionCredits.ExtensionKey.serialize(
+  [false],
+).toBytes();
+const RECORDING_CREDITS_KEY_BYTES = recordingCredits.ExtensionKey.serialize([
+  false,
+]).toBytes();
+const RELEASE_CREDITS_KEY_BYTES = releaseCredits.ExtensionKey.serialize([
+  false,
+]).toBytes();
 
-/** Fetches the BCS content of a work's credits dynamic field, or `null` if none. */
-async function fetchCreditsField(
+type CreditFieldKind =
+  | "composition"
+  | "compositionLegacy"
+  | "recording"
+  | "recordingLegacy"
+  | "release";
+
+interface CreditFieldTarget {
+  workId: string;
+  kind: CreditFieldKind;
+  fieldId: string;
+}
+
+/**
+ * Fetch many derived credit fields through one Core bulk request.
+ *
+ * Composition and recording extensions have one legacy key spelling. Both IDs
+ * ride in the same request, so fallback compatibility does not add a sequential
+ * round trip when the current key is absent.
+ */
+async function fetchCreditFields(
   client: ClientWithCoreApi,
-  workId: string,
-  keyType: string,
-  keyBytes: Uint8Array,
-): Promise<Uint8Array | null> {
-  const fieldId = deriveDynamicFieldID(workId, keyType, keyBytes);
-  try {
-    const { object } = await client.core.getObject({ objectId: fieldId, include: { content: true } });
-    return object?.content ?? null;
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
+  targets: readonly CreditFieldTarget[],
+): Promise<Map<string, Uint8Array>> {
+  if (targets.length === 0) return new Map();
+  const { objects } = await client.core.getObjects({
+    objectIds: targets.map((target) => target.fieldId),
+    include: { content: true },
+  });
+  const contents = new Map<string, Uint8Array>();
+  objects.forEach((object, index) => {
+    if (object instanceof Error || !object.content) return;
+    const target = targets[index];
+    if (target) contents.set(target.fieldId, object.content);
+  });
+  return contents;
+}
+
+function compositionCreditTargets(
+  compositionIds: readonly string[],
+  packageId: string,
+): CreditFieldTarget[] {
+  return compositionIds.flatMap((workId) => [
+    {
+      workId,
+      kind: "composition" as const,
+      fieldId: deriveDynamicFieldID(
+        workId,
+        `${packageId}::composition_credits::ExtensionKey`,
+        COMPOSITION_CREDITS_KEY_BYTES,
+      ),
+    },
+    {
+      workId,
+      kind: "compositionLegacy" as const,
+      fieldId: deriveDynamicFieldID(
+        workId,
+        `${packageId}::composition_credits::CompositionCreditsKey`,
+        COMPOSITION_CREDITS_KEY_BYTES,
+      ),
+    },
+  ]);
+}
+
+function recordingCreditTargets(
+  recordingIds: readonly string[],
+  packageId: string,
+): CreditFieldTarget[] {
+  return recordingIds.flatMap((workId) => [
+    {
+      workId,
+      kind: "recording" as const,
+      fieldId: deriveDynamicFieldID(
+        workId,
+        `${packageId}::recording_credits::ExtensionKey`,
+        RECORDING_CREDITS_KEY_BYTES,
+      ),
+    },
+    {
+      workId,
+      kind: "recordingLegacy" as const,
+      fieldId: deriveDynamicFieldID(
+        workId,
+        `${packageId}::recording_credits::RecordingCreditsKey`,
+        RECORDING_CREDITS_KEY_BYTES,
+      ),
+    },
+  ]);
+}
+
+function releaseCreditTargets(
+  releaseIds: readonly string[],
+  packageId: string,
+): CreditFieldTarget[] {
+  return releaseIds.map((workId) => ({
+    workId,
+    kind: "release",
+    fieldId: releaseCreditsFieldId(workId, packageId),
+  }));
+}
+
+/** Deterministic dynamic-field id for a release's billing credits. */
+export function releaseCreditsFieldId(
+  releaseId: string,
+  releaseCreditsPackageId: string,
+): string {
+  return deriveDynamicFieldID(
+    releaseId,
+    `${releaseCreditsPackageId}::release_credits::ExtensionKey`,
+    RELEASE_CREDITS_KEY_BYTES,
+  );
 }
 
 // The credits container shape, checked structurally against the parse output of
@@ -530,7 +722,9 @@ async function fetchCreditsField(
 // field rename (`contents`/`key`/`value`/`display_name`/`roles`, or the
 // `credits`/`primary_artist_ids`/`featured_artist_ids` fields at the call
 // sites) fails typecheck here instead of silently misparsing.
-type ParsedCreditsMap<Role> = { contents: { key: string; value: { display_name: string; roles: Role[] } }[] };
+type ParsedCreditsMap<Role> = {
+  contents: { key: string; value: { display_name: string; roles: Role[] } }[];
+};
 
 function creditViews<Role extends ParsedEnum>(
   credits: ParsedCreditsMap<Role>,
@@ -551,6 +745,14 @@ function compositionRoleLabel(role: ParsedEnum): string {
 
 function releaseRoleLabel(role: ParsedEnum): string {
   return role.$kind;
+}
+
+/** Parse a fetched release-credit dynamic field. */
+export function parseReleaseCreditsContent(content: Uint8Array): CreditView[] {
+  return creditViews(
+    ReleaseCreditsField.parse(content).value.credits,
+    releaseRoleLabel,
+  );
 }
 
 // `name()` semantics plus the recording extras: the instrument (for
@@ -581,7 +783,9 @@ function recordingRoleLabel(role: ParsedEnum): string {
       base = role.$kind;
       const payload = role[role.$kind];
       level =
-        payload && typeof payload === "object" && "$kind" in payload ? (payload as ParsedEnum) : null;
+        payload && typeof payload === "object" && "$kind" in payload
+          ? (payload as ParsedEnum)
+          : null;
       break;
     }
   }
@@ -597,21 +801,45 @@ export async function getCompositionCredits(
   compositionId: string,
   compositionCreditsPackageId: string,
 ): Promise<CreditView[] | null> {
-  const content =
-    (await fetchCreditsField(
-      client,
-      compositionId,
-      `${compositionCreditsPackageId}::composition_credits::ExtensionKey`,
-      COMPOSITION_CREDITS_KEY_BYTES,
-    )) ??
-    (await fetchCreditsField(
-      client,
-      compositionId,
-      `${compositionCreditsPackageId}::composition_credits::CompositionCreditsKey`,
-      COMPOSITION_CREDITS_KEY_BYTES,
-    ));
-  if (!content) return null;
-  return creditViews(CompositionCreditsField.parse(content).value.credits, compositionRoleLabel);
+  return (
+    (
+      await getCompositionCreditsByIds(
+        client,
+        [compositionId],
+        compositionCreditsPackageId,
+      )
+    )[compositionId] ?? null
+  );
+}
+
+/** Composition credits for many works in one Core bulk request. */
+export async function getCompositionCreditsByIds(
+  client: ClientWithCoreApi,
+  compositionIdsInput: readonly string[],
+  compositionCreditsPackageId: string,
+): Promise<Partial<Record<string, CreditView[]>>> {
+  const compositionIds = [...new Set(compositionIdsInput)];
+  const targets = compositionCreditTargets(
+    compositionIds,
+    compositionCreditsPackageId,
+  );
+  const contents = await fetchCreditFields(client, targets);
+  const out: Partial<Record<string, CreditView[]>> = {};
+  for (const compositionId of compositionIds) {
+    const candidates = targets.filter(
+      (target) => target.workId === compositionId,
+    );
+    const content = candidates
+      .map((target) => contents.get(target.fieldId))
+      .find((value): value is Uint8Array => value !== undefined);
+    if (content) {
+      out[compositionId] = creditViews(
+        CompositionCreditsField.parse(content).value.credits,
+        compositionRoleLabel,
+      );
+    }
+  }
+  return out;
 }
 
 /**
@@ -623,26 +851,46 @@ export async function getRecordingCredits(
   recordingId: string,
   recordingCreditsPackageId: string,
 ): Promise<RecordingCreditsView | null> {
-  const content =
-    (await fetchCreditsField(
-      client,
-      recordingId,
-      `${recordingCreditsPackageId}::recording_credits::ExtensionKey`,
-      RECORDING_CREDITS_KEY_BYTES,
-    )) ??
-    (await fetchCreditsField(
-      client,
-      recordingId,
-      `${recordingCreditsPackageId}::recording_credits::RecordingCreditsKey`,
-      RECORDING_CREDITS_KEY_BYTES,
-    ));
-  if (!content) return null;
-  const value = RecordingCreditsField.parse(content).value;
-  return {
-    credits: creditViews(value.credits, recordingRoleLabel),
-    primaryArtistIds: value.primary_artist_ids.contents,
-    featuredArtistIds: value.featured_artist_ids.contents,
-  };
+  return (
+    (
+      await getRecordingCreditsByIds(
+        client,
+        [recordingId],
+        recordingCreditsPackageId,
+      )
+    )[recordingId] ?? null
+  );
+}
+
+/** Recording credits for many works in one Core bulk request. */
+export async function getRecordingCreditsByIds(
+  client: ClientWithCoreApi,
+  recordingIdsInput: readonly string[],
+  recordingCreditsPackageId: string,
+): Promise<Partial<Record<string, RecordingCreditsView>>> {
+  const recordingIds = [...new Set(recordingIdsInput)];
+  const targets = recordingCreditTargets(
+    recordingIds,
+    recordingCreditsPackageId,
+  );
+  const contents = await fetchCreditFields(client, targets);
+  const out: Partial<Record<string, RecordingCreditsView>> = {};
+  for (const recordingId of recordingIds) {
+    const candidates = targets.filter(
+      (target) => target.workId === recordingId,
+    );
+    const content = candidates
+      .map((target) => contents.get(target.fieldId))
+      .find((value): value is Uint8Array => value !== undefined);
+    if (!content) continue;
+    const value = RecordingCreditsField.parse(content).value;
+    out[recordingId] = {
+      credits: creditViews(value.credits, recordingRoleLabel),
+      primaryArtistIds: value.primary_artist_ids.contents,
+      featuredArtistIds: value.featured_artist_ids.contents,
+    };
+  }
+  return out;
 }
 
 /**
@@ -654,12 +902,28 @@ export async function getReleaseCredits(
   releaseId: string,
   releaseCreditsPackageId: string,
 ): Promise<CreditView[] | null> {
-  const content = await fetchCreditsField(
-    client,
-    releaseId,
-    `${releaseCreditsPackageId}::release_credits::ExtensionKey`,
-    RELEASE_CREDITS_KEY_BYTES,
+  return (
+    (
+      await getReleaseCreditsByIds(client, [releaseId], releaseCreditsPackageId)
+    )[releaseId] ?? null
   );
-  if (!content) return null;
-  return creditViews(ReleaseCreditsField.parse(content).value.credits, releaseRoleLabel);
+}
+
+/** Release billing credits for many releases in one Core bulk request. */
+export async function getReleaseCreditsByIds(
+  client: ClientWithCoreApi,
+  releaseIdsInput: readonly string[],
+  releaseCreditsPackageId: string,
+): Promise<Partial<Record<string, CreditView[]>>> {
+  const releaseIds = [...new Set(releaseIdsInput)];
+  const targets = releaseCreditTargets(releaseIds, releaseCreditsPackageId);
+  const contents = await fetchCreditFields(client, targets);
+  const out: Partial<Record<string, CreditView[]>> = {};
+  for (const target of targets) {
+    const content = contents.get(target.fieldId);
+    if (content) {
+      out[target.workId] = parseReleaseCreditsContent(content);
+    }
+  }
+  return out;
 }

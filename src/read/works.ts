@@ -3,14 +3,15 @@
 
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
+import { normalizeSuiAddress } from "@mysten/sui/utils";
 import {
+  contracts,
   extractTypeParams2,
   getCompositionsByIds,
-  getRecordingsByIds,
-  getReleasesByIds,
   type Composition,
   type Recording,
   type Release,
+  type TrackState,
 } from "@misonetwork/sdk";
 
 export interface WorkShareTypes {
@@ -23,70 +24,114 @@ export interface WorkAddressesByShareType {
   recordings: Partial<Record<string, string>>;
 }
 
-interface ObjectsByTypeResult {
-  objects: {
-    nodes: Array<{
-      address: string;
-      asMoveObject: { contents: { type: { repr: string } } | null } | null;
-    }>;
-  } | null;
+interface WorkAddressConnection {
+  nodes: Array<{
+    address: string;
+    asMoveObject?: {
+      contents?: { type?: { repr?: string } | null } | null;
+    } | null;
+  }>;
+  pageInfo?: { hasNextPage: boolean; endCursor: string | null };
 }
 
-/** Resolve work share types without relying on unpublished protocol helpers. */
+/** Resolve all work share types in one aliased GraphQL request. */
 export async function getWorkAddressesByShareTypes(
   client: SuiGraphQLClient,
   shareTypes: WorkShareTypes,
   misoPackageId: string,
 ): Promise<WorkAddressesByShareType> {
   const compositions = [...new Set(shareTypes.compositions)];
-  const recordingSet = new Set(shareTypes.recordings);
+  const recordings = new Set(shareTypes.recordings);
   const out: WorkAddressesByShareType = { compositions: {}, recordings: {} };
+  if (compositions.length === 0 && recordings.size === 0) return out;
 
-  const compositionEntries = await Promise.all(
-    compositions.map(async (shareType) => {
-      const type = `${misoPackageId}::composition::Composition<${shareType}>`;
-      const result = await client.query<ObjectsByTypeResult, { type: string }>({
-        query: `query WorkByType($type: String!) {
-          objects(filter: { type: $type }) {
-            nodes { address asMoveObject { contents { type { repr } } } }
-          }
-        }`,
-        variables: { type },
-      });
-      if (result.errors?.length) throw new Error(result.errors[0]!.message);
-      return [shareType, result.data?.objects?.nodes[0]?.address] as const;
-    }),
-  );
-  for (const [shareType, address] of compositionEntries) {
-    if (address) out.compositions[shareType] = address;
+  const declarations: string[] = [];
+  const selections: string[] = [];
+  const variables: Record<string, string> = {};
+  compositions.forEach((shareType, index) => {
+    const variable = `compositionType${index}`;
+    declarations.push(`$${variable}: String!`);
+    selections.push(
+      `composition${index}: objects(first: 1, filter: { type: $${variable} }) { nodes { address } }`,
+    );
+    variables[variable] =
+      `${misoPackageId}::composition::Composition<${shareType}>`;
+  });
+  if (recordings.size > 0) {
+    declarations.push("$recordingType: String!");
+    selections.push(`recordings: objects(first: 50, filter: { type: $recordingType }) {
+      pageInfo { hasNextPage endCursor }
+      nodes { address asMoveObject { contents { type { repr } } } }
+    }`);
+    variables.recordingType = `${misoPackageId}::recording::Recording`;
   }
 
-  if (recordingSet.size > 0) {
-    const type = `${misoPackageId}::recording::Recording`;
-    const result = await client.query<ObjectsByTypeResult, { type: string }>({
-      query: `query RecordingsByType($type: String!) {
-        objects(filter: { type: $type }) {
+  const result = await client.query<
+    Record<string, WorkAddressConnection | null>,
+    Record<string, string>
+  >({
+    query: `query WorkAddressesByShareTypes(${declarations.join(", ")}) {
+      ${selections.join("\n")}
+    }`,
+    variables,
+  });
+  if (result.errors?.length) {
+    throw new AggregateError(
+      result.errors.map((error) => new Error(error.message)),
+      "Work type discovery failed",
+    );
+  }
+  compositions.forEach((shareType, index) => {
+    const address = result.data?.[`composition${index}`]?.nodes[0]?.address;
+    if (address) out.compositions[shareType] = address;
+  });
+
+  const readRecordingPage = (
+    page: WorkAddressConnection | null | undefined,
+  ) => {
+    for (const node of page?.nodes ?? []) {
+      const repr = node.asMoveObject?.contents?.type?.repr;
+      if (!repr) continue;
+      try {
+        const [shareType] = extractTypeParams2(repr);
+        if (recordings.has(shareType)) out.recordings[shareType] = node.address;
+      } catch {
+        // Ignore objects whose deployed type does not match the Recording ABI.
+      }
+    }
+  };
+
+  let page = result.data?.recordings;
+  readRecordingPage(page);
+  while (
+    page?.pageInfo?.hasNextPage &&
+    page.pageInfo.endCursor &&
+    Object.keys(out.recordings).length < recordings.size
+  ) {
+    const next = await client.query<
+      { recordings: WorkAddressConnection | null },
+      { recordingType: string; cursor: string }
+    >({
+      query: `query RecordingWorkAddresses($recordingType: String!, $cursor: String!) {
+        recordings: objects(first: 50, after: $cursor, filter: { type: $recordingType }) {
+          pageInfo { hasNextPage endCursor }
           nodes { address asMoveObject { contents { type { repr } } } }
         }
       }`,
-      variables: { type },
+      variables: {
+        recordingType: variables.recordingType!,
+        cursor: page.pageInfo.endCursor,
+      },
     });
-    if (result.errors?.length) throw new Error(result.errors[0]!.message);
-    for (const node of result.data?.objects?.nodes ?? []) {
-      const repr = node.asMoveObject?.contents?.type.repr;
-      if (!repr) continue;
-      let recordingShareType: string | undefined;
-      try {
-        [recordingShareType] = extractTypeParams2(repr);
-      } catch {
-        recordingShareType = /<(.+)>$/.exec(repr)?.[1]?.trim();
-      }
-      if (recordingShareType && recordingSet.has(recordingShareType)) {
-        out.recordings[recordingShareType] = node.address;
-      }
+    if (next.errors?.length) {
+      throw new AggregateError(
+        next.errors.map((error) => new Error(error.message)),
+        "Recording type discovery failed",
+      );
     }
+    page = next.data?.recordings;
+    readRecordingPage(page);
   }
-
   return out;
 }
 
@@ -102,14 +147,127 @@ export interface WorksById {
   releases: Partial<Record<string, Release>>;
 }
 
-/** Fetch each work kind through the authoritative protocol SDK. */
-export async function getWorksByIds(client: ClientWithCoreApi, ids: WorkIds): Promise<WorksById> {
-  const [compositions, recordings, releases] = await Promise.all([
-    getCompositionsByIds(client, [...ids.compositions]),
-    getRecordingsByIds(client, [...ids.recordings]),
-    getReleasesByIds(client, [...ids.releases]),
-  ]);
-  return { compositions, recordings, releases };
+type Parsed = Record<string, any>;
+
+function workState(value: Parsed): Composition["state"] {
+  return value?.$kind === "Published"
+    ? { type: "Published", timestampMs: Number(value.Published) }
+    : { type: "Initialized" };
+}
+
+function parseComposition(id: string, content: Uint8Array): Composition {
+  const value = contracts.composition.Composition.parse(content) as Parsed;
+  return {
+    id,
+    state: workState(value.state),
+    title: String(value.title),
+    royaltyRate: {
+      value: Number(
+        Array.isArray(value.royalty_rate)
+          ? value.royalty_rate[0]
+          : value.royalty_rate,
+      ),
+    },
+  };
+}
+
+function parseRecording(id: string, content: Uint8Array): Recording {
+  const value = contracts.recording.Recording.parse(content) as Parsed;
+  return { id, state: workState(value.state) };
+}
+
+export function parseReleaseObject(
+  id: string,
+  content: Uint8Array,
+  json: unknown,
+): Release {
+  const deployed = json as {
+    discs?: Parsed[];
+    state?: Parsed;
+    title?: unknown;
+  } | null;
+  if (deployed?.discs) {
+    const tracks = deployed.discs.flatMap((disc) => disc.tracks ?? []);
+    const publishedAt =
+      deployed.state?.["@variant"] === "Published" ? deployed.state.pos0 : null;
+    return {
+      id,
+      state:
+        publishedAt == null
+          ? { type: "Initialized" }
+          : { type: "Published", timestampMs: Number(publishedAt) },
+      title: String(deployed.title ?? ""),
+      tracks: tracks.map((track) => ({
+        state: (track.state?.["@variant"] ?? "Unassigned") as TrackState,
+        recordingId: String(track.recording_id),
+        splitBps: { value: Number(track.split_bps?.pos0 ?? track.split_bps) },
+      })),
+    };
+  }
+  const value = contracts.release.Release.parse(content) as Parsed;
+  return {
+    id,
+    state: workState(value.state),
+    title: String(value.title),
+    tracks: (value.tracks ?? []).map((track: Parsed) => ({
+      state: (track.state?.$kind ?? "Unassigned") as TrackState,
+      recordingId: String(track.recording_id),
+      splitBps: {
+        value: Number(
+          Array.isArray(track.split_bps) ? track.split_bps[0] : track.split_bps,
+        ),
+      },
+    })),
+  };
+}
+
+/** Fetch and parse heterogeneous works through one Core bulk request. */
+export async function getWorksByIds(
+  client: ClientWithCoreApi,
+  ids: WorkIds,
+): Promise<WorksById> {
+  const kinds = new Map<string, keyof WorksById>();
+  for (const [kind, objectIds] of Object.entries(ids) as Array<
+    [keyof WorksById, readonly string[]]
+  >) {
+    for (const objectId of objectIds) {
+      const normalized = normalizeSuiAddress(objectId);
+      const previous = kinds.get(normalized);
+      if (previous && previous !== kind) {
+        throw new Error(
+          `Work ${normalized} was requested as both ${previous} and ${kind}`,
+        );
+      }
+      kinds.set(normalized, kind);
+    }
+  }
+  const out: WorksById = { compositions: {}, recordings: {}, releases: {} };
+  if (kinds.size === 0) return out;
+  const { objects } = await client.core.getObjects({
+    objectIds: [...kinds.keys()],
+    include: { content: true, json: true },
+  });
+  for (const object of objects) {
+    if (object instanceof Error || !object.content) continue;
+    const kind = kinds.get(normalizeSuiAddress(object.objectId));
+    if (kind === "compositions")
+      out.compositions[object.objectId] = parseComposition(
+        object.objectId,
+        object.content,
+      );
+    else if (kind === "recordings")
+      out.recordings[object.objectId] = parseRecording(
+        object.objectId,
+        object.content,
+      );
+    else if (kind === "releases")
+      out.releases[object.objectId] = parseReleaseObject(
+        object.objectId,
+        object.content,
+        object.json,
+      );
+  }
+  return out;
 }
 
 /**
@@ -125,7 +283,10 @@ export async function getRecordingTitles(
   const ids = [...new Set(recordingIds)];
   if (ids.length === 0) return {};
 
-  const { objects } = await client.core.getObjects({ objectIds: ids, include: { json: true } });
+  const { objects } = await client.core.getObjects({
+    objectIds: ids,
+    include: { json: true },
+  });
   const titles: Record<string, string> = {};
   const compositionShareByRecording: Record<string, string> = {};
 
@@ -155,9 +316,13 @@ export async function getRecordingTitles(
     client,
     Object.values(addresses.compositions).filter((id): id is string => !!id),
   );
-  for (const [recordingId, shareType] of Object.entries(compositionShareByRecording)) {
+  for (const [recordingId, shareType] of Object.entries(
+    compositionShareByRecording,
+  )) {
     const compositionId = addresses.compositions[shareType];
-    const title = compositionId ? compositions[compositionId]?.title : undefined;
+    const title = compositionId
+      ? compositions[compositionId]?.title
+      : undefined;
     if (title) titles[recordingId] = title;
   }
   return titles;
