@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Complete client SDK for the Miso platform on Sui \u2014 high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
@@ -79,6 +79,10 @@
     "./read/types": {
       "types": "./dist/read/types.d.ts",
       "default": "./dist/read/types.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
     },
     "./drop": {
       "types": "./dist/drop.d.ts",

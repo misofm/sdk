@@ -124,6 +124,37 @@ const miso = read.createMisoClient({ network: "testnet" });
 const artist = await read.getArtistProfile(miso, partyId);
 ```
 
+### Authenticated platform mutations
+
+`@misofm/sdk/auth` implements Miso's Enoki + Sui personal-message authorization
+protocol without owning session state or private credentials. It asks the API
+for a short-lived, method/path-bound challenge, validates the response, signs
+the exact bytes with the caller's Sui signer, and sends the authenticated
+mutation.
+
+```ts
+import { authenticatedFetch } from "@misofm/sdk/auth";
+
+await authenticatedFetch(
+  "https://api.testnet.miso.fm/platform/usernames/alice",
+  {
+    method: "PUT",
+    body: JSON.stringify({}),
+    headers: { "Content-Type": "application/json" },
+    auth: {
+      token: enokiOidcToken,
+      address: suiAddress,
+      signer: await enokiFlow.getKeypair({ network: "testnet" }),
+      network: "testnet",
+    },
+  },
+);
+```
+
+The SDK is only a client and shared wire contract. The API remains the security
+boundary: it verifies Enoki membership, challenge freshness, the recovered Sui
+address, and the exact authorized route on every protected request.
+
 ### Payment
 
 `listing::buy` takes a bare `Balance<Currency>`, and `buyRecord` sources it with
