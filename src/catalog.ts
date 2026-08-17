@@ -14,10 +14,128 @@
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
 import {
+  getCompositionAddressByShareType,
   getOwnedRecordingAdminCaps,
   getRecordingByShareType,
+  getRecordingShareTypes,
+  getReleaseById,
   type Recording,
 } from "@misonetwork/sdk";
+import {
+  getCompositionCredits,
+  getRecordingCredits,
+  type CreditView,
+  type RecordingCreditsView,
+} from "./credits.ts";
+
+export interface GetReleaseTrackCreditsOptions {
+  /** Core Miso package that defines Composition and Recording. */
+  misoPackageId: string;
+  /** Package that defines the composition_credits extension key. */
+  compositionCreditsPackageId: string;
+  /** Package that defines the recording_credits extension key. */
+  recordingCreditsPackageId: string;
+}
+
+export interface ReleaseTrackCredits {
+  compositionCredits: CreditView[];
+  recordingCredits: RecordingCreditsView;
+}
+
+const EMPTY_RECORDING_CREDITS: RecordingCreditsView = {
+  credits: [],
+  primaryArtistIds: [],
+  featuredArtistIds: [],
+};
+
+/**
+ * Composition and recording credits for every track on a release, keyed by
+ * recording id.
+ *
+ * The read follows the chain's actual object graph instead of release credits:
+ * Release -> Recording -> Composition. Recording credit fields and recording
+ * type parameters are fetched together for every track. Composition addresses
+ * are then resolved concurrently, deduplicated, and all composition credit
+ * fields are fetched concurrently as well.
+ */
+export async function getReleaseTrackCredits(
+  client: ClientWithCoreApi,
+  graphqlClient: SuiGraphQLClient,
+  releaseId: string,
+  options: GetReleaseTrackCreditsOptions,
+): Promise<Record<string, ReleaseTrackCredits>> {
+  const release = await getReleaseById(client, releaseId);
+  return getTrackCreditsByRecordingIds(
+    client,
+    graphqlClient,
+    release.tracks.map((track) => track.recordingId),
+    options,
+  );
+}
+
+/**
+ * Composition and recording credits for the supplied recordings, keyed by
+ * recording id. This form is intended for consumers that already loaded a
+ * release and do not need to fetch it again.
+ */
+export async function getTrackCreditsByRecordingIds(
+  client: ClientWithCoreApi,
+  graphqlClient: SuiGraphQLClient,
+  recordingIdsInput: readonly string[],
+  options: GetReleaseTrackCreditsOptions,
+): Promise<Record<string, ReleaseTrackCredits>> {
+  const recordingIds = [...new Set(recordingIdsInput)];
+
+  const recordingReads = await Promise.all(
+    recordingIds.map(async (recordingId) => {
+      const [recordingCredits, [, compositionShareType]] = await Promise.all([
+        getRecordingCredits(client, recordingId, options.recordingCreditsPackageId),
+        getRecordingShareTypes(client, recordingId),
+      ]);
+      return { recordingId, recordingCredits, compositionShareType };
+    }),
+  );
+
+  const compositionShareTypes = [...new Set(recordingReads.map((read) => read.compositionShareType))];
+  const compositionAddressEntries = await Promise.all(
+    compositionShareTypes.map(async (shareType) => {
+      const compositionId = await getCompositionAddressByShareType(
+        graphqlClient,
+        shareType,
+        options.misoPackageId,
+      );
+      if (!compositionId) throw new Error(`Composition not found for share type: ${shareType}`);
+      return [shareType, compositionId] as const;
+    }),
+  );
+  const compositionAddressByShareType = new Map(compositionAddressEntries);
+
+  const compositionIds = [...new Set(compositionAddressEntries.map(([, compositionId]) => compositionId))];
+  const compositionCreditEntries = await Promise.all(
+    compositionIds.map(async (compositionId) => {
+      const credits = await getCompositionCredits(
+        client,
+        compositionId,
+        options.compositionCreditsPackageId,
+      );
+      return [compositionId, credits ?? []] as const;
+    }),
+  );
+  const compositionCreditsById = new Map(compositionCreditEntries);
+
+  return Object.fromEntries(
+    recordingReads.map((read) => {
+      const compositionId = compositionAddressByShareType.get(read.compositionShareType)!;
+      return [
+        read.recordingId,
+        {
+          compositionCredits: compositionCreditsById.get(compositionId) ?? [],
+          recordingCredits: read.recordingCredits ?? EMPTY_RECORDING_CREDITS,
+        },
+      ];
+    }),
+  );
+}
 
 export interface GetAdministeredRecordingsOptions {
   /**

@@ -597,12 +597,19 @@ export async function getCompositionCredits(
   compositionId: string,
   compositionCreditsPackageId: string,
 ): Promise<CreditView[] | null> {
-  const content = await fetchCreditsField(
-    client,
-    compositionId,
-    `${compositionCreditsPackageId}::composition_credits::ExtensionKey`,
-    COMPOSITION_CREDITS_KEY_BYTES,
-  );
+  const content =
+    (await fetchCreditsField(
+      client,
+      compositionId,
+      `${compositionCreditsPackageId}::composition_credits::ExtensionKey`,
+      COMPOSITION_CREDITS_KEY_BYTES,
+    )) ??
+    (await fetchCreditsField(
+      client,
+      compositionId,
+      `${compositionCreditsPackageId}::composition_credits::CompositionCreditsKey`,
+      COMPOSITION_CREDITS_KEY_BYTES,
+    ));
   if (!content) return null;
   return creditViews(CompositionCreditsField.parse(content).value.credits, compositionRoleLabel);
 }
@@ -616,12 +623,19 @@ export async function getRecordingCredits(
   recordingId: string,
   recordingCreditsPackageId: string,
 ): Promise<RecordingCreditsView | null> {
-  const content = await fetchCreditsField(
-    client,
-    recordingId,
-    `${recordingCreditsPackageId}::recording_credits::ExtensionKey`,
-    RECORDING_CREDITS_KEY_BYTES,
-  );
+  const content =
+    (await fetchCreditsField(
+      client,
+      recordingId,
+      `${recordingCreditsPackageId}::recording_credits::ExtensionKey`,
+      RECORDING_CREDITS_KEY_BYTES,
+    )) ??
+    (await fetchCreditsField(
+      client,
+      recordingId,
+      `${recordingCreditsPackageId}::recording_credits::RecordingCreditsKey`,
+      RECORDING_CREDITS_KEY_BYTES,
+    ));
   if (!content) return null;
   const value = RecordingCreditsField.parse(content).value;
   return {
