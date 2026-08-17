@@ -35,6 +35,11 @@ export * from "./share-template.ts";
 export * from "./release-graph.ts";
 export * from "./catalog.ts";
 
+// High-level, JSON-safe platform projections used directly by clients and by
+// the thin HTTP read service. Namespaced because these composed view types are
+// intentionally distinct from the lower-level contract views above.
+export * as read from "./read/index.ts";
+
 // First-party extensions — attached to a protocol work via its cap-gated
 // `uid_mut` hook.
 export * from "./credits.ts";

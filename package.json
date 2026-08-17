@@ -1,7 +1,7 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.2.1",
-  "description": "Typed query helpers and transaction builders for the Miso platform layer on Sui \u2014 pressings, listings, records, and opinionated work publishing.",
+  "version": "0.3.0",
+  "description": "Complete client SDK for the Miso platform on Sui \u2014 high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -72,6 +72,18 @@
       "types": "./dist/cover.d.ts",
       "default": "./dist/cover.js"
     },
+    "./read": {
+      "types": "./dist/read/index.d.ts",
+      "default": "./dist/read/index.js"
+    },
+    "./read/types": {
+      "types": "./dist/read/types.d.ts",
+      "default": "./dist/read/types.js"
+    },
+    "./drop": {
+      "types": "./dist/drop.d.ts",
+      "default": "./dist/drop.js"
+    },
     "./extensions/royalty-pool": {
       "types": "./dist/extensions/royalty-pool.d.ts",
       "default": "./dist/extensions/royalty-pool.js"
@@ -105,6 +117,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@misonetwork/miso-party": "^0.1.1",
     "@misonetwork/sdk": "^0.3.1"
   },
   "main": "./dist/index.js"
