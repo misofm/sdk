@@ -22,7 +22,10 @@ import * as listing from "./contracts/miso_pressing/listing.ts";
 import * as pressing from "./contracts/miso_pressing/pressing.ts";
 
 /** Pricing policy: pay exactly `amount` (fixed) or at least `amount` (floor). */
-export type ListingPrice = { kind: "fixed" | "floor"; amount: bigint | number | string };
+export type ListingPrice = {
+  kind: "fixed" | "floor";
+  amount: bigint | number | string;
+};
 
 /** Whether a currency's listing takes payment. Below the pressing's own run state. */
 export type ListingSwitch = "enabled" | "disabled";
@@ -54,15 +57,25 @@ const UNIT_STRUCT_KEY_BYTES = new Uint8Array([0x00]);
  * that is the address a Move type tag canonicalises to. `miso_pressing` is published
  * immutable, so its original and current ids are the same.
  */
-export function derivePressingId(releaseId: string, misoPressingPackageId: string): string {
-  return deriveObjectID(releaseId, `${misoPressingPackageId}::pressing::PressingKey`, UNIT_STRUCT_KEY_BYTES);
+export function derivePressingId(
+  releaseId: string,
+  misoPressingPackageId: string,
+): string {
+  return deriveObjectID(
+    releaseId,
+    `${misoPressingPackageId}::pressing::PressingKey`,
+    UNIT_STRUCT_KEY_BYTES,
+  );
 }
 
 /**
  * Where `pressingId`'s admin cap was minted. The cap is transferable, so this is not
  * where it lives — only where it came from.
  */
-export function derivePressingAdminCapId(pressingId: string, misoPressingPackageId: string): string {
+export function derivePressingAdminCapId(
+  pressingId: string,
+  misoPressingPackageId: string,
+): string {
   return deriveObjectID(
     pressingId,
     `${misoPressingPackageId}::pressing::PressingAdminCapKey`,
@@ -93,7 +106,10 @@ export function deriveSaleIds(
   misoPressingPackageId: string,
 ): { pressingId: string; listingId: string } {
   const pressingId = derivePressingId(releaseId, misoPressingPackageId);
-  return { pressingId, listingId: deriveListingId(pressingId, currencyType, misoPressingPackageId) };
+  return {
+    pressingId,
+    listingId: deriveListingId(pressingId, currencyType, misoPressingPackageId),
+  };
 }
 
 // ============================================================================
@@ -103,20 +119,37 @@ export function deriveSaleIds(
 type Tx = Parameters<TxThunk>[0];
 
 function priceArg(tx: Tx, misoPressingPackageId: string, price: ListingPrice) {
-  const make = price.kind === "fixed" ? listing.newFixedPrice : listing.newFloorPrice;
-  return tx.add(make({ package: misoPressingPackageId, arguments: [BigInt(price.amount)] }));
+  const make =
+    price.kind === "fixed" ? listing.newFixedPrice : listing.newFloorPrice;
+  return tx.add(
+    make({ package: misoPressingPackageId, arguments: [BigInt(price.amount)] }),
+  );
 }
 
-function switchArg(tx: Tx, misoPressingPackageId: string, state: ListingSwitch) {
-  const make = state === "enabled" ? listing.newEnabledState : listing.newDisabledState;
+function switchArg(
+  tx: Tx,
+  misoPressingPackageId: string,
+  state: ListingSwitch,
+) {
+  const make =
+    state === "enabled" ? listing.newEnabledState : listing.newDisabledState;
   return tx.add(make({ package: misoPressingPackageId }));
 }
 
-function runStateArg(tx: Tx, misoPressingPackageId: string, state: PressingRunState) {
+function runStateArg(
+  tx: Tx,
+  misoPressingPackageId: string,
+  state: PressingRunState,
+) {
   const pkg = { package: misoPressingPackageId };
   switch (state.kind) {
     case "scheduled":
-      return tx.add(pressing.newScheduledState({ ...pkg, arguments: [BigInt(state.startTimestampMs)] }));
+      return tx.add(
+        pressing.newScheduledState({
+          ...pkg,
+          arguments: [BigInt(state.startTimestampMs)],
+        }),
+      );
     case "active":
       return tx.add(pressing.newActiveState(pkg));
     case "paused":
@@ -169,7 +202,11 @@ export function openPressing(p: OpenPressingParams): TxThunk {
     const [run, adminCap] = tx.add(
       pressing._new({
         package: pkg,
-        arguments: [p.releaseId, p.releaseAdminCapId, runStateArg(tx, pkg, p.state ?? { kind: "active" })],
+        arguments: [
+          p.releaseId,
+          p.releaseAdminCapId,
+          runStateArg(tx, pkg, p.state ?? { kind: "active" }),
+        ],
       }),
     );
     for (const terms of p.listings) {
@@ -246,7 +283,11 @@ export function setListingPrice(p: SetListingPriceParams): TxThunk {
     tx.add(
       listing.setPrice({
         package: pkg,
-        arguments: [listingId, p.pressingAdminCapId, priceArg(tx, pkg, p.price)],
+        arguments: [
+          listingId,
+          p.pressingAdminCapId,
+          priceArg(tx, pkg, p.price),
+        ],
         typeArguments: [p.currencyType],
       }),
     );
@@ -269,7 +310,11 @@ export function setListingState(p: SetListingStateParams): TxThunk {
     tx.add(
       listing.setState({
         package: pkg,
-        arguments: [listingId, p.pressingAdminCapId, switchArg(tx, pkg, p.state)],
+        arguments: [
+          listingId,
+          p.pressingAdminCapId,
+          switchArg(tx, pkg, p.state),
+        ],
         typeArguments: [p.currencyType],
       }),
     );
@@ -352,7 +397,11 @@ export interface BuyRecordParams {
 export function buyRecord(p: BuyRecordParams): TxThunk {
   return (tx) => {
     const pkg = p.misoPressingPackageId;
-    const { pressingId, listingId } = deriveSaleIds(p.releaseId, p.currencyType, pkg);
+    const { pressingId, listingId } = deriveSaleIds(
+      p.releaseId,
+      p.currencyType,
+      pkg,
+    );
     const payment = tx.balance({
       type: p.currencyType,
       balance: BigInt(p.amount),
@@ -407,8 +456,13 @@ async function fetch(
   objectId: string,
 ): Promise<{ content: Uint8Array; type?: string } | null> {
   try {
-    const { object } = await client.core.getObject({ objectId, include: { content: true } });
-    return object?.content ? { content: object.content, type: object.type } : null;
+    const { object } = await client.core.getObject({
+      objectId,
+      include: { content: true },
+    });
+    return object?.content
+      ? { content: object.content, type: object.type }
+      : null;
   } catch (e) {
     if (isNotFound(e)) return null;
     throw e;
@@ -417,8 +471,12 @@ async function fetch(
 
 // The generated `MoveEnum` parsers emit `{ $kind, <Variant>: … }`; older ones omitted
 // `$kind`. Both shapes are accepted so a codegen bump cannot silently mis-read a price.
-function variant<T extends string>(v: { $kind?: string } & Record<string, unknown>, ...names: T[]): T {
-  for (const name of names) if (v.$kind === name || v[name] != null) return name;
+function variant<T extends string>(
+  v: { $kind?: string } & Record<string, unknown>,
+  ...names: T[]
+): T {
+  for (const name of names)
+    if (v.$kind === name || v[name] != null) return name;
   return names[0]!;
 }
 
@@ -430,18 +488,31 @@ function variant<T extends string>(v: { $kind?: string } & Record<string, unknow
  * computable for ANY release, so probing one that was never opened is a normal state,
  * not a broken reference — absence is `null` and only transport failures throw.
  */
-export async function getPressing(client: ClientWithCoreApi, pressingId: string): Promise<PressingView | null> {
+export async function getPressing(
+  client: ClientWithCoreApi,
+  pressingId: string,
+): Promise<PressingView | null> {
   const got = await fetch(client, pressingId);
   if (!got) return null;
-  const parsed = pressing.Pressing.parse(got.content);
-  const s = parsed.state as { $kind?: string; Scheduled?: { start_timestamp_ms: string } };
+  return parsePressing(pressingId, got.content);
+}
+
+function parsePressing(pressingId: string, content: Uint8Array): PressingView {
+  const parsed = pressing.Pressing.parse(content);
+  const s = parsed.state as {
+    $kind?: string;
+    Scheduled?: { start_timestamp_ms: string };
+  };
   const kind = variant(s, "Scheduled", "Active", "Paused");
   return {
     id: pressingId,
     releaseId: parsed.release_id,
     state:
       kind === "Scheduled"
-        ? { kind: "scheduled", startTimestampMs: BigInt(s.Scheduled?.start_timestamp_ms ?? "0") }
+        ? {
+            kind: "scheduled",
+            startTimestampMs: BigInt(s.Scheduled?.start_timestamp_ms ?? "0"),
+          }
         : kind === "Paused"
           ? { kind: "paused" }
           : { kind: "active" },
@@ -450,23 +521,45 @@ export async function getPressing(client: ClientWithCoreApi, pressingId: string)
 }
 
 /** Fetches and parses a `Listing<Currency>`, or `null` if that currency is not listed. */
-export async function getListing(client: ClientWithCoreApi, listingId: string): Promise<ListingView | null> {
+export async function getListing(
+  client: ClientWithCoreApi,
+  listingId: string,
+): Promise<ListingView | null> {
   const got = await fetch(client, listingId);
   if (!got) return null;
-  const parsed = listing.Listing.parse(got.content);
-  const p = parsed.price as { $kind?: string; Fixed?: { amount: string }; Floor?: { amount: string } };
+  return parseListing(listingId, got.content, got.type);
+}
+
+function parseListing(
+  listingId: string,
+  content: Uint8Array,
+  type?: string,
+): ListingView {
+  const parsed = listing.Listing.parse(content);
+  const p = parsed.price as {
+    $kind?: string;
+    Fixed?: { amount: string };
+    Floor?: { amount: string };
+  };
   const priceKind = variant(p, "Fixed", "Floor");
-  const st = parsed.state as { $kind?: string; Enabled?: unknown; Disabled?: unknown };
+  const st = parsed.state as {
+    $kind?: string;
+    Enabled?: unknown;
+    Disabled?: unknown;
+  };
   return {
     id: listingId,
     releaseId: parsed.release_id,
     pressingId: parsed.pressing_id,
     price: {
       kind: priceKind === "Fixed" ? "fixed" : "floor",
-      amount: BigInt((priceKind === "Fixed" ? p.Fixed?.amount : p.Floor?.amount) ?? "0"),
+      amount: BigInt(
+        (priceKind === "Fixed" ? p.Fixed?.amount : p.Floor?.amount) ?? "0",
+      ),
     },
-    state: variant(st, "Enabled", "Disabled") === "Enabled" ? "enabled" : "disabled",
-    currencyType: currencyFromType(got.type),
+    state:
+      variant(st, "Enabled", "Disabled") === "Enabled" ? "enabled" : "disabled",
+    currencyType: currencyFromType(type),
   };
 }
 
@@ -488,10 +581,27 @@ export async function getSale(
   client: ClientWithCoreApi,
   p: GetSaleParams,
 ): Promise<{ pressing: PressingView | null; listing: ListingView | null }> {
-  const { pressingId, listingId } = deriveSaleIds(p.releaseId, p.currencyType, p.misoPressingPackageId);
-  const [pressingView, listingView] = await Promise.all([
-    getPressing(client, pressingId),
-    getListing(client, listingId),
-  ]);
-  return { pressing: pressingView, listing: listingView };
+  const { pressingId, listingId } = deriveSaleIds(
+    p.releaseId,
+    p.currencyType,
+    p.misoPressingPackageId,
+  );
+  const { objects } = await client.core.getObjects({
+    objectIds: [pressingId, listingId],
+    include: { content: true },
+  });
+  const pressingObject = objects[0];
+  const listingObject = objects[1];
+  return {
+    pressing:
+      !pressingObject ||
+      pressingObject instanceof Error ||
+      !pressingObject.content
+        ? null
+        : parsePressing(pressingId, pressingObject.content),
+    listing:
+      !listingObject || listingObject instanceof Error || !listingObject.content
+        ? null
+        : parseListing(listingId, listingObject.content, listingObject.type),
+  };
 }

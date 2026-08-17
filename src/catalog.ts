@@ -14,16 +14,16 @@
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
 import {
-  getCompositionAddressByShareType,
+  extractTypeParams2,
   getOwnedRecordingAdminCaps,
-  getRecordingByShareType,
-  getRecordingShareTypes,
+  getRecordingsByIds,
   getReleaseById,
   type Recording,
 } from "@misonetwork/sdk";
+import { getWorkAddressesByShareTypes } from "./read/works.ts";
 import {
-  getCompositionCredits,
-  getRecordingCredits,
+  getCompositionCreditsByIds,
+  getRecordingCreditsByIds,
   type CreditView,
   type RecordingCreditsView,
 } from "./credits.ts";
@@ -85,51 +85,60 @@ export async function getTrackCreditsByRecordingIds(
   options: GetReleaseTrackCreditsOptions,
 ): Promise<Record<string, ReleaseTrackCredits>> {
   const recordingIds = [...new Set(recordingIdsInput)];
+  if (recordingIds.length === 0) return {};
 
-  const recordingReads = await Promise.all(
-    recordingIds.map(async (recordingId) => {
-      const [recordingCredits, [, compositionShareType]] = await Promise.all([
-        getRecordingCredits(client, recordingId, options.recordingCreditsPackageId),
-        getRecordingShareTypes(client, recordingId),
-      ]);
-      return { recordingId, recordingCredits, compositionShareType };
-    }),
-  );
+  const [recordingCreditsById, recordingObjects] = await Promise.all([
+    getRecordingCreditsByIds(
+      client,
+      recordingIds,
+      options.recordingCreditsPackageId,
+    ),
+    client.core.getObjects({ objectIds: recordingIds }),
+  ]);
+  const recordingReads = recordingObjects.objects.map((object, index) => {
+    const recordingId = recordingIds[index]!;
+    if (object instanceof Error) throw object;
+    const [, compositionShareType] = extractTypeParams2(object.type);
+    return {
+      recordingId,
+      recordingCredits: recordingCreditsById[recordingId] ?? null,
+      compositionShareType,
+    };
+  });
 
-  const compositionShareTypes = [...new Set(recordingReads.map((read) => read.compositionShareType))];
-  const compositionAddressEntries = await Promise.all(
-    compositionShareTypes.map(async (shareType) => {
-      const compositionId = await getCompositionAddressByShareType(
-        graphqlClient,
-        shareType,
-        options.misoPackageId,
-      );
-      if (!compositionId) throw new Error(`Composition not found for share type: ${shareType}`);
-      return [shareType, compositionId] as const;
-    }),
+  const compositionShareTypes = [
+    ...new Set(recordingReads.map((read) => read.compositionShareType)),
+  ];
+  const addresses = await getWorkAddressesByShareTypes(
+    graphqlClient,
+    { compositions: compositionShareTypes, recordings: [] },
+    options.misoPackageId,
   );
-  const compositionAddressByShareType = new Map(compositionAddressEntries);
-
-  const compositionIds = [...new Set(compositionAddressEntries.map(([, compositionId]) => compositionId))];
-  const compositionCreditEntries = await Promise.all(
-    compositionIds.map(async (compositionId) => {
-      const credits = await getCompositionCredits(
-        client,
-        compositionId,
-        options.compositionCreditsPackageId,
-      );
-      return [compositionId, credits ?? []] as const;
-    }),
+  for (const shareType of compositionShareTypes) {
+    if (!addresses.compositions[shareType]) {
+      throw new Error(`Composition not found for share type: ${shareType}`);
+    }
+  }
+  const compositionIds = [
+    ...new Set(
+      Object.values(addresses.compositions).filter(
+        (id): id is string => id !== undefined,
+      ),
+    ),
+  ];
+  const compositionCreditsById = await getCompositionCreditsByIds(
+    client,
+    compositionIds,
+    options.compositionCreditsPackageId,
   );
-  const compositionCreditsById = new Map(compositionCreditEntries);
 
   return Object.fromEntries(
     recordingReads.map((read) => {
-      const compositionId = compositionAddressByShareType.get(read.compositionShareType)!;
+      const compositionId = addresses.compositions[read.compositionShareType]!;
       return [
         read.recordingId,
         {
-          compositionCredits: compositionCreditsById.get(compositionId) ?? [],
+          compositionCredits: compositionCreditsById[compositionId] ?? [],
           recordingCredits: read.recordingCredits ?? EMPTY_RECORDING_CREDITS,
         },
       ];
@@ -139,9 +148,8 @@ export async function getTrackCreditsByRecordingIds(
 
 export interface GetAdministeredRecordingsOptions {
   /**
-   * Maximum lookups in flight at once. The traversal is one lookup per admin
-   * cap, so an artist with a large catalog would otherwise open as many
-   * concurrent requests as they have recordings. Defaults to 10.
+   * @deprecated Resolution is batched; this option is retained for source
+   * compatibility and no longer affects request concurrency.
    */
   concurrency?: number;
 }
@@ -149,20 +157,8 @@ export interface GetAdministeredRecordingsOptions {
 /**
  * Every `Recording` administered by `owner`.
  *
- * Two stages: list the owner's `RecordingAdminCap`s over the Core API, then
- * resolve each cap's share type back to its recording.
- *
- * The second stage needs GraphQL and is inherently one lookup per cap, because
- * `RecordingAdminCap` carries no back-pointer to its recording — unlike
- * `ReleaseAdminCap`, which stores `release_id` and can therefore be resolved
- * entirely over the Core API. The caps are derived objects (recording → cap via
- * `deriveObjectID`), and that derivation cannot be inverted, so the share type
- * is the only link back. Adding a `recording_id: ID` field to
- * `RecordingAdminCap` on the protocol side would make this a pure Core-API
- * batch read and remove both the GraphQL dependency and the fan-out.
- *
- * Until then the lookups run concurrently in bounded batches rather than
- * serially.
+ * Three bounded stages: list the owner's `RecordingAdminCap`s, resolve every
+ * share type in one aliased GraphQL query, then batch-fetch the recordings.
  */
 export async function getAdministeredRecordings(
   client: ClientWithCoreApi,
@@ -171,25 +167,23 @@ export async function getAdministeredRecordings(
   misoPackageId: string,
   options: GetAdministeredRecordingsOptions = {},
 ): Promise<Recording[]> {
-  const concurrency = Math.max(1, options.concurrency ?? 10);
+  void options;
   const caps = await getOwnedRecordingAdminCaps(client, owner, misoPackageId);
-
-  const recordings: Recording[] = [];
-  for (let i = 0; i < caps.length; i += concurrency) {
-    const batch = caps.slice(i, i + concurrency);
-    const settled = await Promise.all(
-      batch.map(async (cap) => {
-        try {
-          return await getRecordingByShareType(client, graphqlClient, cap.shareType, misoPackageId);
-        } catch {
-          // A cap whose recording cannot be resolved is skipped rather than
-          // failing the whole catalog — matching the previous behavior, where a
-          // missing address was silently passed over.
-          return null;
-        }
-      }),
-    );
-    for (const rec of settled) if (rec) recordings.push(rec);
-  }
-  return recordings;
+  if (caps.length === 0) return [];
+  const addresses = await getWorkAddressesByShareTypes(
+    graphqlClient,
+    { compositions: [], recordings: caps.map((cap) => cap.shareType) },
+    misoPackageId,
+  );
+  const byId = await getRecordingsByIds(
+    client,
+    Object.values(addresses.recordings).filter(
+      (id): id is string => id !== undefined,
+    ),
+  );
+  return caps.flatMap((cap) => {
+    const id = addresses.recordings[cap.shareType];
+    const recording = id ? byId[id] : undefined;
+    return recording ? [recording] : [];
+  });
 }

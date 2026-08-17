@@ -21,7 +21,9 @@
 // ── Catalog ──────────────────────────────────────────────────────────────────
 
 /** Lifecycle state shared by compositions, recordings, and releases. */
-export type WorkState = { type: "Initialized" } | { type: "Published"; timestampMs: number };
+export type WorkState =
+  | { type: "Initialized" }
+  | { type: "Published"; timestampMs: number };
 
 /** A cover image's location on Walrus, plus the URL to fetch it from. */
 export interface CoverImage {
@@ -49,10 +51,16 @@ export interface Credit {
  * party, not roles the party performed — a producer can be a featured artist. UI
  * badges the names by intersecting the two.
  */
-export interface TrackCredits {
+export interface RecordingCredits {
   credits: Credit[];
   primaryArtistIds: string[];
   featuredArtistIds: string[];
+}
+
+/** Composition writing credits plus recording performance/production credits. */
+export interface TrackCredits {
+  compositionCredits: Credit[];
+  recordingCredits: RecordingCredits;
 }
 
 /** One track as a tracklist renders it. */
@@ -81,6 +89,8 @@ export interface ReleaseDetail {
   primaryArtists: string[];
   discCount: number;
   tracks: TrackView[];
+  /** Present only when requested via `include`, keyed by recording id. */
+  trackCredits?: Record<string, TrackCredits>;
 }
 
 /** Pricing policy: pay exactly `amount` (fixed), or at least `amount` (floor). */
@@ -137,6 +147,8 @@ export interface RecordAlbum {
   recordId: string;
   /** Null when the record object carries no release id. */
   releaseId: string | null;
+  /** Present only when requested via `include`; null when no release is linked. */
+  release?: ReleaseDetail | null;
 }
 
 /** The confirmation preview shown when an owner pastes a pressing id to pin. */
@@ -229,6 +241,8 @@ export interface ArtistProfile {
   /** Present only when requested via `include` — the owner-editor fields. */
   roles?: string[];
   tags?: string[];
+  /** Present only when requested via `include`; null means nothing is pinned. */
+  featured?: FeaturedRelease | null;
   /** Public avatar URL (miso-api R2 lane; may 404 when unset). */
   avatarUrl: string;
 }
