@@ -1,10 +1,9 @@
 # @misofm/sdk
 
-Typed reads and transaction builders for the **Miso platform layer** on Sui: the
-record production line and the sale of copies off it, the first-party protocol
-extensions (credits, cover art, royalty pools), and the opinionated publish flow
-(share economics, minato dispersal, whole-graph orchestration) built on top of
-`@misonetwork/sdk`'s bare protocol primitives.
+The complete client SDK for the **Miso platform layer** on Sui: composed catalog,
+artist, wallet, and receipt reads; the record production line and sale of copies;
+first-party protocol extensions (credits, cover art, royalty pools); and the
+opinionated publish flow built on `@misonetwork/sdk`'s bare protocol primitives.
 
 ## The split
 
@@ -92,6 +91,37 @@ Holding the ids yourself? Every builder and reader is exported bare, taking
 
 ```ts
 import { buyRecord, getSale } from "@misofm/sdk/pressing";
+```
+
+### High-level platform reads
+
+`@misofm/sdk/read` turns protocol, pressing, PartyOS, credits, cover, and wallet
+objects into the JSON-safe views a client actually renders. It works in browsers,
+Workers, and servers. Miso's HTTP API is a thin validated and cached transport over
+this same surface, not a separate domain implementation.
+
+```ts
+import {
+  createMisoClient,
+  getDiscoverShelf,
+  getReleaseDetail,
+  getOwnedRecords,
+} from "@misofm/sdk/read";
+
+const miso = createMisoClient({ network: "testnet" });
+
+const discover = await getDiscoverShelf(miso);
+const release = await getReleaseDetail(miso, releaseId);
+const library = await getOwnedRecords(miso, walletAddress);
+```
+
+The package root also exposes the same functions under the `read` namespace:
+
+```ts
+import { read } from "@misofm/sdk";
+
+const miso = read.createMisoClient({ network: "testnet" });
+const artist = await read.getArtistProfile(miso, partyId);
 ```
 
 ### Payment
@@ -321,6 +351,8 @@ src/
   share-template.ts      embedded `share` package bytecode
   credits.ts             EXTENSION: contributor credits + the three role vocabularies
   cover.ts               EXTENSION: release cover art (Walrus blob via ori)
+  drop.ts                existing launch-drop compatibility surface
+  read/                  high-level catalog, artist, wallet, and receipt views
   extensions/
     royalty-pool.ts      EXTENSION: create + share a RoyaltyPool<Share, Currency>
   execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult

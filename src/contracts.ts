@@ -14,6 +14,10 @@ export * as pressing from "./contracts/miso_pressing/pressing.ts";
 export * as listing from "./contracts/miso_pressing/listing.ts";
 export * as certificate from "./contracts/miso_pressing/certificate.ts";
 
+// Existing launch drops remain readable and purchasable while releases move to
+// the pressing/listing contracts.
+export * as drop from "./contracts/miso_drop/drop.ts";
+
 // Royalty-pool extension (base lib + per-work extensions).
 export * as royaltyPool from "./contracts/royalty_pool/pool.ts";
 export * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
