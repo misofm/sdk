@@ -71,6 +71,19 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
     }),
   ).toThrow(/misoPackageId.*is required/);
 
+  const withoutMiso = new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" }).$extend(
+    misoPlatform({ packageId: PRESSING, releaseRegistryPackageId: RELEASE_REGISTRY, releaseRegistryId: A }),
+  );
+  expect(() =>
+    withoutMiso.misoPlatform.tx.publishRelease({
+      title: "LP",
+      tracks: [],
+      releaseId: A,
+      releaseNonce: "0",
+      adminAddress: A,
+    }),
+  ).toThrow(/publishRelease/);
+
   // Builders that never touch the protocol/minato must keep working without them.
   const tx = new Transaction();
   sellOnly.misoPlatform.tx.openPressing({

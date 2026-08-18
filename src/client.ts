@@ -139,7 +139,7 @@ export class MisoPlatformClient {
     if (!misoPackageId) {
       throw new Error(
         "misoPlatform: `misoPackageId` is required for the publish builders " +
-          "(publishComposition, publishRecording, publishCompositionAndRecording) — pass it to misoPlatform({ misoPackageId }).",
+          "(publishComposition, publishRecording, publishCompositionAndRecording, publishRelease) — pass it to misoPlatform({ misoPackageId }).",
       );
     }
     return misoPackageId;
