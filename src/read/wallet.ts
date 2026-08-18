@@ -32,9 +32,6 @@ import type {
 } from "./types.ts";
 import { getRecordingTitles, getWorkAddressesByShareTypes, getWorksByIds } from "./works.ts";
 
-/** The on-chain type suffix every record object shares, across both live packages. */
-export const RECORD_TYPE_SUFFIX = "::record::Record";
-
 /**
  * Page cap on the owned-objects scan, so a wallet holding a huge unrelated object
  * set can't spin forever. 50/page × 20 = 1000 objects — far beyond any realistic
@@ -52,53 +49,29 @@ function coerceNumber(v: unknown): number | null {
 }
 
 /**
- * This copy's number in its run, across both record struct layouts: card
- * checkout's `{ release_id, number }` and the SDK view's
- * `{ release_id, edition, variant: { Prototype|Production: { number } } }`.
- * The gRPC JSON enum shape varies by transport, so this probes defensively.
- *
- * Precedence is MOST SPECIFIC FIRST — a top-level `number`, then the variant's
- * `number`, and only then `edition`. miso-app's original
- * (`lib/records.ts:readRecordNumber`) checked `edition` before descending into
- * the variant, so an SDK-view record reported which EDITION it came from (2)
- * where the field means which COPY it is (12). `edition` survives as the last
- * resort for a layout that carries nothing better.
+ * This copy's number in its run. Fresh records expose the canonical
+ * `{ release_id, number }` shape; pre-publish layouts are intentionally not
+ * accepted by the pre-launch SDK.
  */
 function readRecordNumber(json: Record<string, unknown>): number | null {
-  const direct = coerceNumber(json.number);
-  if (direct != null) return direct;
-
-  const variant = json.variant;
-  if (variant && typeof variant === "object") {
-    const v = variant as Record<string, unknown>;
-    const top = coerceNumber(v.number);
-    if (top != null) return top;
-    for (const inner of Object.values(v)) {
-      if (inner && typeof inner === "object") {
-        const n = coerceNumber((inner as Record<string, unknown>).number);
-        if (n != null) return n;
-      }
-    }
-  }
-  return coerceNumber(json.edition);
+  return coerceNumber(json.number);
 }
 
 function readReleaseId(json: Record<string, unknown>): string | null {
-  const r = json.release_id ?? json.releaseId;
+  const r = json.release_id;
   return typeof r === "string" && r ? r : null;
 }
 
 /**
  * The records `owner` holds. Ownership is DIRECT — a record is an address-owned
- * `<pkg>::record::Record` with no pressing/license/receipt intermediary.
- *
- * There is deliberately no `type` filter on the listing: two record packages are
- * live, so we match the `::record::Record` SUFFIX client-side and catch both with
- * no package-id config. Objects that fail to parse are skipped, never thrown.
+ * `<miso_record>::record::Record` with no pressing/license/receipt intermediary.
+ * The server-side type filter and exact local check deliberately exclude records
+ * from any retired package namespace.
  */
 export async function getOwnedRecords(client: MisoClient, owner: string): Promise<OwnedRecord[]> {
   const out: OwnedRecord[] = [];
   let cursor: string | null = null;
+  const recordType = `${client.config.protocol.record}::record::Record`;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // Annotated: `cursor` is both an input and assigned from the result, which
@@ -106,12 +79,13 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
     const res: Awaited<ReturnType<typeof client.protocol.core.listOwnedObjects>> =
       await client.protocol.core.listOwnedObjects({
         owner,
+        type: recordType,
         cursor,
         limit: 50,
         include: { json: true },
       });
     for (const obj of res.objects) {
-      if (!obj.type || !obj.type.endsWith(RECORD_TYPE_SUFFIX)) continue;
+      if (obj.type !== recordType) continue;
       const json = (obj.json ?? {}) as Record<string, unknown>;
       out.push({
         id: obj.objectId,

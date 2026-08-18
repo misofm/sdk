@@ -3,35 +3,33 @@
 
 // Single-PTB publisher for a whole release graph: creates every composition and
 // recording, optionally attaches royalty pools, derives the release id ON-CHAIN
-// (so recordings need not be shared first), builds the deals/tracks/release,
+// (so recordings need not be shared first), builds the tracks/release,
 // then shares everything and transfers the admin caps — all in ONE transaction.
 //
 // Share currencies must already be published + initialized (their Currency objects
 // shared on-chain); their ids/types are passed in. Ordering is load-bearing:
 //   1. composition::new → recording::new(&comp)  (borrow-before-share) + pool attach
-//   2. release::derive_release_id(<recording::id results>) → deal::new(cap, &rec,
-//      derivedId, split) → track::new → release::new
+//   2. release::derive_target_release_id(<recording::id results>) →
+//      track::new(cap, &rec, derivedId, split) → release_registry::new_release
 //   3. publish (share) comps + recs + release, disperse supply, transfer caps
 // Steps 1–2 borrow the works; step 3 consumes them into share_object.
 //
-// Release tracks come in three shapes (see TrackNode): recordings created in
-// THIS PTB, existing recordings authorized by their admin cap (deal created
-// inline), and existing recordings authorized by a pre-made Deal in hand.
-// Pre-made deals pin the release id, so they cannot coexist with fresh
-// recordings — the builder rejects that mix up front.
+// Release tracks come in two shapes (see TrackNode): recordings created in THIS
+// PTB, and existing recordings authorized by their admin cap.
 //
 // This is the whole-graph orchestration half of the opinionated publish flow —
-// it composes `@misonetwork/sdk`'s bare `composition`/`recording`/`deal`/`track`/
-// `release` call bindings and its `createRelease` primitive with this package's
+// it composes `@misonetwork/sdk`'s bare `composition`/`recording`/`track`/
+// `release` call bindings and this package's `release_registry` binding with its
 // own `disperseShares`/`finalizeRelease` and royalty-pool extension helpers, into
 // one PTB.
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
-import { contracts, createRelease, PROTOCOL_MAX_ROYALTY_RATE_BPS } from "@misonetwork/sdk";
+import { contracts, PROTOCOL_MAX_ROYALTY_RATE_BPS } from "@misonetwork/sdk";
 import { attachCompositionRoyaltyPool, attachRecordingRoyaltyPool } from "./extensions/royalty-pool.ts";
 import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
+import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 
-const { composition, recording, deal, track, release } = contracts;
+const { composition, recording, track, release } = contracts;
 
 /** A royalty pool to attach to a work, in the same PTB. */
 export interface RoyaltyPoolNode {
@@ -75,7 +73,7 @@ export interface RecordingNode {
   royaltyPool?: RoyaltyPoolNode;
 }
 
-/** A track whose recording is created in THIS PTB (its deal is created inline). */
+/** A track whose recording is created in THIS PTB. */
 export interface FreshTrackNode {
   /** Index into `recordings[]`. */
   recordingIndex: number;
@@ -83,9 +81,8 @@ export interface FreshTrackNode {
 }
 
 /**
- * A track over an EXISTING recording, authorized by its admin cap (held by the
- * sender) — the deal is created inline against the on-chain-derived release id.
- * This is the only way to mix existing recordings with ones created in this PTB.
+ * A track over an EXISTING recording, authorized by its admin cap held by the
+ * sender. This can coexist with recordings created in this PTB.
  */
 export interface CapTrackNode {
   recordingId: string;
@@ -95,25 +92,9 @@ export interface CapTrackNode {
   splitBps: number;
 }
 
-/**
- * A track over an EXISTING recording, authorized by a pre-made `Deal` held by
- * the sender. A deal pins the exact release id — a digest over ALL track
- * recording ids — so deal-backed tracks cannot coexist with `FreshTrackNode`s
- * (a fresh recording's id is unknowable when the deal was created).
- * `splitBps` must be the value stored in the deal (read it from the object).
- */
-export interface DealTrackNode {
-  dealId: string;
-  recordingId: string;
-  recordingShareType: string;
-  compositionShareType: string;
-  splitBps: number;
-}
-
-export type TrackNode = FreshTrackNode | CapTrackNode | DealTrackNode;
+export type TrackNode = FreshTrackNode | CapTrackNode;
 
 const isFresh = (t: TrackNode): t is FreshTrackNode => "recordingIndex" in t;
-const isDealBacked = (t: TrackNode): t is DealTrackNode => "dealId" in t;
 
 export interface ReleaseNode {
   title: string;
@@ -131,6 +112,8 @@ export interface PublishReleaseGraphParams {
   release?: ReleaseNode;
   misoPackageId: string;
   minatoPackageId: string;
+  /** `release_registry` extension package, distinct from its shared object id. */
+  releaseRegistryPackageId: string;
 }
 
 interface Parts {
@@ -141,7 +124,7 @@ interface Parts {
 
 /** Builds the entire graph in a single transaction (see file header for ordering). */
 export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Transaction) => void {
-  const { misoPackageId: pkg, minatoPackageId } = params;
+  const { misoPackageId: pkg, minatoPackageId, releaseRegistryPackageId } = params;
   return (tx) => {
     // ── 1) Create every composition, then every recording (borrow-before-share) ──
     const comps: Parts[] = params.compositions.map((c) => {
@@ -199,61 +182,43 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
       return parts;
     });
 
-    // ── 2) Release: derive the id on-chain, then deals → tracks → release ──
+    // ── 2) Release: derive the id on-chain, then tracks → release ──────────
     if (params.release) {
       const rel = params.release;
       const ordered = rel.tracks;
-      if (ordered.some(isDealBacked) && ordered.some(isFresh)) {
-        throw new Error(
-          "A release cannot mix pre-made deals with recordings created in this transaction: " +
-            "a deal pins the exact release id, whose digest includes every track's recording id, " +
-            "and a fresh recording's id is unknowable when the deal was created. " +
-            "Authorize the existing recordings with their admin caps instead.",
-        );
-      }
-
-      // The derived id feeds the deals created inline (fresh/cap-backed tracks).
-      // Pre-made deals already store it, so an all-deal release skips the derive.
-      let releaseId: TransactionObjectArgument | undefined;
-      if (!ordered.every(isDealBacked)) {
-        const idVec = tx.makeMoveVec({
-          type: "0x2::object::ID",
-          elements: ordered.map((t) =>
-            isFresh(t)
-              ? tx.add(recording.id({ package: pkg, typeArguments: recTypeArgs(t.recordingIndex), arguments: [recs[t.recordingIndex]!.work] }))
-              : tx.pure.id(t.recordingId),
-          ),
-        });
-        const splitVec = tx.makeMoveVec({ type: "u64", elements: ordered.map((t) => tx.pure.u64(t.splitBps)) });
-        releaseId = tx.add(
-          release.deriveReleaseId({ package: pkg, arguments: [idVec, splitVec, tx.pure.u256(BigInt(rel.nonce)), tx.object(rel.releaseRegistryId)] }),
-        );
-      }
+      const idVec = tx.makeMoveVec({
+        type: "0x2::object::ID",
+        elements: ordered.map((t) =>
+          isFresh(t)
+            ? tx.add(recording.id({ package: pkg, typeArguments: recTypeArgs(t.recordingIndex), arguments: [recs[t.recordingIndex]!.work] }))
+            : tx.pure.id(t.recordingId),
+        ),
+      });
+      const splitVec = tx.makeMoveVec({ type: "u64", elements: ordered.map((t) => tx.pure.u64(t.splitBps)) });
+      // This returns an ID value (not an object); pass the result straight to
+      // `track::new` so every track consents to this exact release target.
+      const releaseId = tx.add(
+        release.deriveTargetReleaseId({ package: pkg, arguments: [idVec, splitVec, tx.pure.u256(BigInt(rel.nonce)), tx.pure.id(rel.releaseRegistryId)] }),
+      );
 
       const trackArgs = ordered.map((t) => {
-        if (isDealBacked(t)) {
-          const typeArgs: [string, string] = [t.recordingShareType, t.compositionShareType];
-          return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [tx.object(t.dealId), tx.object(t.recordingId)] }));
-        }
         if (isFresh(t)) {
           const typeArgs = recTypeArgs(t.recordingIndex);
           const parts = recs[t.recordingIndex]!;
-          const dealArg = tx.add(deal._new({ package: pkg, typeArguments: typeArgs, arguments: [parts.adminCap, parts.work, releaseId!, tx.pure.u16(t.splitBps)] }));
-          return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [dealArg, parts.work] }));
+          return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [parts.adminCap, parts.work, releaseId, tx.pure.u16(t.splitBps)] }));
         }
         const typeArgs: [string, string] = [t.recordingShareType, t.compositionShareType];
         const rec = tx.object(t.recordingId);
-        const dealArg = tx.add(
-          deal._new({ package: pkg, typeArguments: typeArgs, arguments: [tx.object(t.recordingAdminCapId), rec, releaseId!, tx.pure.u16(t.splitBps)] }),
-        );
-        return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [dealArg, rec] }));
+        return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [tx.object(t.recordingAdminCapId), rec, releaseId, tx.pure.u16(t.splitBps)] }));
       });
       const trackVec = tx.makeMoveVec({ type: `${pkg}::track::Track`, elements: trackArgs });
-      const releaseParts = createRelease(
-        tx,
-        { title: rel.title, nonce: rel.nonce, releaseRegistryId: rel.releaseRegistryId, misoPackageId: pkg },
-        trackVec,
+      const created = tx.add(
+        releaseRegistry.newRelease({
+          package: releaseRegistryPackageId,
+          arguments: [tx.object(rel.releaseRegistryId), tx.pure.string(rel.title), trackVec, tx.pure.u256(BigInt(rel.nonce))],
+        }),
       );
+      const releaseParts = { release: created[0]!, adminCap: created[1]! };
       finalizeRelease(tx, { ...releaseParts, adminAddress: rel.adminAddress, misoPackageId: pkg });
     }
 

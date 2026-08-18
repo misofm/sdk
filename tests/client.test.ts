@@ -14,12 +14,13 @@ import { misoPlatform } from "../src/client.ts";
 const PRESSING = "0x" + "12".repeat(32);
 const MISO = "0x" + "cd".repeat(32);
 const MINATO = "0x" + "ef".repeat(32);
+const RELEASE_REGISTRY = "0x" + "34".repeat(32);
 const SHARE = "0x" + "ab".repeat(32) + "::share::Share";
 const A = "0x" + "11".repeat(32);
 
 function client() {
   return new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" }).$extend(
-    misoPlatform({ packageId: PRESSING, misoPackageId: MISO, minatoPackageId: MINATO }),
+    misoPlatform({ packageId: PRESSING, misoPackageId: MISO, minatoPackageId: MINATO, releaseRegistryPackageId: RELEASE_REGISTRY, releaseRegistryId: A }),
   );
 }
 
@@ -79,4 +80,18 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
     adminCapRecipient: A,
   })(tx);
   expect(moveCalls(tx).find((c) => c.module === "pressing" && c.function === "new")?.package).toBe(PRESSING);
+});
+
+test("client.misoPlatform.tx.publishRelease binds the registry package and object", () => {
+  const tx = new Transaction();
+  client().misoPlatform.tx.publishRelease({
+    title: "LP",
+    tracks: [{ recordingId: A, recordingAdminCapId: A, recordingShareType: SHARE, compositionShareType: SHARE, splitBps: 10000 }],
+    releaseId: A,
+    releaseNonce: "0",
+    adminAddress: A,
+  })(tx);
+
+  const registry = moveCalls(tx).find((call) => call.module === "release_registry" && call.function === "new_release");
+  expect(registry?.package).toBe(RELEASE_REGISTRY);
 });

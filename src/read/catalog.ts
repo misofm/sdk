@@ -161,24 +161,16 @@ function toTracks(
 
 // ── Cover ────────────────────────────────────────────────────────────────────
 
-/**
- * A release's cover, trying the current `release_cover_art` package and then each
- * legacy one in turn.
- *
- * Covers set before the cover_art package split live under a different
- * `CoverArtKey` TYPE (different package address), so a current-package read
- * simply misses them rather than failing. Ported verbatim from miso-app's
- * `lib/pressing.ts:readReleaseCover`.
- */
+/** A release's cover from the configured `release_cover_art` package. */
 export async function readReleaseCover(
   client: MisoClient,
   releaseId: string,
 ): Promise<Cover | null> {
-  const { releaseCoverArt, legacyReleaseCoverArt } = client.config.protocol;
+  const { releaseCoverArt } = client.config.protocol;
   const covers = await getReleaseCoversByIds(
     client.protocol,
     [releaseId],
-    [releaseCoverArt, ...legacyReleaseCoverArt],
+    releaseCoverArt,
   ).catch(() => ({}) as Partial<Record<string, ReleaseCoverView>>);
   return toCover(client.config.walrusAggregatorUrl, covers[releaseId] ?? null);
 }
@@ -203,15 +195,9 @@ export async function getReleaseResources(
 ): Promise<ReleaseResources> {
   const wantsCover = include.includes("cover");
   const wantsCredits = include.includes("credits");
-  const coverPackages = wantsCover
-    ? [
-        client.config.protocol.releaseCoverArt,
-        ...client.config.protocol.legacyReleaseCoverArt,
-      ]
+  const coverFieldIds = wantsCover
+    ? [releaseCoverFieldId(releaseId, client.config.protocol.releaseCoverArt)]
     : [];
-  const coverFieldIds = coverPackages.map((packageId) =>
-    releaseCoverFieldId(releaseId, packageId),
-  );
   const creditsFieldId = wantsCredits
     ? releaseCreditsFieldId(releaseId, client.config.protocol.releaseCredits)
     : null;
@@ -222,7 +208,7 @@ export async function getReleaseResources(
   ];
   const { objects } = await client.protocol.core.getObjects({
     objectIds,
-    include: { content: true, json: true },
+    include: { content: true },
   });
   const releaseObject = objects[0];
   if (!releaseObject) throw new Error(`Release not found: ${releaseId}`);
@@ -232,7 +218,6 @@ export async function getReleaseResources(
   const release = parseReleaseObject(
     releaseObject.objectId,
     releaseObject.content,
-    releaseObject.json,
   );
 
   let cover: Cover | null | undefined;
@@ -440,10 +425,7 @@ export async function getDiscoverShelf(
 
   const [releases, coverViews, credits] = await Promise.all([
     getReleasesByIds(client.protocol, releaseIds),
-    getReleaseCoversByIds(client.protocol, releaseIds, [
-      client.config.protocol.releaseCoverArt,
-      ...client.config.protocol.legacyReleaseCoverArt,
-    ]).catch(() => ({}) as Partial<Record<string, ReleaseCoverView>>),
+    getReleaseCoversByIds(client.protocol, releaseIds, client.config.protocol.releaseCoverArt).catch(() => ({}) as Partial<Record<string, ReleaseCoverView>>),
     getReleaseCreditsByIds(
       client.protocol,
       releaseIds,
@@ -476,9 +458,7 @@ export async function getDiscoverShelf(
 // ── Record → release ─────────────────────────────────────────────────────────
 
 /**
- * A record's parent release. Both live `Record` struct layouts expose it — card
- * checkout's `{ release_id, number }` and the SDK view's
- * `{ release_id, edition, variant }` — so we probe both spellings.
+ * A record's parent release. Fresh `Record` objects expose `release_id`.
  *
  * This answer is IMMUTABLE for the life of the record, which is what lets the
  * endpoint in front of it cache for a year.
@@ -500,7 +480,7 @@ export async function getRecordAlbum(
       include: { json: true },
     });
     const json = (object?.json ?? {}) as Record<string, unknown>;
-    const raw = json.release_id ?? json.releaseId;
+    const raw = json.release_id;
     const releaseId = typeof raw === "string" && raw ? raw : null;
     const includeRelease =
       options.include?.some(

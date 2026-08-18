@@ -605,9 +605,7 @@ const RELEASE_CREDITS_KEY_BYTES = releaseCredits.ExtensionKey.serialize([
 
 type CreditFieldKind =
   | "composition"
-  | "compositionLegacy"
   | "recording"
-  | "recordingLegacy"
   | "release";
 
 interface CreditFieldTarget {
@@ -616,13 +614,7 @@ interface CreditFieldTarget {
   fieldId: string;
 }
 
-/**
- * Fetch many derived credit fields through one Core bulk request.
- *
- * Composition and recording extensions have one legacy key spelling. Both IDs
- * ride in the same request, so fallback compatibility does not add a sequential
- * round trip when the current key is absent.
- */
+/** Fetch many derived credit fields through one Core bulk request. */
 async function fetchCreditFields(
   client: ClientWithCoreApi,
   targets: readonly CreditFieldTarget[],
@@ -645,52 +637,30 @@ function compositionCreditTargets(
   compositionIds: readonly string[],
   packageId: string,
 ): CreditFieldTarget[] {
-  return compositionIds.flatMap((workId) => [
-    {
+  return compositionIds.map((workId) => ({
+    workId,
+    kind: "composition" as const,
+    fieldId: deriveDynamicFieldID(
       workId,
-      kind: "composition" as const,
-      fieldId: deriveDynamicFieldID(
-        workId,
-        `${packageId}::composition_credits::ExtensionKey`,
-        COMPOSITION_CREDITS_KEY_BYTES,
-      ),
-    },
-    {
-      workId,
-      kind: "compositionLegacy" as const,
-      fieldId: deriveDynamicFieldID(
-        workId,
-        `${packageId}::composition_credits::CompositionCreditsKey`,
-        COMPOSITION_CREDITS_KEY_BYTES,
-      ),
-    },
-  ]);
+      `${packageId}::composition_credits::ExtensionKey`,
+      COMPOSITION_CREDITS_KEY_BYTES,
+    ),
+  }));
 }
 
 function recordingCreditTargets(
   recordingIds: readonly string[],
   packageId: string,
 ): CreditFieldTarget[] {
-  return recordingIds.flatMap((workId) => [
-    {
+  return recordingIds.map((workId) => ({
+    workId,
+    kind: "recording" as const,
+    fieldId: deriveDynamicFieldID(
       workId,
-      kind: "recording" as const,
-      fieldId: deriveDynamicFieldID(
-        workId,
-        `${packageId}::recording_credits::ExtensionKey`,
-        RECORDING_CREDITS_KEY_BYTES,
-      ),
-    },
-    {
-      workId,
-      kind: "recordingLegacy" as const,
-      fieldId: deriveDynamicFieldID(
-        workId,
-        `${packageId}::recording_credits::RecordingCreditsKey`,
-        RECORDING_CREDITS_KEY_BYTES,
-      ),
-    },
-  ]);
+      `${packageId}::recording_credits::ExtensionKey`,
+      RECORDING_CREDITS_KEY_BYTES,
+    ),
+  }));
 }
 
 function releaseCreditTargets(
@@ -825,15 +795,10 @@ export async function getCompositionCreditsByIds(
   );
   const contents = await fetchCreditFields(client, targets);
   const out: Partial<Record<string, CreditView[]>> = {};
-  for (const compositionId of compositionIds) {
-    const candidates = targets.filter(
-      (target) => target.workId === compositionId,
-    );
-    const content = candidates
-      .map((target) => contents.get(target.fieldId))
-      .find((value): value is Uint8Array => value !== undefined);
+  for (const target of targets) {
+    const content = contents.get(target.fieldId);
     if (content) {
-      out[compositionId] = creditViews(
+      out[target.workId] = creditViews(
         CompositionCreditsField.parse(content).value.credits,
         compositionRoleLabel,
       );
@@ -875,16 +840,11 @@ export async function getRecordingCreditsByIds(
   );
   const contents = await fetchCreditFields(client, targets);
   const out: Partial<Record<string, RecordingCreditsView>> = {};
-  for (const recordingId of recordingIds) {
-    const candidates = targets.filter(
-      (target) => target.workId === recordingId,
-    );
-    const content = candidates
-      .map((target) => contents.get(target.fieldId))
-      .find((value): value is Uint8Array => value !== undefined);
+  for (const target of targets) {
+    const content = contents.get(target.fieldId);
     if (!content) continue;
     const value = RecordingCreditsField.parse(content).value;
-    out[recordingId] = {
+    out[target.workId] = {
       credits: creditViews(value.credits, recordingRoleLabel),
       primaryArtistIds: value.primary_artist_ids.contents,
       featuredArtistIds: value.featured_artist_ids.contents,

@@ -97,13 +97,14 @@ function releaseCalls(tx: Transaction): ReleaseCall[] {
     }));
 }
 
-test("publishRelease wires deal -> track -> release::new -> publish", () => {
+test("publishRelease wires one track -> registry release -> publish", () => {
   const tx = new Transaction();
   publishRelease({
     title: "LP",
     tracks: [
       { recordingId: A, recordingAdminCapId: A, recordingShareType: `${PKG}::r::R`, compositionShareType: `${PKG}::s::S`, splitBps: 10000 },
     ],
+    releaseRegistryPackageId: PKG,
     releaseRegistryId: A,
     releaseId: A,
     releaseNonce: "0",
@@ -113,14 +114,13 @@ test("publishRelease wires deal -> track -> release::new -> publish", () => {
 
   const calls = releaseCalls(tx);
   const has = (module: string, fn: string) => calls.some((c) => c.module === module && c.function === fn);
-  expect(has("deal", "new")).toBe(true);
   expect(has("track", "new")).toBe(true);
-  expect(has("release", "new")).toBe(true);
+  expect(has("release_registry", "new_release")).toBe(true);
   expect(has("release", "publish")).toBe(true);
   // track::new carries both share types
   expect(calls.find((c) => c.module === "track" && c.function === "new")!.typeArguments).toEqual([`${PKG}::r::R`, `${PKG}::s::S`]);
-  // release::new takes (title, tracks, nonce, registry)
-  expect(calls.find((c) => c.module === "release" && c.function === "new")!.argCount).toBe(4);
+  // release_registry::new_release takes (registry, title, tracks, nonce).
+  expect(calls.find((c) => c.module === "release_registry" && c.function === "new_release")!.argCount).toBe(4);
   // the admin cap is routed by finalizeRelease, not by the primitive
   const kinds = (tx.getData() as { commands: { $kind: string }[] }).commands.map((c) => c.$kind);
   expect(kinds).toContain("TransferObjects");

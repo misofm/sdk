@@ -29,19 +29,19 @@ function missingClient(calls: unknown[][]): ClientWithCoreApi {
 }
 
 describe("bulk Core reads", () => {
-  test("cover fallbacks for many releases use one request", async () => {
+  test("covers for many releases use one request", async () => {
     const calls: unknown[][] = [];
     const result = await getReleaseCoversByIds(
       missingClient(calls),
       ["0x1", "0x2"],
-      ["0xa", "0xb"],
+      "0xa",
     );
     expect(result).toEqual({});
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toHaveLength(4);
+    expect(calls[0]).toHaveLength(2);
   });
 
-  test("each credit kind batches all current and legacy fields", async () => {
+  test("each credit kind batches current fields", async () => {
     for (const read of [
       getCompositionCreditsByIds,
       getRecordingCreditsByIds,
@@ -132,14 +132,13 @@ test("track credits stay at three Core batches plus one GraphQL query as track c
   expect(graphqlCalls).toBe(1);
 });
 
-test("release identity, cover fallbacks, and credits share one Core request", async () => {
+test("release identity, cover, and credits share one Core request", async () => {
   const releaseId = "0x1";
   const calls: Array<{ objectIds: string[] }> = [];
   const client = {
     config: {
       protocol: {
         releaseCoverArt: "0xa",
-        legacyReleaseCoverArt: ["0xb"],
         releaseCredits: "0xc",
       },
       walrusAggregatorUrl: "https://walrus.example",
@@ -176,5 +175,5 @@ test("release identity, cover fallbacks, and credits share one Core request", as
   expect(result.cover).toBeNull();
   expect(result.credits).toEqual([]);
   expect(calls).toHaveLength(1);
-  expect(calls[0]?.objectIds).toHaveLength(4);
+  expect(calls[0]?.objectIds).toHaveLength(3);
 });

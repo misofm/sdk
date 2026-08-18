@@ -14,7 +14,9 @@
 //
 // A release is protocol. Pressing a record off it and selling that record is
 // platform. Keeping the split at the package boundary is what stops the protocol
-// from quietly growing a storefront.
+// from quietly growing a storefront. Core's `release::new` is the sole practical
+// exception: it needs `&mut UID`, which cannot cross a PTB command boundary, so
+// the platform's `release_registry` extension owns the PTB-callable minting path.
 //
 // Extensions live on this side of the line for the same reason. An extension is
 // not part of what a Composition or Recording IS — it is a choice Miso makes

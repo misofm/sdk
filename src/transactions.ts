@@ -15,10 +15,11 @@
 //     (`createComposition`/`createRecording`) — dispersing it to recipients via
 //     minato, publishing (sharing) the work, and transferring its admin cap is
 //     an opinion about economics;
-//   - minting a release is likewise a primitive (`createRelease`) — choosing a
-//     track-assembly strategy, publishing (sharing) it, and picking a recipient
-//     for its `ReleaseAdminCap` is the opinion, so `finalizeRelease` /
-//     `publishRelease` / `publishReleaseFromDeals` live here.
+//   - minting a release is a platform primitive: core's `release::new` takes an
+//     unconstructible PTB `&mut UID`, so `release_registry::new_release` is the
+//     canonical client path. Choosing a track-assembly strategy, publishing
+//     (sharing) it, and picking a recipient for its `ReleaseAdminCap` is the
+//     opinion, so `finalizeRelease` / `publishRelease` live here.
 //
 // Every `finalize*` here MUST run in the same PTB as the `create*` that produced
 // its parts — `Composition`, `Recording`, and `Release` are all `key`-only with
@@ -34,17 +35,21 @@ import {
   contracts,
   createComposition,
   createRecording,
-  createRelease,
   type CompositionParts,
   type CreateCompositionParams,
   type CreateRecordingParams,
   type RecordingParts,
-  type ReleaseParts,
   type ShareCurrencyBinding,
   type TxThunk,
 } from "@misonetwork/sdk";
+import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 
-const { deal, track, release } = contracts;
+const { track, release } = contracts;
+
+interface ReleaseParts {
+  release: TransactionObjectArgument;
+  adminCap: TransactionObjectArgument;
+}
 
 // `TxThunk` is the protocol SDK's type, re-exported so platform consumers get
 // the same nominal shape rather than a structurally-identical twin.
@@ -329,7 +334,8 @@ export interface FinalizeReleaseParams extends ReleaseParts {
  * The opinionated finish for a release: publish (share) it and transfer its
  * admin cap to `adminAddress`.
  *
- * MUST run in the same PTB as the `createRelease` that produced these parts —
+ * MUST run in the same PTB as the `release_registry::new_release` that produced
+ * these parts —
  * `Release` is `key`-only with no `drop`, so an unpublished release cannot
  * outlive its transaction. Splitting create from finalize is what lets a caller
  * do something else with the cap (route it to a vault, hand it to another
@@ -343,9 +349,9 @@ export function finalizeRelease(tx: Transaction, params: FinalizeReleaseParams):
 export interface TrackInput {
   recordingId: string;
   recordingAdminCapId: string;
-  /** Share type of the recording (the deal/track `RecordingShare` phantom). */
+  /** Share type of the recording (the track `RecordingShare` phantom). */
   recordingShareType: string;
-  /** Share type of the parent composition (the deal/track `CompositionShare` phantom). */
+  /** Share type of the parent composition (the track `CompositionShare` phantom). */
   compositionShareType: string;
   splitBps: number;
 }
@@ -354,6 +360,8 @@ export interface PublishReleaseParams {
   title: string;
   /** The ordered tracklist. Display grouping (discs/sides) is extension data. */
   tracks: TrackInput[];
+  /** `release_registry` extension package, distinct from its shared object id. */
+  releaseRegistryPackageId: string;
   releaseRegistryId: string;
   releaseId: string;
   releaseNonce: string;
@@ -371,70 +379,33 @@ function buildTrackVec(
 
 /**
  * Convenience: publish a release end-to-end, assembling its tracklist from
- * recording admin caps held by the sender (a deal is created inline per track).
+ * recording admin caps held by the sender.
  */
 export function publishRelease(params: PublishReleaseParams): TxThunk {
   return (tx) => {
-    const { misoPackageId } = params;
+    const { misoPackageId, releaseRegistryPackageId } = params;
     const trackArgs = params.tracks.map((t) => {
       const typeArguments: [string, string] = [t.recordingShareType, t.compositionShareType];
-      const dealArg = tx.add(
-        deal._new({
+      return tx.add(
+        track._new({
           package: misoPackageId,
           typeArguments,
           arguments: [tx.object(t.recordingAdminCapId), tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
         }),
       );
-      return tx.add(track._new({ package: misoPackageId, typeArguments, arguments: [dealArg, tx.object(t.recordingId)] }));
     });
-    const parts = createRelease(
-      tx,
-      { title: params.title, nonce: params.releaseNonce, releaseRegistryId: params.releaseRegistryId, misoPackageId },
-      buildTrackVec(tx, misoPackageId, trackArgs),
+    const created = tx.add(
+      releaseRegistry.newRelease({
+        package: releaseRegistryPackageId,
+        arguments: [
+          tx.object(params.releaseRegistryId),
+          tx.pure.string(params.title),
+          buildTrackVec(tx, misoPackageId, trackArgs),
+          tx.pure.u256(BigInt(params.releaseNonce)),
+        ],
+      }),
     );
-    finalizeRelease(tx, { ...parts, adminAddress: params.adminAddress, misoPackageId });
-  };
-}
-
-export interface DealInput {
-  dealId: string;
-  /** The recording the deal is for — `track::new` takes `&Recording` alongside the deal. */
-  recordingId: string;
-  /** Share type of the recording (the deal/track `RecordingShare` phantom). */
-  recordingShareType: string;
-  /** Share type of the parent composition (the deal/track `CompositionShare` phantom). */
-  compositionShareType: string;
-}
-
-export interface PublishReleaseFromDealsParams {
-  title: string;
-  /** The ordered tracklist, one pre-made deal per track. */
-  deals: DealInput[];
-  releaseRegistryId: string;
-  releaseNonce: string;
-  misoPackageId: string;
-  adminAddress: string;
-}
-
-/**
- * Convenience: publish a release end-to-end from pre-made `Deal`s held by the
- * sender (each deal already pins this release's id).
- */
-export function publishReleaseFromDeals(params: PublishReleaseFromDealsParams): TxThunk {
-  return (tx) => {
-    const { misoPackageId } = params;
-    const trackArgs = params.deals.map((dl) =>
-      tx.add(track._new({
-        package: misoPackageId,
-        typeArguments: [dl.recordingShareType, dl.compositionShareType],
-        arguments: [tx.object(dl.dealId), tx.object(dl.recordingId)],
-      })),
-    );
-    const parts = createRelease(
-      tx,
-      { title: params.title, nonce: params.releaseNonce, releaseRegistryId: params.releaseRegistryId, misoPackageId },
-      buildTrackVec(tx, misoPackageId, trackArgs),
-    );
+    const parts: ReleaseParts = { release: created[0]!, adminCap: created[1]! };
     finalizeRelease(tx, { ...parts, adminAddress: params.adminAddress, misoPackageId });
   };
 }

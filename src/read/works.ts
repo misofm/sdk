@@ -179,31 +179,7 @@ function parseRecording(id: string, content: Uint8Array): Recording {
 export function parseReleaseObject(
   id: string,
   content: Uint8Array,
-  json: unknown,
 ): Release {
-  const deployed = json as {
-    discs?: Parsed[];
-    state?: Parsed;
-    title?: unknown;
-  } | null;
-  if (deployed?.discs) {
-    const tracks = deployed.discs.flatMap((disc) => disc.tracks ?? []);
-    const publishedAt =
-      deployed.state?.["@variant"] === "Published" ? deployed.state.pos0 : null;
-    return {
-      id,
-      state:
-        publishedAt == null
-          ? { type: "Initialized" }
-          : { type: "Published", timestampMs: Number(publishedAt) },
-      title: String(deployed.title ?? ""),
-      tracks: tracks.map((track) => ({
-        state: (track.state?.["@variant"] ?? "Unassigned") as TrackState,
-        recordingId: String(track.recording_id),
-        splitBps: { value: Number(track.split_bps?.pos0 ?? track.split_bps) },
-      })),
-    };
-  }
   const value = contracts.release.Release.parse(content) as Parsed;
   return {
     id,
@@ -245,7 +221,7 @@ export async function getWorksByIds(
   if (kinds.size === 0) return out;
   const { objects } = await client.core.getObjects({
     objectIds: [...kinds.keys()],
-    include: { content: true, json: true },
+    include: { content: true },
   });
   for (const object of objects) {
     if (object instanceof Error || !object.content) continue;
@@ -264,16 +240,12 @@ export async function getWorksByIds(
       out.releases[object.objectId] = parseReleaseObject(
         object.objectId,
         object.content,
-        object.json,
       );
   }
   return out;
 }
 
-/**
- * Resolve display titles for both deployed recording layouts. Older recordings
- * carry `title` in JSON; current recordings inherit it from their composition.
- */
+/** Resolve recording titles through each recording's canonical composition type. */
 export async function getRecordingTitles(
   client: ClientWithCoreApi,
   graphql: SuiGraphQLClient,
@@ -285,24 +257,15 @@ export async function getRecordingTitles(
 
   const { objects } = await client.core.getObjects({
     objectIds: ids,
-    include: { json: true },
+    include: {},
   });
   const titles: Record<string, string> = {};
   const compositionShareByRecording: Record<string, string> = {};
 
   for (const object of objects) {
     if (object instanceof Error) continue;
-    const json = object.json as { title?: unknown } | null;
-    if (typeof json?.title === "string" && json.title) {
-      titles[object.objectId] = json.title;
-      continue;
-    }
-    try {
-      const [, compositionShareType] = extractTypeParams2(object.type);
-      compositionShareByRecording[object.objectId] = compositionShareType;
-    } catch {
-      // A deployed layout with no composition type and no JSON title remains Untitled.
-    }
+    const [, compositionShareType] = extractTypeParams2(object.type);
+    compositionShareByRecording[object.objectId] = compositionShareType;
   }
 
   const compositionShareTypes = Object.values(compositionShareByRecording);

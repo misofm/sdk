@@ -5,19 +5,26 @@
 // `src/lib/records.test.ts` — the logic moved here, so its coverage did too.
 
 import { describe, expect, test } from "bun:test";
-import { getOwnedRecords, RECORD_TYPE_SUFFIX } from "../../src/read/wallet.ts";
+import { getOwnedRecords } from "../../src/read/wallet.ts";
 import type { MisoClient } from "../../src/read/client.ts";
 
 type Obj = { objectId: string; type: string; json?: Record<string, unknown> | null };
 type Page = { objects: Obj[]; hasNextPage: boolean; cursor: string | null };
 
 /** A client whose `listOwnedObjects` serves the given pages in order. */
-function fakeClient(pages: Page[]): { client: MisoClient; calls: number } {
-  const state = { calls: 0 };
+const RECORD_PACKAGE = "0x" + "ab".repeat(32);
+const WRONG_RECORD_PACKAGE = "0x" + "cd".repeat(32);
+const RECORD_TYPE = `${RECORD_PACKAGE}::record::Record`;
+const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record`;
+
+function fakeClient(pages: Page[]): { client: MisoClient; calls: number; types: string[] } {
+  const state = { calls: 0, types: [] as string[] };
   const client = {
+    config: { protocol: { record: RECORD_PACKAGE } },
     protocol: {
       core: {
-        listOwnedObjects: async () => {
+        listOwnedObjects: async ({ type }: { type?: string }) => {
+          if (type) state.types.push(type);
           const page = pages[state.calls] ?? { objects: [], hasNextPage: false, cursor: null };
           state.calls++;
           return page;
@@ -30,26 +37,27 @@ function fakeClient(pages: Page[]): { client: MisoClient; calls: number } {
     get calls() {
       return state.calls;
     },
+    get types() {
+      return state.types;
+    },
   };
 }
 
-const RECORD_TYPE = `0xfc2b51f068dee9d5482d39fa017164f6a8c3601cabb59084a518de5f609ef1c7${RECORD_TYPE_SUFFIX}`;
-const OTHER_RECORD_PACKAGE = `0x79e288aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa${RECORD_TYPE_SUFFIX}`;
-
 describe("getOwnedRecords", () => {
-  test("matches records from BOTH live packages by type suffix", async () => {
-    const { client } = fakeClient([
+  test("matches only the configured fresh record package", async () => {
+    const fake = fakeClient([
       {
         objects: [
           { objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xrel", number: 3 } },
-          { objectId: "0x2", type: OTHER_RECORD_PACKAGE, json: { release_id: "0xrel", number: 4 } },
+          { objectId: "0x2", type: WRONG_RECORD_TYPE, json: { release_id: "0xrel", number: 4 } },
         ],
         hasNextPage: false,
         cursor: null,
       },
     ]);
-    const records = await getOwnedRecords(client, "0xowner");
-    expect(records.map((r) => r.id)).toEqual(["0x1", "0x2"]);
+    const records = await getOwnedRecords(fake.client, "0xowner");
+    expect(records.map((r) => r.id)).toEqual(["0x1"]);
+    expect(fake.types).toEqual([RECORD_TYPE]);
   });
 
   test("skips objects that are not records", async () => {
@@ -68,18 +76,11 @@ describe("getOwnedRecords", () => {
     expect(records[0]!.id).toBe("0x1");
   });
 
-  test("reads the copy number from both struct layouts", async () => {
+  test("reads the canonical copy number", async () => {
     const { client } = fakeClient([
       {
         objects: [
-          // Card-checkout layout.
           { objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", number: 7 } },
-          // SDK-view layout: the number is nested in the variant enum.
-          {
-            objectId: "0x2",
-            type: RECORD_TYPE,
-            json: { release_id: "0xb", edition: 2, variant: { Production: { number: 12 } } },
-          },
         ],
         hasNextPage: false,
         cursor: null,
@@ -87,20 +88,6 @@ describe("getOwnedRecords", () => {
     ]);
     const records = await getOwnedRecords(client, "0xowner");
     expect(records[0]!.number).toBe(7);
-    // The COPY number (12), not the edition (2) — see readRecordNumber's note.
-    expect(records[1]!.number).toBe(12);
-  });
-
-  test("falls back to edition only when no copy number is carried", async () => {
-    const { client } = fakeClient([
-      {
-        objects: [{ objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", edition: 5 } }],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const [record] = await getOwnedRecords(client, "0xowner");
-    expect(record!.number).toBe(5);
   });
 
   test("follows pagination until the last page", async () => {

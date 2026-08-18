@@ -5,7 +5,7 @@
 // Move calls). Re-exported from the package root as the `contracts` namespace.
 //
 // PLATFORM + EXTENSION packages. The protocol core (`miso`: Composition,
-// Recording, Release, Deal, Track) generates into `@misonetwork/sdk` and is
+// Recording, Release, Track) generates into `@misonetwork/sdk` and is
 // re-exported from ITS `contracts` namespace — import it from there rather than
 // mirroring it here.
 
@@ -13,6 +13,10 @@
 export * as pressing from "./contracts/miso_pressing/pressing.ts";
 export * as listing from "./contracts/miso_pressing/listing.ts";
 export * as certificate from "./contracts/miso_pressing/certificate.ts";
+
+// The canonical release-id derivation parent — the only PTB-callable path to
+// minting a `Release` now that core's `release::new` takes `&mut UID`.
+export * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 
 // Existing launch drops remain readable and purchasable while releases move to
 // the pressing/listing contracts.
