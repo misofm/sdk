@@ -31,6 +31,7 @@ import type { Signer } from "@mysten/sui/cryptography";
 
 import * as listingContract from "./contracts/miso_pressing/listing.ts";
 import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
+import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 import {
   buyRecord,
   deriveListingId,
@@ -63,12 +64,14 @@ import {
   publishComposition,
   publishRecording,
   publishCompositionAndRecording,
+  publishRelease,
 } from "./transactions.ts";
 import type {
   TxThunk,
   PublishCompositionParams,
   PublishRecordingParams,
   PublishCompositionAndRecordingParams,
+  PublishReleaseParams,
 } from "./transactions.ts";
 import * as share from "./share.ts";
 
@@ -93,6 +96,10 @@ export interface MisoPlatformConfig {
    * builders (they disperse shares via minato).
    */
   minatoPackageId?: string;
+  /** The published `release_registry` extension package used to mint releases. */
+  releaseRegistryPackageId?: string;
+  /** The one shared `ReleaseRegistry` object created by that package's `init`. */
+  releaseRegistryId?: string;
 }
 
 /** Params with the ids this client already knows dropped from the call site. */
@@ -100,6 +107,9 @@ type Configured<T> = Omit<T, "misoPressingPackageId" | "settingsId">;
 
 /** Publish-builder params with the protocol/minato ids this client already knows dropped. */
 type ConfiguredPublish<T> = Omit<T, "misoPackageId" | "minatoPackageId">;
+
+/** Release-builder params with this client's core, share, and registry ids dropped. */
+type ConfiguredRelease<T> = Omit<T, "misoPackageId" | "minatoPackageId" | "releaseRegistryPackageId" | "releaseRegistryId">;
 
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
@@ -129,7 +139,7 @@ export class MisoPlatformClient {
     if (!misoPackageId) {
       throw new Error(
         "misoPlatform: `misoPackageId` is required for the publish builders " +
-          "(publishComposition, publishRecording, publishCompositionAndRecording) — pass it to misoPlatform({ misoPackageId }).",
+          "(publishComposition, publishRecording, publishCompositionAndRecording, publishRelease) — pass it to misoPlatform({ misoPackageId }).",
       );
     }
     return misoPackageId;
@@ -144,6 +154,16 @@ export class MisoPlatformClient {
       );
     }
     return minatoPackageId;
+  }
+
+  #releaseRegistry(): { packageId: string; id: string } {
+    const { releaseRegistryPackageId: packageId, releaseRegistryId: id } = this.#config;
+    if (!packageId || !id) {
+      throw new Error(
+        "misoPlatform: `releaseRegistryPackageId` and `releaseRegistryId` are required to build a release — pass both to misoPlatform(...).",
+      );
+    }
+    return { packageId, id };
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
@@ -211,6 +231,15 @@ export class MisoPlatformClient {
       publishRecording({ ...p, misoPackageId: this.#misoPackageId(), minatoPackageId: this.#minatoPackageId() }),
     publishCompositionAndRecording: (p: ConfiguredPublish<PublishCompositionAndRecordingParams>): TxThunk =>
       publishCompositionAndRecording({ ...p, misoPackageId: this.#misoPackageId(), minatoPackageId: this.#minatoPackageId() }),
+    publishRelease: (p: ConfiguredRelease<PublishReleaseParams>): TxThunk => {
+      const registry = this.#releaseRegistry();
+      return publishRelease({
+        ...p,
+        misoPackageId: this.#misoPackageId(),
+        releaseRegistryPackageId: registry.packageId,
+        releaseRegistryId: registry.id,
+      });
+    },
   };
 
   // ── Share currency provisioning (executes; Signer pattern) ─────────────────
@@ -223,7 +252,7 @@ export class MisoPlatformClient {
   // ── Generated layer ───────────────────────────────────────────────────────
 
   /** Generated Move-call bindings, for commands this facade doesn't wrap. */
-  readonly call = { listing: listingContract, pressing: pressingContract };
+  readonly call = { listing: listingContract, pressing: pressingContract, releaseRegistry };
 
   /** Generated BCS definitions, for parsing objects or events yourself. */
   readonly bcs = {
@@ -231,6 +260,8 @@ export class MisoPlatformClient {
     PressingAdminCap: pressingContract.PressingAdminCap,
     Listing: listingContract.Listing,
     Price: listingContract.Price,
+    ReleaseRegistry: releaseRegistry.ReleaseRegistry,
+    ReleaseRegistryCreatedEvent: releaseRegistry.ReleaseRegistryCreatedEvent,
   };
 }
 

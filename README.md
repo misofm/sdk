@@ -207,7 +207,8 @@ const thunk = client.misoPlatform.tx.publishComposition({
 `client.misoPlatform.tx.publishRecording` and `publishCompositionAndRecording`
 follow the same shape (the latter atomically, borrow-before-share, in one PTB —
 see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
-`misoPackageId`/`minatoPackageId` are optional on the client — a sell-only
+`misoPackageId`/`minatoPackageId`/`releaseRegistryPackageId`/`releaseRegistryId`
+are optional on the client — a sell-only
 client (e.g. a storefront that never mints new works) can omit them; the
 publish builders throw at call time, not at client construction, if they're
 missing.
@@ -218,7 +219,7 @@ For custom PTBs, the bare primitives (`disperseShares`, `finalizeComposition`,
 ```ts
 import { publishReleaseGraph } from "@misofm/sdk";
 
-// Every composition and recording, optional royalty pools, deals/tracks, and
+// Every composition and recording, optional royalty pools, tracks, and
 // the release — with the release id derived ON-CHAIN — in one atomic PTB.
 const thunk = publishReleaseGraph({
   compositions: [{ shareType, shareCurrencyId, shareTreasuryCapId, title: "Song", royaltyRateBps: 1000, shareRecipients, adminAddress }],
@@ -232,6 +233,7 @@ const thunk = publishReleaseGraph({
   },
   misoPackageId: "0x...",
   minatoPackageId: "0x...",
+  releaseRegistryPackageId: "0x...",
 });
 ```
 
@@ -373,7 +375,7 @@ carry an optional `RecordingRoleLevel` (`Producer`, `Vocalist`, `Engineer`,
 
 ```
 src/
-  client.ts              the client extension — misoPlatform({ packageId, settingsId, misoPackageId?, minatoPackageId? })
+  client.ts              the client extension — misoPlatform({ packageId, settingsId, misoPackageId?, minatoPackageId?, releaseRegistryPackageId?, releaseRegistryId? })
   pressing.ts            facade: builders, readers, and the id derivations
   queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
   transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
@@ -401,17 +403,19 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists the **platform** package (`miso_pressing`) and the
+`sui-codegen.config.ts` lists the **platform** package (`miso_pressing`), the
+canonical release-minting extension (`release_registry`), and the
 first-party **extension** packages (`royalty_pool`, `composition_royalty_pool`,
 `recording_royalty_pool`, `cover_art`, `release_cover_art`,
 `composition_credits`, `recording_credits`, `release_credits`). The protocol
-CORE (`miso` — composition/recording/release/deal/track) generates into
+CORE (`miso` — composition/recording/release/track) generates into
 `@misonetwork/sdk` instead, which this package depends on for those bindings —
 adding the core here to save an import is how the split this package exists to
 enforce gets undone.
 
 Paths resolve against sibling checkouts, so regenerating requires
-`~/Documents/GitHub/misofm/{sdk, pressing, protocol-extensions}`.
+`~/Documents/GitHub/misofm/{sdk, pressing, protocol-extensions}` and
+`~/Documents/GitHub/misonetwork/{protocol, share}`.
 
 ## Dependency on `@misonetwork/sdk`
 
@@ -432,8 +436,8 @@ bun install
 ```
 
 If you are changing both packages at once, `bun link` still works for a local
-loop — register the protocol SDK with `bun link` in its checkout, `bun link
-@misonetwork/sdk` here, and remember to put the version range back before
-committing. Note that `file:` does NOT work for this: Bun copies a `file:`
+loop — register the protocol SDK with `bun link` in its checkout, then run `bun
+link @misonetwork/sdk` here. Keep `@misonetwork/sdk` at its released semver
+range (`^0.5.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
 dependency while honouring `.gitignore`, and `@misonetwork/sdk` builds to a
 gitignored `dist/`, so the copy arrives empty and nothing resolves.

@@ -4,22 +4,32 @@ import type { SuiCodegenConfig } from "@mysten/codegen";
 // so the generated layer is always in lockstep with the on-chain ABI.
 //
 // PLATFORM + EXTENSION packages. The protocol CORE (`miso` — Composition,
-// Recording, Release, Deal, Track) generates into `@misonetwork/sdk` instead, and
+// Recording, Release, Track) generates into `@misonetwork/sdk` instead, and
 // this package depends on it for those bindings; adding the core here to save an
 // import is how the split this package exists to enforce gets undone.
 //
 // Extensions are on this side of the line deliberately: an extension is
 // opinionated business logic hung off the protocol's `&mut UID` hook, not part of
-// the protocol's data model, so it ships with the platform.
+// the protocol's data model, so it ships with the platform. The one exception is
+// release creation: core's `release::new` takes `parent: &mut UID`, so it is not
+// PTB-callable; the platform-owned `release_registry` extension is the canonical
+// client-facing release-creation primitive.
 //
 // Paths resolve against sibling checkouts. Regenerating requires:
 //   ~/Documents/GitHub/misofm/{sdk, pressing, protocol-extensions}
+//   ~/Documents/GitHub/misonetwork/{protocol, share}
 const config: SuiCodegenConfig = {
   output: "./src/contracts",
   packages: [
     // The record production line: one uncapped run per release, plus a
     // `Listing<Currency>` per payment rail.
     { package: "@local-pkg/miso_pressing", path: "../pressing/move" },
+
+    // The canonical derivation parent for release ids. Core's `release::new` takes
+    // `parent: &mut UID` and is therefore not PTB-callable; this shared singleton
+    // is how a client actually mints a Release. Created once by the package's
+    // `init` — discover its id from `ReleaseRegistryCreatedEvent` in the publish tx.
+    { package: "@local-pkg/release_registry", path: "../protocol-extensions/release_registry" },
 
     // Royalty pools — accumulator-based distribution bound to a work.
     { package: "@local-pkg/royalty_pool", path: "../protocol-extensions/lib/royalty_pool" },

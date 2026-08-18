@@ -145,7 +145,7 @@ export async function getReleaseCover(
       await getReleaseCoversByIds(
         client,
         [releaseId],
-        [releaseCoverArtPackageId],
+        releaseCoverArtPackageId,
       )
     )[releaseId] ?? null
   );
@@ -166,7 +166,7 @@ export function parseReleaseCoverContent(
   };
 }
 
-/** Deterministic dynamic-field id for one release-cover package generation. */
+/** Deterministic dynamic-field id for the configured release-cover package. */
 export function releaseCoverFieldId(
   releaseId: string,
   releaseCoverArtPackageId: string,
@@ -179,24 +179,18 @@ export function releaseCoverFieldId(
 }
 
 /**
- * Read covers for many releases and package generations in one Core request.
- *
- * Package IDs are ordered newest to oldest. If both fields exist, the newest
- * wins; legacy fallbacks add bytes to the same bulk request, not serial probes.
+ * Read covers for many releases from the configured package in one Core request.
  */
 export async function getReleaseCoversByIds(
   client: ClientWithCoreApi,
   releaseIdsInput: readonly string[],
-  releaseCoverArtPackageIds: readonly string[],
+  releaseCoverArtPackageId: string,
 ): Promise<Partial<Record<string, ReleaseCoverView>>> {
   const releaseIds = [...new Set(releaseIdsInput)];
-  const targets = releaseIds.flatMap((releaseId) =>
-    releaseCoverArtPackageIds.map((packageId, priority) => ({
-      releaseId,
-      priority,
-      fieldId: releaseCoverFieldId(releaseId, packageId),
-    })),
-  );
+  const targets = releaseIds.map((releaseId) => ({
+    releaseId,
+    fieldId: releaseCoverFieldId(releaseId, releaseCoverArtPackageId),
+  }));
   if (targets.length === 0) return {};
 
   const { objects } = await client.core.getObjects({
@@ -204,17 +198,12 @@ export async function getReleaseCoversByIds(
     include: { content: true },
   });
   const out: Partial<Record<string, ReleaseCoverView>> = {};
-  const priorities = new Map<string, number>();
   objects.forEach((object, index) => {
     const target = targets[index];
     if (!target || object instanceof Error || !object.content) return;
-    const currentPriority = priorities.get(target.releaseId);
-    if (currentPriority !== undefined && currentPriority <= target.priority)
-      return;
     const cover = parseReleaseCoverContent(object.content);
     if (cover) {
       out[target.releaseId] = cover;
-      priorities.set(target.releaseId, target.priority);
     }
   });
   return out;

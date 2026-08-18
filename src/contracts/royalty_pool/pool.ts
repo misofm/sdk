@@ -4,7 +4,7 @@
 
 
 /**
- * Generic accumulator-based royalty distribution pool.
+ * Accumulator-based royalty distribution pool for the protocol's share tokens.
  * 
  * A `RoyaltyPool<Share, Currency>` is a derived object of any UID-bearing parent.
  * Its address is deterministically derived from `(parent_id, Currency)` — at most
@@ -21,7 +21,33 @@
  * transfers or balances credited to the pool's funds-accumulator. Both are
  * permissionless: anyone who notices stuck funds can fold them in. The canonical
  * funding path remains `deposit(balance)` from a higher-layer extension (e.g.
- * `composition_royalty_distributor`) that pulls from the parent's address.
+ * `composition_royalty_distributor`) that pulls from the parent's address. Note
+ * the recovery valves run through `deposit`, which aborts while no shares are
+ * staked — and the pool has no other withdrawal path — so funds sent to the pool's
+ * address before the first registration stay locked until a stake registers.
+ * Payers should always target the parent's address, never the pool's.
+ * 
+ * ### No activation delay (deliberate)
+ * 
+ * Registration earns from the next deposit onward; there is no bonding or
+ * unbonding period (contrast Sui native staking's next-epoch activation). With the
+ * protocol's fixed-supply share token this is safe: a stake's take of any deposit
+ * is `v · s / S` with `S` (total registered) bounded by the share supply, so a
+ * continuously registered stake is guaranteed at least its pro-rata share of total
+ * supply on every deposit. Short-lived or just-in-time registrations can only
+ * compete for the _unregistered_ supply's drift — the designed incentive for being
+ * registered — never below any registered stake's floor.
+ * 
+ * ### Precision
+ * 
+ * The share token's shape is fixed at issuance by the protocol — exactly 10¹³ base
+ * units, 6 decimals, supply made immutable via `miso_share::share::initialize`
+ * (`make_supply_fixed`) — so `staked_shares ≤ 10¹³` objectively. A deposit of
+ * `value ≥ 1` base units therefore advances the accumulator by
+ * `value · PRECISION / staked_shares ≥ 10¹⁸ / 10¹³ = 10⁵`: the truncation-to-zero
+ * case that would permanently lock a deposit in the pool balance is impossible by
+ * construction, not by convention. Sub-base-unit claim residue (the remaining
+ * source of locked dust) is documented on `unregister_stake`.
  */
 
 import { MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';

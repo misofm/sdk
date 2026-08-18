@@ -59,7 +59,6 @@ export type { ArtistInclude, GetArtistOptions } from "./artist.ts";
 export { resolveGenreNames } from "./genres.ts";
 
 export {
-  RECORD_TYPE_SUFFIX,
   getBalance,
   getOwnedParties,
   getPendingMemberships,
