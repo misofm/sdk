@@ -62,6 +62,7 @@ export {
   RECORD_TYPE_SUFFIX,
   getBalance,
   getOwnedParties,
+  getPendingMemberships,
   getOwnedRecords,
   getOwnedWorks,
   getWorkByCap,

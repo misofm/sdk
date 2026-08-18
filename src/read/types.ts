@@ -285,6 +285,16 @@ export interface OwnedParty {
   kind: "individual" | "group";
 }
 
+/** A group invitation awaiting acceptance by a party this wallet administers. */
+export interface PendingMembership {
+  /** The invited individual party and the cap that authorizes accept/decline. */
+  memberPartyId: string;
+  memberCapId: string;
+  /** The inviting group party. */
+  groupId: string;
+  groupName: string;
+}
+
 export type WorkKind = "composition" | "recording" | "release";
 
 /** A work the wallet administers, as the studio catalog lists it. */

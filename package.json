@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Complete client SDK for the Miso platform on Sui \u2014 high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
@@ -121,7 +121,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@misonetwork/miso-party": "^0.1.1",
+    "@misonetwork/miso-party": "^0.2.0",
     "@misonetwork/sdk": "^0.3.1"
   },
   "main": "./dist/index.js"
