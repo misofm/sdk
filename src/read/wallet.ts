@@ -21,7 +21,15 @@ import {
 } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
 import { int, u64 } from "./internal/scalars.ts";
-import type { Balance, OwnedParty, OwnedRecord, OwnedWork, Ownership, WorkDetail } from "./types.ts";
+import type {
+  Balance,
+  OwnedParty,
+  OwnedRecord,
+  OwnedWork,
+  Ownership,
+  PendingMembership,
+  WorkDetail,
+} from "./types.ts";
 import { getRecordingTitles, getWorkAddressesByShareTypes, getWorksByIds } from "./works.ts";
 
 /** The on-chain type suffix every record object shares, across both live packages. */
@@ -154,6 +162,42 @@ export async function getOwnedParties(client: MisoClient, owner: string): Promis
     const p = parties[partyId];
     return p ? [{ partyId, capId, name: p.name, kind: p.kind }] : [];
   });
+}
+
+/**
+ * Pending group invitations for every individual party the wallet administers.
+ *
+ * The Party module maintains a member-side pending-membership index, so this
+ * reads only the wallet's controlled parties — never a global event scan. Group
+ * names are resolved in one batch so the API can render an inbox without extra
+ * browser reads.
+ */
+export async function getPendingMemberships(
+  client: MisoClient,
+  owner: string,
+): Promise<PendingMembership[]> {
+  const controlled = await getOwnedParties(client, owner);
+  const individuals = controlled.filter((party) => party.kind === "individual");
+  if (individuals.length === 0) return [];
+
+  const invitations = await Promise.all(
+    individuals.map(async (member) => ({
+      member,
+      groupIds: await client.sui.party.getPendingMemberships(member.partyId),
+    })),
+  );
+  const groupIds = [...new Set(invitations.flatMap(({ groupIds }) => groupIds))];
+  if (groupIds.length === 0) return [];
+
+  const groups = await client.sui.party.getPartiesByIds(groupIds);
+  return invitations.flatMap(({ member, groupIds }) =>
+    groupIds.flatMap((groupId): PendingMembership[] => {
+      const group = groups[groupId];
+      return group?.kind === "group"
+        ? [{ memberPartyId: member.partyId, memberCapId: member.capId, groupId, groupName: group.name }]
+        : [];
+    }),
+  );
 }
 
 // ── Works (studio catalog) ───────────────────────────────────────────────────
