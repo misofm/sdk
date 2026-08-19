@@ -83,6 +83,10 @@ import type {
 } from "./transactions.ts";
 import * as share from "./share.ts";
 import {
+  publishReleaseGraph,
+  type PublishReleaseGraphParams,
+} from "./release-graph.ts";
+import {
   getMisoPlatformDeployment,
   type MisoPlatformDeployment,
 } from "./deployments.ts";
@@ -144,6 +148,12 @@ type ConfiguredPublish<T> = Omit<T, "misoPackageId" | "minatoPackageId">;
 
 /** Release-builder params with this client's core, share, and registry ids dropped. */
 type ConfiguredRelease<T> = Omit<T, "misoPackageId" | "minatoPackageId" | "releaseRegistryPackageId" | "releaseRegistryId">;
+
+/** Whole-graph params with this client's package ids dropped. */
+export type ConfiguredReleaseGraphParams = Omit<
+  PublishReleaseGraphParams,
+  "misoPackageId" | "minatoPackageId" | "releaseRegistryPackageId"
+>;
 
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
@@ -289,6 +299,15 @@ export class MisoPlatformClient {
         misoPackageId: this.#misoPackageId(),
         releaseRegistryPackageId: registry.packageId,
         releaseRegistryId: registry.id,
+      });
+    },
+    publishReleaseGraph: (p: ConfiguredReleaseGraphParams): TxThunk => {
+      const registry = this.#releaseRegistry();
+      return publishReleaseGraph({
+        ...p,
+        misoPackageId: this.#misoPackageId(),
+        minatoPackageId: this.#minatoPackageId(),
+        releaseRegistryPackageId: registry.packageId,
       });
     },
   };
