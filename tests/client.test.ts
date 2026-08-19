@@ -9,7 +9,9 @@
 import { test, expect } from "bun:test";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
-import { misoPlatform } from "../src/client.ts";
+import { miso, misoPlatform } from "../src/client.ts";
+import { MISO_PLATFORM_DEPLOYMENTS } from "../src/deployments.ts";
+import { networkFrom } from "../src/read/config.ts";
 
 const PRESSING = "0x" + "12".repeat(32);
 const MISO = "0x" + "cd".repeat(32);
@@ -23,6 +25,75 @@ function client() {
     misoPlatform({ packageId: PRESSING, misoPackageId: MISO, minatoPackageId: MINATO, releaseRegistryPackageId: RELEASE_REGISTRY, releaseRegistryId: A }),
   );
 }
+
+test("miso() exposes the full platform facade with nested protocol", () => {
+  const c = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(miso());
+
+  expect(c.miso.packageId).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.packages.pressing,
+  );
+  expect(c.miso.protocol.deployment).toEqual(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol,
+  );
+
+  const tx = new Transaction();
+  c.miso.tx.publishComposition({
+    title: "T",
+    royaltyRateBps: 1000,
+    shareType: SHARE,
+    shareCurrencyId: A,
+    shareTreasuryCapId: A,
+    shareRecipients: [{ address: A, value: 1 }],
+    adminAddress: A,
+  })(tx);
+  const calls = moveCalls(tx);
+  expect(
+    calls.find((call) => call.module === "composition")?.package,
+  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId);
+  expect(calls.find((call) => call.module === "minato")?.package).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.packages.minato,
+  );
+});
+
+test("miso() fails closed when the platform is not bundled", () => {
+  expect(() =>
+    new SuiGrpcClient({
+      network: "mainnet",
+      baseUrl: "https://fullnode.mainnet.sui.io:443",
+    }).$extend(miso()),
+  ).toThrow(/no bundled Miso platform deployment/);
+});
+
+test("network parsing defaults only missing values and rejects typos", () => {
+  expect(networkFrom(undefined)).toBe("testnet");
+  expect(networkFrom("testnet")).toBe("testnet");
+  expect(networkFrom("mainnet")).toBe("mainnet");
+  expect(() => networkFrom("tesnet")).toThrow(/unsupported network/);
+});
+
+test("miso() binds generated platform calls to the selected packages", () => {
+  const c = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(miso());
+  const tx = new Transaction();
+  c.miso.call.pressing.newActiveState({})(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) => call.module === "pressing" && call.function === "new_active_state",
+    )?.package,
+  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.pressing);
+
+  c.miso.call.releaseRegistry.id({ arguments: [tx.object(A)] })(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) => call.module === "release_registry" && call.function === "id",
+    )?.package,
+  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry);
+});
 
 interface Call {
   package?: string;
