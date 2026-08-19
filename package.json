@@ -1,7 +1,7 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.7.1",
-  "description": "Complete client SDK for the Miso platform on Sui \u2014 high-level reads, pressings, listings, records, and work publishing.",
+  "version": "0.8.0",
+  "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -35,6 +35,10 @@
     "./client": {
       "types": "./dist/client.d.ts",
       "default": "./dist/client.js"
+    },
+    "./deployments": {
+      "types": "./dist/deployments.d.ts",
+      "default": "./dist/deployments.js"
     },
     "./pressing": {
       "types": "./dist/pressing.d.ts",
@@ -122,7 +126,7 @@
   },
   "dependencies": {
     "@misonetwork/miso-party": "^0.2.0",
-    "@misonetwork/sdk": "^0.5.0"
+    "@misonetwork/sdk": "^0.6.0"
   },
   "main": "./dist/index.js"
 }

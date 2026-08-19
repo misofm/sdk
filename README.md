@@ -62,14 +62,17 @@ Register the extension on any client implementing Sui's Core API
 ```ts
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
-import { misoPlatform } from "@misofm/sdk";
+import { miso } from "@misofm/sdk";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
-  misoPlatform({ packageId: MISO_PRESSING_PACKAGE_ID, settingsId: MISO_RECORD_SETTINGS_ID }),
+  miso(),
 );
 
+// The permissionless protocol SDK is part of the same facade.
+const release = await client.miso.protocol.getReleaseById(releaseId);
+
 // Read: run + one currency's offer, one round trip, no registry lookup.
-const { pressing, listing } = await client.misoPlatform.getSale({
+const { pressing, listing } = await client.miso.getSale({
   releaseId,
   currencyType: USD_COIN_TYPE,
 });
@@ -77,7 +80,7 @@ const { pressing, listing } = await client.misoPlatform.getSale({
 // Write: a thunk, so it composes with protocol calls in the same PTB.
 const tx = new Transaction();
 tx.add(
-  client.misoPlatform.tx.buyRecord({
+  client.miso.tx.buyRecord({
     releaseId,
     currencyType: USD_COIN_TYPE,
     amount: listing.price.amount,
@@ -92,6 +95,11 @@ Holding the ids yourself? Every builder and reader is exported bare, taking
 ```ts
 import { buyRecord, getSale } from "@misofm/sdk/pressing";
 ```
+
+Mainnet is selected automatically once the complete platform deployment is
+included in this SDK. Until then, registering `miso()` on a Mainnet client fails
+closed. Localnet, Devnet, forks, and private deployments can provide one complete
+explicit deployment through `miso({ deployment })`.
 
 ### High-level platform reads
 
@@ -179,21 +187,17 @@ back its by-value parts (the object, its admin cap, its freshly-minted share
 supplies the opinionated finish on top:
 
 ```ts
-import { misoPlatform } from "@misofm/sdk";
+import { miso } from "@misofm/sdk";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
-  misoPlatform({
-    packageId: MISO_PRESSING_PACKAGE_ID,
-    misoPackageId: MISO_PROTOCOL_PACKAGE_ID,   // required for publish builders
-    minatoPackageId: MINATO_PACKAGE_ID,        // required — they disperse shares via minato
-  }),
+  miso(),
 );
 
 // Mints the composition's share supply, disperses it to shareRecipients via
 // minato, publishes (shares) the composition, and transfers the
 // CompositionAdminCap to adminAddress — createComposition → finalizeComposition
 // in one PTB.
-const thunk = client.misoPlatform.tx.publishComposition({
+const thunk = client.miso.tx.publishComposition({
   title: "Song Title",
   royaltyRateBps: 1000,
   shareType: "0x...::share::Share",
@@ -204,14 +208,13 @@ const thunk = client.misoPlatform.tx.publishComposition({
 });
 ```
 
-`client.misoPlatform.tx.publishRecording` and `publishCompositionAndRecording`
+`client.miso.tx.publishRecording` and `publishCompositionAndRecording`
 follow the same shape (the latter atomically, borrow-before-share, in one PTB —
 see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
-`misoPackageId`/`minatoPackageId`/`releaseRegistryPackageId`/`releaseRegistryId`
-are optional on the client — a sell-only
-client (e.g. a storefront that never mints new works) can omit them; the
-publish builders throw at call time, not at client construction, if they're
-missing.
+The protocol, pressing, record-settings, minato, and release-coordinator
+addresses all come from the deployment selected by the Sui client's network.
+The deprecated `misoPlatform()` constructor still accepts those values manually
+for compatibility with existing integrations.
 
 For custom PTBs, the bare primitives (`disperseShares`, `finalizeComposition`,
 `finalizeRecording`) and the whole-graph orchestrator are exported standalone:
@@ -246,7 +249,7 @@ Publish and initialize are necessarily two transactions:
 
 ```ts
 // Sequential (one currency, two txs):
-const currency = await client.misoPlatform.createShareCurrency(signer, {
+const currency = await client.miso.createShareCurrency(signer, {
   name: "Song Shares",
   description: "…",
 });
@@ -375,7 +378,8 @@ carry an optional `RecordingRoleLevel` (`Producer`, `Vocalist`, `Engineer`,
 
 ```
 src/
-  client.ts              the client extension — misoPlatform({ packageId, settingsId, misoPackageId?, minatoPackageId?, releaseRegistryPackageId?, releaseRegistryId? })
+  deployments.ts         baked per-network package and singleton object ids
+  client.ts              the full client.miso facade; protocol lives at client.miso.protocol
   pressing.ts            facade: builders, readers, and the id derivations
   queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
   transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
@@ -419,10 +423,10 @@ Paths resolve against sibling checkouts, so regenerating requires
 
 ## Dependency on `@misonetwork/sdk`
 
-`@misonetwork/sdk` is a `dependencies` entry (not a peer) — this package
-imports its bare primitives and types directly, rather than registering it as
-a second client extension via `$extend`, so it isn't the "avoid bundling two
-copies of a Mysten package" situation the peer-dependency guidance targets.
+`@misonetwork/sdk` is a `dependencies` entry (not a peer). This package imports
+its primitives, deployment configuration, and protocol client directly, then
+wraps that client at `client.miso.protocol`; applications do not install or
+register a second protocol extension.
 `@mysten/sui` itself stays a peer dependency here, same as in
 `@misonetwork/sdk`.
 
@@ -438,6 +442,6 @@ bun install
 If you are changing both packages at once, `bun link` still works for a local
 loop — register the protocol SDK with `bun link` in its checkout, then run `bun
 link @misonetwork/sdk` here. Keep `@misonetwork/sdk` at its released semver
-range (`^0.5.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
+range (`^0.6.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
 dependency while honouring `.gitignore`, and `@misonetwork/sdk` builds to a
 gitignored `dist/`, so the copy arrives empty and nothing resolves.

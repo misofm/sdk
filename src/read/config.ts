@@ -7,14 +7,18 @@
 // `lib/money.ts`, `lib/drops.ts`) lives here instead, so a redeploy is a change
 // in ONE file that every surface picks up.
 //
-// Both networks stay unavailable until the fresh protocol publish is configured;
-// pre-launch has no compatibility lane for the old deployment.
+// Testnet values are baked from the verified 2026-08-19 deployment. Mainnet is
+// deliberately unavailable until this ABI is deployed there.
+
+import { MISO_PLATFORM_DEPLOYMENTS } from "../deployments.ts";
 
 export type Network = "testnet" | "mainnet";
 
-/** Anything but "mainnet" — including unset — is testnet. Mirrors miso-api's `networkFromEnv`. */
+/** Missing defaults to Testnet for local development; invalid values fail closed. */
 export function networkFrom(value: string | undefined): Network {
-  return value === "mainnet" ? "mainnet" : "testnet";
+  if (value === undefined || value === "testnet") return "testnet";
+  if (value === "mainnet") return "mainnet";
+  throw new Error(`@misofm/sdk/read: unsupported network "${value}".`);
 }
 
 /** Package ids for the miso protocol core and the extensions the read layer touches. */
@@ -27,6 +31,9 @@ export interface ProtocolIds {
   record: string;
   /** `miso_record` shared `Settings` object — the mint witness authorizer. */
   recordSettings: string;
+  /** Release coordinator package and its shared derivation-parent object. */
+  releaseRegistry: string;
+  releaseRegistryId: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
@@ -88,17 +95,33 @@ export interface MisoConfig {
   discoverReleaseIds: readonly string[];
 }
 
-// TODO(publish): replace this guard with a fresh `TESTNET: MisoConfig` after
-// republishing every protocol package. Set every `protocol` package/object id
-// from that publish; do not reuse any id from the retired deployment.
-// TODO(publish): set `protocol.record` to the fresh `miso_record` package id;
-// it is distinct from the `protocol.recordSettings` shared object id.
-// TODO(publish): at the `ProtocolIds` declaration above, add `releaseRegistry`
-// and `releaseRegistryId`; set the latter from
-// `ReleaseRegistryCreatedEvent.registry_id` in the release_registry publish tx.
-// TODO(publish): recreate Discover content under the fresh packages, then add
-// only those release ids to `discoverReleaseIds`.
-const TESTNET: MisoConfig | null = null;
+const TESTNET: MisoConfig = {
+  network: "testnet",
+  protocol: {
+    miso: MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId,
+    drop: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.drop,
+    record: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.record,
+    recordSettings: MISO_PLATFORM_DEPLOYMENTS.testnet.objects.recordSettings,
+    releaseRegistry: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry,
+    releaseRegistryId: MISO_PLATFORM_DEPLOYMENTS.testnet.objects.releaseRegistry,
+    releaseCoverArt: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseCoverArt,
+    compositionCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.compositionCredits,
+    recordingCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.recordingCredits,
+    releaseCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseCredits,
+    credit: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.credit,
+  },
+  party: MISO_PLATFORM_DEPLOYMENTS.testnet.party,
+  money: {
+    usdCoinType: "0x77774cb7b8cb5622b4ef2658101bf5f1e965418297fe874b683df8f760b6e749::fakeusd::FakeUsd",
+    usdDecimals: 6,
+  },
+  grpcUrl: "https://fullnode.testnet.sui.io",
+  graphqlUrl: "https://graphql.testnet.sui.io/graphql",
+  walrusAggregatorUrl: "https://aggregator.walrus-testnet.walrus.space",
+  apiBaseUrl: "https://api.testnet.miso.fm",
+  // Content from the retired deployment is intentionally not carried forward.
+  discoverReleaseIds: [],
+};
 
 /** Fields a deployment may override without forking the whole config (endpoints, shelf). */
 export type MisoConfigOverrides = Partial<
@@ -110,9 +133,9 @@ export type MisoConfigOverrides = Partial<
  * filled in here — a mainnet worker must fail loudly, never read testnet ids.
  */
 export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}): MisoConfig {
-  if (network === "mainnet" || !TESTNET) {
+  if (network === "mainnet") {
     throw new Error(
-      "@misofm/sdk/read: no fresh deployment configuration yet. Publish the protocol packages, then fill in src/read/config.ts.",
+      `@misofm/sdk/read: no bundled Miso platform deployment for network "${network}".`,
     );
   }
   return { ...TESTNET, ...stripUndefined(overrides) };

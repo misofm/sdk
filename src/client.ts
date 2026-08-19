@@ -5,11 +5,11 @@
 // (https://sdk.mystenlabs.com/sui/sdk-building). Register it once and the
 // platform layer hangs off whatever client you already have:
 //
-//   const client = new SuiGrpcClient({ network, baseUrl })
-//     .$extend(misoPlatform({ packageId, settingsId }));
+//   const client = new SuiGrpcClient({ network, baseUrl }).$extend(miso());
 //
-//   await client.misoPlatform.getSale({ releaseId, currencyType });
-//   tx.add(client.misoPlatform.tx.buyRecord({ releaseId, currencyType, amount, recipient }));
+//   await client.miso.getSale({ releaseId, currencyType });
+//   await client.miso.protocol.getReleaseById(releaseId);
+//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient }));
 //
 // Two things this buys over calling the bare functions:
 //
@@ -26,8 +26,16 @@
 // `tx` builds transactions without executing, `bcs` exposes the generated struct
 // definitions, `ids` is the address math that replaces a registry.
 
-import type { ClientWithCoreApi } from "@mysten/sui/client";
+import type {
+  ClientWithCoreApi,
+  SuiClientRegistration,
+} from "@mysten/sui/client";
 import type { Signer } from "@mysten/sui/cryptography";
+import type { SuiGraphQLClient } from "@mysten/sui/graphql";
+import {
+  miso as protocolMiso,
+  type MisoProtocolClient,
+} from "@misonetwork/sdk/client";
 
 import * as listingContract from "./contracts/miso_pressing/listing.ts";
 import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
@@ -74,6 +82,32 @@ import type {
   PublishReleaseParams,
 } from "./transactions.ts";
 import * as share from "./share.ts";
+import {
+  getMisoPlatformDeployment,
+  type MisoPlatformDeployment,
+} from "./deployments.ts";
+
+/** Defaults `options.package` to `pkg` for every generated call function. */
+function bindModulePackage<M extends object>(mod: M, pkg: string): M {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ ...mod })) {
+    out[key] =
+      typeof value === "function"
+        ? (options: { package?: string }) =>
+            (value as (o: unknown) => unknown)({ package: pkg, ...options })
+        : value;
+  }
+  return out as M;
+}
+
+export interface MisoOptions<Name extends string = "miso"> {
+  /** Name for the client extension. Defaults to `miso`. */
+  name?: Name;
+  /** Complete custom deployment; omit to select the bundled client network. */
+  deployment?: MisoPlatformDeployment;
+  /** Required only by protocol methods that perform global type discovery. */
+  graphqlClient?: SuiGraphQLClient;
+}
 
 export interface MisoPlatformConfig {
   /** The published `miso_pressing` package. */
@@ -114,10 +148,27 @@ type ConfiguredRelease<T> = Omit<T, "misoPackageId" | "minatoPackageId" | "relea
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
   readonly #config: MisoPlatformConfig;
+  /** The permissionless protocol layer wrapped by this platform facade. */
+  readonly protocol: MisoProtocolClient;
+  /** Bundled/custom deployment selected for the full facade, when available. */
+  readonly deployment?: MisoPlatformDeployment;
 
-  constructor(client: ClientWithCoreApi, config: MisoPlatformConfig) {
+  constructor(
+    client: ClientWithCoreApi,
+    config: MisoPlatformConfig,
+    protocol?: MisoProtocolClient,
+    deployment?: MisoPlatformDeployment,
+  ) {
     this.#client = client;
     this.#config = config;
+    this.protocol =
+      protocol ??
+      protocolMiso({
+        deployment: config.misoPackageId
+          ? { packageId: config.misoPackageId }
+          : undefined,
+      }).register(client);
+    this.deployment = deployment;
   }
 
   get packageId(): string {
@@ -252,7 +303,18 @@ export class MisoPlatformClient {
   // ── Generated layer ───────────────────────────────────────────────────────
 
   /** Generated Move-call bindings, for commands this facade doesn't wrap. */
-  readonly call = { listing: listingContract, pressing: pressingContract, releaseRegistry };
+  get call() {
+    return {
+      listing: bindModulePackage(listingContract, this.packageId),
+      pressing: bindModulePackage(pressingContract, this.packageId),
+      releaseRegistry: this.#config.releaseRegistryPackageId
+        ? bindModulePackage(
+            releaseRegistry,
+            this.#config.releaseRegistryPackageId,
+          )
+        : releaseRegistry,
+    };
+  }
 
   /** Generated BCS definitions, for parsing objects or events yourself. */
   readonly bcs = {
@@ -265,8 +327,48 @@ export class MisoPlatformClient {
   };
 }
 
+/** The full Miso client exposed by `@misofm/sdk`. */
+export { MisoPlatformClient as MisoClient };
+
 /**
- * Registers the platform layer on a Sui client. Pass the result to `$extend`.
+ * Registers the complete Miso facade at `client.miso`.
+ *
+ * Platform operations live directly on `client.miso`; the lower-level
+ * permissionless protocol SDK is available at `client.miso.protocol`.
+ */
+export function miso<const Name extends string = "miso">(
+  options: MisoOptions<Name> = {},
+): SuiClientRegistration<ClientWithCoreApi, Name, MisoPlatformClient> {
+  const name = (options.name ?? "miso") as Name;
+  return {
+    name,
+    register: (client: ClientWithCoreApi) => {
+      const deployment =
+        options.deployment ?? getMisoPlatformDeployment(client.network);
+      const protocol = protocolMiso({
+        deployment: deployment.protocol,
+        graphqlClient: options.graphqlClient,
+      }).register(client);
+      return new MisoPlatformClient(
+        client,
+        {
+          packageId: deployment.packages.pressing,
+          settingsId: deployment.objects.recordSettings,
+          misoPackageId: deployment.protocol.packageId,
+          minatoPackageId: deployment.packages.minato,
+          releaseRegistryPackageId: deployment.packages.releaseRegistry,
+          releaseRegistryId: deployment.objects.releaseRegistry,
+        },
+        protocol,
+        deployment,
+      );
+    },
+  };
+}
+
+/**
+ * @deprecated Prefer zero-config `miso()`, which registers the complete facade
+ * at `client.miso` and exposes the protocol layer at `client.miso.protocol`.
  *
  * `settingsId` is optional so a read-only client (an indexer, a catalog page) can
  * skip it; asking to build a purchase without it throws rather than sending a
@@ -275,6 +377,15 @@ export class MisoPlatformClient {
 export function misoPlatform(config: MisoPlatformConfig) {
   return {
     name: "misoPlatform" as const,
-    register: (client: ClientWithCoreApi) => new MisoPlatformClient(client, config),
+    register: (client: ClientWithCoreApi) => {
+      const protocol = protocolMiso({
+        deployment: config.misoPackageId
+          ? {
+              packageId: config.misoPackageId,
+            }
+          : undefined,
+      }).register(client);
+      return new MisoPlatformClient(client, config, protocol);
+    },
   };
 }
