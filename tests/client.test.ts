@@ -67,6 +67,15 @@ test("miso() fails closed when the platform is not bundled", () => {
   ).toThrow(/no bundled Miso platform deployment/);
 });
 
+test("bundled deployment includes ids required by platform publishing", () => {
+  const { packages } = MISO_PLATFORM_DEPLOYMENTS.testnet;
+  expect(packages.royaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(packages.compositionRoyaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(packages.recordingRoyaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(packages.coverArt).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(packages.ori).toMatch(/^0x[0-9a-f]{64}$/);
+});
+
 test("network parsing defaults only missing values and rejects typos", () => {
   expect(networkFrom(undefined)).toBe("testnet");
   expect(networkFrom("testnet")).toBe("testnet");
@@ -92,6 +101,42 @@ test("miso() binds generated platform calls to the selected packages", () => {
     moveCalls(tx).find(
       (call) => call.module === "release_registry" && call.function === "id",
     )?.package,
+  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry);
+});
+
+test("miso() binds whole-release graph package ids", () => {
+  const c = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(miso());
+  const tx = new Transaction();
+  c.miso.tx.publishReleaseGraph({
+    compositions: [],
+    recordings: [],
+    release: {
+      title: "R",
+      nonce: "1",
+      adminAddress: A,
+      releaseRegistryId:
+        MISO_PLATFORM_DEPLOYMENTS.testnet.objects.releaseRegistry,
+      tracks: [
+        {
+          recordingId: A,
+          recordingAdminCapId: A,
+          recordingShareType: SHARE,
+          compositionShareType: SHARE,
+          splitBps: 10_000,
+        },
+      ],
+    },
+  })(tx);
+
+  const calls = moveCalls(tx);
+  expect(calls.find((call) => call.module === "release")?.package).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId,
+  );
+  expect(
+    calls.find((call) => call.module === "release_registry")?.package,
   ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry);
 });
 

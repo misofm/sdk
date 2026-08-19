@@ -13,6 +13,11 @@ import type { SuiClientTypes } from "@mysten/sui/client";
 import { buildTx, toExecResult, FULL_INCLUDE, type ExecResult } from "@misonetwork/sdk";
 import type { TxThunk } from "./transactions.ts";
 
+// Consumers of the platform SDK should not need a second direct dependency on
+// the protocol SDK just to execute a composed PTB. Keep the generic execution
+// surface available through this platform-layer entry point as well.
+export * from "@misonetwork/sdk/execute";
+
 type FullInclude = typeof FULL_INCLUDE;
 
 /**

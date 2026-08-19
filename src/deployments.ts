@@ -21,7 +21,17 @@ export interface MisoPlatformDeployment {
     readonly compositionCredits: string;
     readonly recordingCredits: string;
     readonly releaseCredits: string;
+    /** Base royalty-pool value library. */
+    readonly royaltyPool: string;
+    /** Composition royalty-pool extension. */
+    readonly compositionRoyaltyPool: string;
+    /** Recording royalty-pool extension. */
+    readonly recordingRoyaltyPool: string;
+    /** Cover-art value type used by the release cover extension. */
+    readonly coverArt: string;
     readonly releaseCoverArt: string;
+    /** External `ori::walrus_data::WalrusData` dependency used by cover art. */
+    readonly ori: string;
   };
   readonly objects: {
     readonly recordSettings: string;
@@ -78,8 +88,18 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
         "0xc794252bd90efb4cc224107f9dd0a56d4f4f5623783628b6af286f6535dd4c1e",
       releaseCredits:
         "0x42e2dbf6098d18782911460ecf79b338af2f1b654ef7ba99c6e7344fd4bf3f94",
+      royaltyPool:
+        "0x798fb353a5dbed51a0df08a7c10fdc432a11d60b55e016102ca635f9033c654d",
+      compositionRoyaltyPool:
+        "0xc22693ec50312492d7da23f3544625df637a92cd2be08e09d0f2eb8ff4e0e7ac",
+      recordingRoyaltyPool:
+        "0x33c9149889ef9e8078a5eba5c5486e8938e2dc69b3bd49a45c5c57e9f3d898a8",
+      coverArt:
+        "0xb29052d1174835a8061149aeca08f53551fa0691de64350247fc5cb558f797a0",
       releaseCoverArt:
         "0x831a612920343696de7e8f0603ff4c0b21c43ca3de478feb96d230e263cd11d4",
+      ori:
+        "0x340057f2174fb59e4626742dd2b46c662237837b6187450cb59e4976ce7eac78",
     },
     objects: {
       recordSettings:

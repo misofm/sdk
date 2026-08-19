@@ -28,7 +28,11 @@
 // The recommended entry point is the client extension (see ./client.ts); the bare
 // builders and readers stay exported for callers that hold ids themselves.
 export { miso, misoPlatform, MisoClient, MisoPlatformClient } from "./client.ts";
-export type { MisoOptions, MisoPlatformConfig } from "./client.ts";
+export type {
+  ConfiguredReleaseGraphParams,
+  MisoOptions,
+  MisoPlatformConfig,
+} from "./client.ts";
 export * from "./deployments.ts";
 export * from "./pressing.ts";
 export * from "./transactions.ts";

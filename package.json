@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
