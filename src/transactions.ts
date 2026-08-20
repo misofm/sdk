@@ -220,8 +220,6 @@ export interface PublishRecordingParams extends ShareCurrencyBinding {
   compositionShareType: string;
   shareRecipients: ShareRecipient[];
   adminAddress: string;
-  /** Slippage guard for `recording::new` — pass the composition rate you observed (default: protocol max). */
-  maxRoyaltyRateBps?: number;
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -235,7 +233,6 @@ export function publishRecording(params: PublishRecordingParams): TxThunk {
       shareTreasuryCapId: params.shareTreasuryCapId,
       compositionShareType: params.compositionShareType,
       composition: tx.object(params.compositionId),
-      maxRoyaltyRateBps: params.maxRoyaltyRateBps,
       misoPackageId: params.misoPackageId,
     } satisfies CreateRecordingParams);
     finalizeRecording(tx, {
@@ -287,15 +284,14 @@ export function publishCompositionAndRecording(params: PublishCompositionAndReco
     } satisfies CreateCompositionParams);
 
     // Borrow the still-unshared composition into recording::new before publishing it.
-    // The composition is created in this PTB with a known rate, so the slippage
-    // guard pins that exact value — front-running is structurally impossible here.
+    // The composition's royalty rate is immutable once set at `composition::new`,
+    // so `recording::new` reads exactly the rate this PTB just created it with.
     const rec = createRecording(tx, {
       shareType: params.recording.shareType,
       shareCurrencyId: params.recording.shareCurrencyId,
       shareTreasuryCapId: params.recording.shareTreasuryCapId,
       compositionShareType: params.composition.shareType,
       composition: comp.composition,
-      maxRoyaltyRateBps: params.royaltyRateBps,
       misoPackageId: params.misoPackageId,
     } satisfies CreateRecordingParams);
 

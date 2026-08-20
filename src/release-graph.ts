@@ -24,7 +24,7 @@
 // one PTB.
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
-import { contracts, PROTOCOL_MAX_ROYALTY_RATE_BPS } from "@misonetwork/sdk";
+import { contracts } from "@misonetwork/sdk";
 import { attachCompositionRoyaltyPool, attachRecordingRoyaltyPool } from "./extensions/royalty-pool.ts";
 import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
 import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
@@ -64,12 +64,6 @@ export interface RecordingNode {
   parentCompositionId?: string;
   shareRecipients: ShareRecipient[];
   adminAddress: string;
-  /**
-   * Slippage guard for `recording::new` against an EXISTING on-chain parent —
-   * pass the composition rate you observed (default: protocol max). Ignored for
-   * parents created in this PTB, whose exact known rate is pinned automatically.
-   */
-  maxRoyaltyRateBps?: number;
   royaltyPool?: RoyaltyPoolNode;
 }
 
@@ -156,16 +150,9 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
 
     const recs: Parts[] = params.recordings.map((rec, i) => {
       const parent = rec.parentCompositionIndex !== undefined ? comps[rec.parentCompositionIndex]!.work : tx.object(rec.parentCompositionId!);
-      // Slippage guard: a parent created in this PTB has a known rate — pin it
-      // exactly. An existing parent uses the caller's observed rate (or accepts
-      // up to the protocol max).
-      const maxRoyaltyRateBps =
-        rec.parentCompositionIndex !== undefined
-          ? params.compositions[rec.parentCompositionIndex]!.royaltyRateBps
-          : (rec.maxRoyaltyRateBps ?? PROTOCOL_MAX_ROYALTY_RATE_BPS);
       const typeArgs = recTypeArgs(i);
       const r = tx.add(
-        recording._new({ package: pkg, typeArguments: typeArgs, arguments: [parent, tx.object(rec.shareCurrencyId), tx.object(rec.shareTreasuryCapId), tx.pure.u16(maxRoyaltyRateBps)] }),
+        recording._new({ package: pkg, typeArguments: typeArgs, arguments: [parent, tx.object(rec.shareCurrencyId), tx.object(rec.shareTreasuryCapId)] }),
       );
       const parts: Parts = { work: r[0]!, adminCap: r[1]!, balance: r[2]! };
       if (rec.royaltyPool) {

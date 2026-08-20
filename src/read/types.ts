@@ -69,6 +69,8 @@ export interface TrackView {
   no: string;
   title: string;
   recordingId: string;
+  /** ID of the composition underlying this track's recording. */
+  compositionId: string;
   /** This track's share of the release's revenue, in basis points. */
   splitBps: number;
   /** 1-based disc this track sits on. */

@@ -22,8 +22,8 @@ function releaseBytes(): Uint8Array {
     state: { Published: 123n },
     title: "Canonical flat release",
     tracks: [
-      { state: { Assigned: true }, recording_id: RECORDING_ONE, split_bps: [6000] },
-      { state: { Unassigned: TARGET }, recording_id: RECORDING_TWO, split_bps: [4000] },
+      { state: { Assigned: true }, composition_id: COMPOSITION, recording_id: RECORDING_ONE, split_bps: [6000] },
+      { state: { Unassigned: TARGET }, composition_id: COMPOSITION, recording_id: RECORDING_TWO, split_bps: [4000] },
     ],
   }).toBytes();
 }
@@ -35,8 +35,8 @@ test("parseReleaseObject reads the canonical flat BCS tracklist", () => {
     state: { type: "Published", timestampMs: 123 },
     title: "Canonical flat release",
     tracks: [
-      { state: "Assigned", recordingId: RECORDING_ONE, splitBps: { value: 6000 } },
-      { state: "Unassigned", recordingId: RECORDING_TWO, splitBps: { value: 4000 } },
+      { state: "Assigned", compositionId: COMPOSITION, recordingId: RECORDING_ONE, splitBps: { value: 6000 } },
+      { state: "Unassigned", compositionId: COMPOSITION, recordingId: RECORDING_TWO, splitBps: { value: 4000 } },
     ],
   });
 });

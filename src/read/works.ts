@@ -173,7 +173,11 @@ function parseComposition(id: string, content: Uint8Array): Composition {
 
 function parseRecording(id: string, content: Uint8Array): Recording {
   const value = contracts.recording.Recording.parse(content) as Parsed;
-  return { id, state: workState(value.state) };
+  return {
+    id,
+    state: workState(value.state),
+    compositionId: String(value.composition_id),
+  };
 }
 
 export function parseReleaseObject(
@@ -187,6 +191,7 @@ export function parseReleaseObject(
     title: String(value.title),
     tracks: (value.tracks ?? []).map((track: Parsed) => ({
       state: (track.state?.$kind ?? "Unassigned") as TrackState,
+      compositionId: String(track.composition_id),
       recordingId: String(track.recording_id),
       splitBps: {
         value: Number(

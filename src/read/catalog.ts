@@ -154,6 +154,7 @@ function toTracks(
     no: `${index + 1}`,
     title: titles[track.recordingId] ?? "Untitled",
     recordingId: track.recordingId,
+    compositionId: track.compositionId,
     splitBps: int(track.splitBps.value),
     disc: 1,
   }));

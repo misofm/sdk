@@ -62,9 +62,9 @@ test("publishCompositionAndRecording orders new→new→publish→publish and bo
   const recNew = moveCallStream.find((c) => label(c.mc) === "recording::new")!;
   const compositionArg = recNew.mc.arguments[0]!;
   expect(compositionArg.$kind).toBe("NestedResult");
-  // recording::new takes (composition, currency, treasury_cap, max_royalty_rate_bps):
-  // the slippage guard is pinned to the in-PTB composition's exact known rate.
-  expect(recNew.mc.arguments.length).toBe(4);
+  // recording::new takes (composition, currency, treasury_cap): the royalty
+  // rate is immutable once set at composition::new, so no slippage guard.
+  expect(recNew.mc.arguments.length).toBe(3);
   expect(compositionArg.NestedResult![0]).toBe(compNew.cmdIndex); // references composition::new
   expect(compositionArg.NestedResult![1]).toBe(0); // its first return value (the Composition)
 

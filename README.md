@@ -442,6 +442,6 @@ bun install
 If you are changing both packages at once, `bun link` still works for a local
 loop — register the protocol SDK with `bun link` in its checkout, then run `bun
 link @misonetwork/sdk` here. Keep `@misonetwork/sdk` at its released semver
-range (`^0.6.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
+range (`^0.7.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
 dependency while honouring `.gitignore`, and `@misonetwork/sdk` builds to a
 gitignored `dist/`, so the copy arrives empty and nothing resolves.
