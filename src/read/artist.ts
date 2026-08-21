@@ -138,7 +138,7 @@ async function resolveFeaturedRelease(
   const pressingId = await client.sui.party.getFeaturedDrop(partyId);
   if (!pressingId) return null;
 
-  const pressing = await getPressing(client.protocol, pressingId);
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
   if (!pressing) return null;
 
   const [resources, entity] = await Promise.all([

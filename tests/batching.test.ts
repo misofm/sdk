@@ -64,11 +64,11 @@ describe("bulk Core reads", () => {
 
   test("pressings, listings, and a two-object sale never fan out", async () => {
     const pressingCalls: unknown[][] = [];
-    expect(await getPressing(missingClient(pressingCalls), "0x1")).toBeNull();
+    expect(await getPressing(missingClient(pressingCalls), "0x1", "0xa")).toBeNull();
     expect(pressingCalls).toHaveLength(1);
 
     const listingCalls: unknown[][] = [];
-    expect(await getListing(missingClient(listingCalls), "0x2")).toBeNull();
+    expect(await getListing(missingClient(listingCalls), "0x2", "0xa")).toBeNull();
     expect(listingCalls).toHaveLength(1);
 
     const saleCalls: unknown[][] = [];

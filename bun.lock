@@ -8,7 +8,7 @@
         "@misonetwork/miso-party": "^0.2.0",
       },
       "devDependencies": {
-        "@misonetwork/sdk": "github:misonetwork/sdk#9193ec807b49bf8c7c0e84936ce2e1ae3fdec215",
+        "@misonetwork/sdk": "github:misonetwork/sdk#3cf70d1b222f6d73e8cd370d448235cb6a7f977b",
         "@mysten/codegen": "^0.11.14",
         "@mysten/move-bytecode-template": "^0.4.0",
         "@mysten/sui": "^2.24.0",
@@ -42,7 +42,7 @@
 
     "@misonetwork/miso-party": ["@misonetwork/miso-party@0.2.0", "", { "peerDependencies": { "@mysten/move-bytecode-template": "^0.4.0", "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "sha512-sU/F8jjKRXFNBNboYIbbyEjCPed+WzoDkO5FikQlWgRJtDCyxFQcIlb/uQzJ1+KoxuMkLkLvXct3Xwb3fmq5CA=="],
 
-    "@misonetwork/sdk": ["@misonetwork/sdk@github:misonetwork/sdk#9193ec8", { "peerDependencies": { "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "misonetwork-sdk-9193ec8", "sha512-Qu9k/1NTE9v/bnPgNU+M2ieJ7Rcv5vIaD3BWv52TclvVzGLObwFS4Z3nlygjnwkjAPznXui1kkHEvdXiuGyFvg=="],
+    "@misonetwork/sdk": ["@misonetwork/sdk@github:misonetwork/sdk#3cf70d1", { "peerDependencies": { "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "misonetwork-sdk-3cf70d1", "sha512-kuS8bIUQqk7qtGCviBHSLABgX0BaOUVLDaC+GtedsVzKpUvuidvq0tgKsfzNamnWFyC3W4WVu2/QfA/jtv1MfA=="],
 
     "@mysten/bcs": ["@mysten/bcs@2.1.0", "", { "dependencies": { "@mysten/utils": "^0.4.0", "@scure/base": "^2.2.0" } }, "sha512-rIR/cDAqDfBDxmYEZXppN/on8gmh1OW0dYi/Bk2kMBZcYMTaBaEtEX1VR6g7HicVxuMbFAIP0/SQkdH7J9Y5dQ=="],
 

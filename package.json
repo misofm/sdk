@@ -1,6 +1,7 @@
 {
   "name": "@misofm/sdk",
   "version": "0.10.0",
+  "packageManager": "bun@1.4.0",
   "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
@@ -119,7 +120,7 @@
     "prepare": "tsc -p tsconfig.build.json"
   },
   "devDependencies": {
-    "@misonetwork/sdk": "github:misonetwork/sdk#9193ec807b49bf8c7c0e84936ce2e1ae3fdec215",
+    "@misonetwork/sdk": "github:misonetwork/sdk#3cf70d1b222f6d73e8cd370d448235cb6a7f977b",
     "@mysten/codegen": "^0.11.14",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.24.0",

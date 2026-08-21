@@ -393,7 +393,7 @@ export async function getPressingDetail(
   pressingId: string,
   options: GetReleaseOptions = {},
 ): Promise<PressingDetail | null> {
-  const pressing = await getPressing(client.protocol, pressingId);
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
   if (!pressing) return null;
   const release = await getReleaseDetail(client, pressing.releaseId, options);
   return { pressing: toPressingView(pressing), release };
@@ -408,7 +408,7 @@ export async function getPressingPreview(
   client: MisoClient,
   pressingId: string,
 ): Promise<PressingPreview | null> {
-  const pressing = await getPressing(client.protocol, pressingId);
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
   if (!pressing) return null;
 
   const { release, cover } = await getReleaseResources(
