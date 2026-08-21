@@ -104,10 +104,6 @@ const config: SuiCodegenConfig = {
       package: "@local-pkg/release_kind",
       path: source("misonetwork/protocol-extensions/release_kind"),
     },
-    {
-      package: "@local-pkg/release_snapshot_bundle",
-      path: source("misonetwork/protocol-extensions/release_snapshot_bundle"),
-    },
 
     // Recording metadata is data-only; its cap-gated writers work with either a
     // legacy direct cap or a Vault loan through the SDK authority helpers.
