@@ -26,25 +26,22 @@
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { contracts } from "@misonetwork/sdk";
-import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
+import { custodyOf, disperseShares, finalizeRelease, recordingAuthorityOf, type AdminCustodyInput, type RecordingAuthorityInput, type ShareRecipient } from "./transactions.ts";
 import { directAdminCap, disposeNewAdminCap, type AdminCapAuthority, type AdminCapCustody, withAdminCap } from "./vault.ts";
 
 const { composition, recording, track } = contracts;
 
-export interface CompositionNode {
+interface CompositionNodeBase {
   shareType: string;
   shareCurrencyId: string;
   shareTreasuryCapId: string;
   title: string;
   royaltyRateBps: number;
   shareRecipients: ShareRecipient[];
-  /** Explicit direct delivery or Vault custody for the CompositionAdminCap. */
-  adminCustody?: AdminCapCustody;
-  /** @deprecated Pass explicit `adminCustody`. */
-  adminAddress?: string;
 }
+export type CompositionNode = CompositionNodeBase & AdminCustodyInput;
 
-export interface RecordingNode {
+interface RecordingNodeBase {
   shareType: string;
   shareCurrencyId: string;
   shareTreasuryCapId: string;
@@ -55,10 +52,8 @@ export interface RecordingNode {
   /** …or the on-chain composition object id if the parent already exists. */
   parentCompositionId?: string;
   shareRecipients: ShareRecipient[];
-  adminCustody?: AdminCapCustody;
-  /** @deprecated Pass explicit `adminCustody`. */
-  adminAddress?: string;
 }
+export type RecordingNode = RecordingNodeBase & AdminCustodyInput;
 
 /** A track whose recording is created in THIS PTB. */
 export interface FreshTrackNode {
@@ -71,31 +66,27 @@ export interface FreshTrackNode {
  * A track over an EXISTING recording, authorized by its admin cap held by the
  * sender. This can coexist with recordings created in this PTB.
  */
-export interface CapTrackNode {
+interface CapTrackNodeBase {
   recordingId: string;
-  recordingAuthority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `recordingAuthority`. */
-  recordingAdminCapId?: string;
   recordingShareType: string;
   compositionShareType: string;
   splitBps: number;
 }
+export type CapTrackNode = CapTrackNodeBase & RecordingAuthorityInput;
 
 export type TrackNode = FreshTrackNode | CapTrackNode;
 
 const isFresh = (t: TrackNode): t is FreshTrackNode => "recordingIndex" in t;
 
-export interface ReleaseNode {
+interface ReleaseNodeBase {
   title: string;
   /** u256 nonce as a decimal string (deterministic release id). */
   nonce: string;
-  adminCustody?: AdminCapCustody;
-  /** @deprecated Pass explicit `adminCustody`. */
-  adminAddress?: string;
   releaseRegistryId: string;
   /** The ordered tracklist. Display grouping (discs/sides) is extension data. */
   tracks: TrackNode[];
 }
+export type ReleaseNode = ReleaseNodeBase & AdminCustodyInput;
 
 export interface PublishReleaseGraphParams {
   compositions: CompositionNode[];
@@ -172,7 +163,7 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         const typeArgs: [string, string] = [t.recordingShareType, t.compositionShareType];
         const rec = tx.object(t.recordingId);
         let trackValue: TransactionObjectArgument | undefined;
-        withAdminCap(tx, t.recordingAuthority ?? directAdminCap(t.recordingAdminCapId!), (adminCap) => {
+        withAdminCap(tx, recordingAuthorityOf(t), (adminCap) => {
           trackValue = tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [adminCap, rec, releaseId, tx.pure.u16(t.splitBps)] }));
         });
         return trackValue!;
@@ -183,7 +174,7 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         arguments: [tx.object(rel.releaseRegistryId), tx.pure.string(rel.title), trackVec, tx.pure.u256(BigInt(rel.nonce))],
       });
       const releaseParts = { release: created[0]!, adminCap: created[1]! };
-      finalizeRelease(tx, { ...releaseParts, adminCustody: rel.adminCustody, adminAddress: rel.adminAddress, misoPackageId: pkg });
+      finalizeRelease(tx, { ...releaseParts, adminCustody: custodyOf(rel), misoPackageId: pkg });
     }
 
     // ── 3) Share every work, disperse its supply, transfer admin caps ──
@@ -191,13 +182,13 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
       const parts = comps[i]!;
       disperseShares(tx, minatoPackageId, c.shareType, parts.balance, c.shareRecipients);
       tx.add(composition.publish({ package: pkg, typeArguments: [c.shareType], arguments: [parts.work, parts.adminCap] }));
-      disposeNewAdminCap(tx, parts.adminCap, c.adminCustody ?? { kind: "direct", owner: c.adminAddress! });
+      disposeNewAdminCap(tx, parts.adminCap, custodyOf(c));
     });
     params.recordings.forEach((rec, i) => {
       const parts = recs[i]!;
       tx.add(recording.publish({ package: pkg, typeArguments: recTypeArgs(i), arguments: [parts.work, parts.adminCap] }));
       disperseShares(tx, minatoPackageId, rec.shareType, parts.balance, rec.shareRecipients);
-      disposeNewAdminCap(tx, parts.adminCap, rec.adminCustody ?? { kind: "direct", owner: rec.adminAddress! });
+      disposeNewAdminCap(tx, parts.adminCap, custodyOf(rec));
     });
   };
 }

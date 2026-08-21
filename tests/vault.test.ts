@@ -88,6 +88,10 @@ test("new capability custody shares the vault and transfers only VaultAdminCap",
     "vault::share",
   ]);
   expect(calls(tx)[1]!.package).toBe(COMP_POOL_PLUGIN);
+  const data = tx.getData() as { commands: { $kind: string; TransferObjects?: { objects: { $kind: string; NestedResult?: [number, number] }[] } }[] };
+  const transfer = data.commands.find((command) => command.$kind === "TransferObjects")!.TransferObjects!;
+  expect(transfer.objects).toHaveLength(1);
+  expect(transfer.objects[0]!.NestedResult).toEqual([0, 1]); // VaultAdminCap, never the wrapped raw cap
 });
 
 test("plugins build their own witnesses and expose no client-side witness input", () => {

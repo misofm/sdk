@@ -18,18 +18,23 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
-import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
+import { asU64, directAdminCap, type AdminCapAuthority, type U64Input, withAdminCap } from "./vault.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
 
-export interface SetReleaseCoverParams {
+type ReleaseAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
+  | { readonly authority?: never; readonly releaseAdminCapId: string };
+function releaseAuthorityOf(input: ReleaseAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  if (input.releaseAdminCapId !== undefined) return directAdminCap(input.releaseAdminCapId);
+  throw new Error("release authority is required");
+}
+
+interface SetReleaseCoverParamsBase {
   /** The `Release` object to attach the cover to. */
   releaseId: string;
-  /** Explicit legacy direct cap or Vault authority for this release. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority`. */
-  releaseAdminCapId?: string;
   /** Walrus blob id of the still cover image, as `u256` (decimal string or bigint). */
   stillBlobId: bigint | string;
   /** Optional animated-cover Walrus blob id (`u256`); omit for a still-only cover. */
@@ -41,11 +46,12 @@ export interface SetReleaseCoverParams {
   /** `ori` package (home of `walrus_data::new_blob` / the `WalrusData` type). */
   oriPackageId: string;
 }
+export type SetReleaseCoverParams = SetReleaseCoverParamsBase & ReleaseAuthorityInput;
 
-export interface SetReleaseTrackCoverParams extends SetReleaseCoverParams {
+export type SetReleaseTrackCoverParams = SetReleaseCoverParams & {
   /** Zero-based index in the release's flattened tracklist. */
-  trackIndex: number;
-}
+  trackIndex: U64Input;
+};
 
 function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
   const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
@@ -77,7 +83,7 @@ function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
 export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    withAdminCap(tx, p.authority ?? directAdminCap(p.releaseAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
       releaseCoverArt.setCover({
         package: p.releaseCoverArtPackageId,
         arguments: [p.releaseId, adminCap, cover],
@@ -90,10 +96,10 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
 export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    withAdminCap(tx, p.authority ?? directAdminCap(p.releaseAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
       releaseCoverArt.setTrackCover({
         package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, adminCap, p.trackIndex, cover],
+        arguments: [p.releaseId, adminCap, asU64("trackIndex", p.trackIndex), cover],
       }),
     ));
   };

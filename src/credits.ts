@@ -46,6 +46,12 @@ import * as releaseCredits from "./contracts/release_credits/release_credits.ts"
 import * as releasePartyRole from "./contracts/release_credits/release_party_role.ts";
 import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
 
+function authorityOf(authority: AdminCapAuthority | undefined, legacyCapId: string | undefined): AdminCapAuthority {
+  if (authority !== undefined) return authority;
+  if (legacyCapId !== undefined) return directAdminCap(legacyCapId);
+  throw new Error("admin authority is required");
+}
+
 // ── Role model ────────────────────────────────────────────────────────────────
 
 /** A composition writing role. `Custom` carries a free-form (validated) name. */
@@ -385,7 +391,7 @@ export function attachCompositionCredit(
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, p.authority ?? directAdminCap(p.compositionAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, authorityOf(p.authority, p.compositionAdminCapId), (adminCap) => tx.add(
       compositionCredits.addCredit({
         package: p.compositionCreditsPackageId,
         typeArguments: [p.compositionShareType],
@@ -444,7 +450,7 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, p.authority ?? directAdminCap(p.recordingAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
       recordingCredits.addCredit({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -480,7 +486,7 @@ export function addRecordingPrimaryArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, p.authority ?? directAdminCap(p.recordingAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
       recordingCredits.addPrimaryArtist({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -499,7 +505,7 @@ export function addRecordingFeaturedArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, p.authority ?? directAdminCap(p.recordingAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
       recordingCredits.addFeaturedArtist({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -545,7 +551,7 @@ export function addReleaseCredit(p: AddReleaseCreditParams): TxThunk {
       p.displayName,
       [roleArg],
     );
-    withAdminCap(tx, p.authority ?? directAdminCap(p.releaseAdminCapId!), (adminCap) => tx.add(
+    withAdminCap(tx, authorityOf(p.authority, p.releaseAdminCapId), (adminCap) => tx.add(
       releaseCredits.addCredit({
         package: p.releaseCreditsPackageId,
         arguments: [p.releaseId, adminCap, p.partyId, credit],

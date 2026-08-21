@@ -52,6 +52,13 @@ function client() {
   );
 }
 
+test("pressing-only misoPlatform configuration does not register the fail-closed protocol extension", () => {
+  const c = new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" })
+    .$extend(misoPlatform({ packageId: PRESSING }));
+  expect(c.misoPlatform.packageId).toBe(PRESSING);
+  expect(c.misoPlatform.protocol).toBeUndefined();
+});
+
 test("miso() accepts an explicit verified deployment and exposes nested protocol", () => {
   const c = new SuiGrpcClient({
     network: "testnet",

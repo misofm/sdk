@@ -17,23 +17,25 @@ import * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.t
 import * as releaseGenre from "./contracts/release_genre/release_genre.ts";
 import * as releaseKind from "./contracts/release_kind/release_kind.ts";
 import * as releaseSnapshotBundle from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
-import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
+import { asU64, directAdminCap, type AdminCapAuthority, type U64Input, withAdminCap } from "./vault.ts";
 
-export interface ReleaseExtensionTarget {
+type ReleaseAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
+  | { readonly authority?: never; readonly releaseAdminCapId: string };
+interface ReleaseExtensionTargetBase {
   releaseId: string;
-  /** Explicit legacy direct cap or Vault authority for this release. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority: directAdminCap(releaseAdminCapId)`. */
-  releaseAdminCapId?: string;
 }
+export type ReleaseExtensionTarget = ReleaseExtensionTargetBase & ReleaseAuthorityInput;
 function authority(p: ReleaseExtensionTarget): AdminCapAuthority {
-  return p.authority ?? directAdminCap(p.releaseAdminCapId!);
+  if (p.authority !== undefined) return p.authority;
+  if (p.releaseAdminCapId !== undefined) return directAdminCap(p.releaseAdminCapId);
+  throw new Error("release authority is required");
 }
 
-export interface SetReleaseKindParams extends ReleaseExtensionTarget {
+export type SetReleaseKindParams = ReleaseExtensionTarget & {
   kind: string;
   releaseKindPackageId: string;
-}
+};
 
 /** Attach the release's self-declared kind (for example "EP" or "Mixtape"). */
 export function setReleaseKind(p: SetReleaseKindParams): TxThunk {
@@ -54,10 +56,10 @@ export function setReleaseKind(p: SetReleaseKindParams): TxThunk {
   };
 }
 
-export interface SetReleaseDescriptionParams extends ReleaseExtensionTarget {
+export type SetReleaseDescriptionParams = ReleaseExtensionTarget & {
   description: string;
   releaseDescriptionPackageId: string;
-}
+};
 
 /** Attach the release's editorial description. */
 export function setReleaseDescription(p: SetReleaseDescriptionParams): TxThunk {
@@ -107,16 +109,16 @@ export function deriveGenreId(
 }
 
 export interface TrackGenreAssignment {
-  trackIndex: number;
+  trackIndex: U64Input;
   genreId: string;
 }
 
-export interface SetReleaseGenresParams extends ReleaseExtensionTarget {
+export type SetReleaseGenresParams = ReleaseExtensionTarget & {
   primaryGenreId: string;
   secondaryGenreIds?: readonly string[];
   trackPrimaryGenres?: readonly TrackGenreAssignment[];
   releaseGenrePackageId: string;
-}
+};
 
 /** Attach primary/secondary release genres and optional per-track overrides. */
 export function setReleaseGenres(p: SetReleaseGenresParams): TxThunk {
@@ -142,7 +144,7 @@ export function setReleaseGenres(p: SetReleaseGenresParams): TxThunk {
           arguments: [
             p.releaseId,
             adminCap,
-            assignment.trackIndex,
+            asU64("trackIndex", assignment.trackIndex),
             assignment.genreId,
           ],
         }),
@@ -233,15 +235,15 @@ function buildDspLink(
 }
 
 export interface TrackDspLink {
-  trackIndex: number;
+  trackIndex: U64Input;
   link: DspLink;
 }
 
-export interface SetReleaseDspLinksParams extends ReleaseExtensionTarget {
+export type SetReleaseDspLinksParams = ReleaseExtensionTarget & {
   releaseLinks?: readonly DspLink[];
   trackLinks?: readonly TrackDspLink[];
   releaseDspLinkPackageId: string;
-}
+};
 
 /** Attach release-level and per-track DSP links. */
 export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
@@ -260,19 +262,19 @@ export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
       tx.add(
         releaseDspLink.setTrackLink({
           package: p.releaseDspLinkPackageId,
-          arguments: [p.releaseId, adminCap, item.trackIndex, value],
+          arguments: [p.releaseId, adminCap, asU64("trackIndex", item.trackIndex), value],
         }),
       );
     }
   });
 }
 
-export interface SetReleaseSnapshotBundleParams extends ReleaseExtensionTarget {
+export type SetReleaseSnapshotBundleParams = ReleaseExtensionTarget & {
   /** Plaintext outer Walrus quilt blob id, as the on-chain u256 value. */
   blobId: bigint | string;
   releaseSnapshotBundlePackageId: string;
   oriPackageId: string;
-}
+};
 
 /** Attach the write-once release snapshot-bundle pointer. */
 export function setReleaseSnapshotBundle(

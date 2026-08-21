@@ -80,6 +80,10 @@
       "types": "./dist/release-extensions.d.ts",
       "default": "./dist/release-extensions.js"
     },
+    "./recording-extensions": {
+      "types": "./dist/recording-extensions.d.ts",
+      "default": "./dist/recording-extensions.js"
+    },
     "./read": {
       "types": "./dist/read/index.d.ts",
       "default": "./dist/read/index.js"

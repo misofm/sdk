@@ -131,24 +131,35 @@ import {
   type SetReleaseTrackCoverParams,
 } from "./cover.ts";
 
-/** Defaults `options.package` to `pkg` for every generated call function. */
-function bindModulePackage<M extends object>(
+type BoundMoveFunction<F> = F extends (options: infer Options) => infer Result
+  ? Options extends { package?: unknown }
+    ? (options: Omit<Options, "package">) => Result
+    : F
+  : F;
+type BoundModule<M extends object, Available extends readonly (keyof M)[]> = {
+  [Key in Available[number]]: BoundMoveFunction<M[Key]>;
+};
+
+/**
+ * Bind an explicit safe subset of a generated module to one immutable package.
+ * Callers cannot supply or override `package`; reference-returning, UID-only,
+ * and package-internal constructors never appear in this executable facade.
+ */
+function bindModulePackage<M extends object, K extends readonly (keyof M)[]>(
   mod: M,
   pkg: string,
-  referenceReturns: readonly string[] = [],
-): M {
+  available: K,
+): BoundModule<M, K> {
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries({ ...mod })) {
-    // PTB commands cannot consume Move references returned by a previous call.
-    // Keep those helpers in `contracts`, but not in executable `client.call`.
-    if (referenceReturns.includes(key)) continue;
-    out[key] =
+  for (const key of available) {
+    const value = (mod as Record<PropertyKey, unknown>)[key];
+    out[String(key)] =
       typeof value === "function"
         ? (options: { package?: string }) =>
-            (value as (o: unknown) => unknown)({ package: pkg, ...options })
+            (value as (o: unknown) => unknown)({ ...options, package: pkg })
         : value;
   }
-  return out as M;
+  return out as BoundModule<M, K>;
 }
 
 export interface MisoOptions<Name extends string = "miso"> {
@@ -215,45 +226,46 @@ export interface MisoPlatformConfig {
 }
 
 /** Params with the ids this client already knows dropped from the call site. */
-type Configured<T> = Omit<T, "misoPressingPackageId" | "settingsId">;
+type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
+type Configured<T> = DistributiveOmit<T, "misoPressingPackageId" | "settingsId">;
 
 /** Publish-builder params with the protocol/minato ids this client already knows dropped. */
-type ConfiguredPublish<T> = Omit<T, "misoPackageId" | "minatoPackageId">;
+type ConfiguredPublish<T> = DistributiveOmit<T, "misoPackageId" | "minatoPackageId">;
 
 /** Release-builder params with this client's core, share, and registry ids dropped. */
-type ConfiguredRelease<T> = Omit<
+type ConfiguredRelease<T> = DistributiveOmit<
   T,
   | "misoPackageId"
   | "minatoPackageId"
   | "releaseRegistryId"
 >;
 
-type ConfiguredReleaseKind = Omit<SetReleaseKindParams, "releaseKindPackageId">;
-type ConfiguredReleaseDescription = Omit<
+type ConfiguredReleaseKind = DistributiveOmit<SetReleaseKindParams, "releaseKindPackageId">;
+type ConfiguredReleaseDescription = DistributiveOmit<
   SetReleaseDescriptionParams,
   "releaseDescriptionPackageId"
 >;
-type ConfiguredReleaseGenres = Omit<
+type ConfiguredReleaseGenres = DistributiveOmit<
   SetReleaseGenresParams,
   "releaseGenrePackageId"
 >;
-type ConfiguredReleaseDspLinks = Omit<
+type ConfiguredReleaseDspLinks = DistributiveOmit<
   SetReleaseDspLinksParams,
   "releaseDspLinkPackageId"
 >;
-type ConfiguredReleaseSnapshotBundle = Omit<
+type ConfiguredReleaseSnapshotBundle = DistributiveOmit<
   SetReleaseSnapshotBundleParams,
   "releaseSnapshotBundlePackageId" | "oriPackageId"
 >;
-type ConfiguredReleaseCredit = Omit<
+type ConfiguredReleaseCredit = DistributiveOmit<
   AddReleaseCreditParams,
   "releaseCreditsPackageId" | "misoCreditPackageId"
 >;
-type ConfiguredReleaseCover = Omit<
+type ConfiguredReleaseCover = DistributiveOmit<
   SetReleaseCoverParams,
   "coverArtPackageId" | "releaseCoverArtPackageId" | "oriPackageId"
 >;
-type ConfiguredReleaseTrackCover = Omit<
+type ConfiguredReleaseTrackCover = DistributiveOmit<
   SetReleaseTrackCoverParams,
   "coverArtPackageId" | "releaseCoverArtPackageId" | "oriPackageId"
 >;
@@ -265,7 +277,7 @@ export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
   readonly #config: MisoPlatformConfig;
   /** The permissionless protocol layer wrapped by this platform facade. */
-  readonly protocol: MisoProtocolClient;
+  readonly protocol?: MisoProtocolClient;
   /** Bundled/custom deployment selected for the full facade, when available. */
   readonly deployment?: MisoPlatformDeployment;
 
@@ -277,13 +289,12 @@ export class MisoPlatformClient {
   ) {
     this.#client = client;
     this.#config = config;
-    this.protocol =
-      protocol ??
-      protocolMiso({
-        deployment: config.misoPackageId
-          ? { packageId: config.misoPackageId }
-          : undefined,
-      }).register(client);
+    // A pressing-only facade must not implicitly register a fail-closed core
+    // extension. Supply a core deployment/misoPackageId when `protocol` is
+    // needed; otherwise this remains a safe, independent pressing client.
+    this.protocol = protocol ?? (config.misoPackageId
+      ? protocolMiso({ deployment: { packageId: config.misoPackageId } }).register(client)
+      : undefined);
     this.deployment = deployment;
   }
 
@@ -557,103 +568,112 @@ export class MisoPlatformClient {
   /** Generated Move-call bindings, for commands this facade doesn't wrap. */
   get call() {
     return {
-      listing: bindModulePackage(listingContract, this.packageId),
-      pressing: bindModulePackage(pressingContract, this.packageId),
+      listing: bindModulePackage(listingContract, this.packageId, ["newFixedPrice", "newFloorPrice", "newEnabledState", "newDisabledState", "buy", "setState", "setPrice", "deriveId", "hasListing", "id", "releaseId", "pressingId", "price", "state", "isLive", "amount"] as const),
+      pressing: bindModulePackage(pressingContract, this.packageId, ["newScheduledState", "newActiveState", "newPausedState", "setState", "deriveId", "id", "releaseId", "supply", "isSelling", "pressingAdminCapPressingId", "verifyRecord"] as const),
       genre: this.#config.genrePackageId
-        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["name"])
-        : genreContract,
+        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["deriveGenreId", "id"] as const)
+        : undefined,
       releaseDescription: this.#config.releaseDescriptionPackageId
         ? bindModulePackage(
             releaseDescriptionContract,
             this.#config.releaseDescriptionPackageId,
-            ["description"],
+            ["setDescription", "clearDescription", "hasDescription"],
           )
-        : releaseDescriptionContract,
+        : undefined,
       releaseDspLink: this.#config.releaseDspLinkPackageId
         ? bindModulePackage(
             releaseDspLinkContract,
             this.#config.releaseDspLinkPackageId,
+            ["platform", "platformSpotify", "platformAppleMusic", "platformAmazonMusic", "platformBandcamp", "platformDeezer", "platformSoundcloud", "platformTidal", "platformYoutubeMusic", "newSpotify", "newAppleMusicAlbum", "newAppleMusicTrack", "newAmazonMusicAlbum", "newAmazonMusicTrack", "newBandcamp", "newDeezer", "newSoundcloud", "newTidal", "newYoutubeMusic", "setReleaseLink", "clearReleaseLink", "setTrackLink", "clearTrackLink", "clearTrackLinks", "hasReleaseLink"] as const,
           )
-        : releaseDspLinkContract,
+        : undefined,
       releaseGenre: this.#config.releaseGenrePackageId
         ? bindModulePackage(
             releaseGenreContract,
             this.#config.releaseGenrePackageId,
+            ["setPrimaryGenre", "addSecondaryGenre", "removeSecondaryGenre", "setTrackPrimaryGenre", "unsetTrackPrimaryGenre", "hasGenre"] as const,
           )
-        : releaseGenreContract,
+        : undefined,
       releaseKind: this.#config.releaseKindPackageId
         ? bindModulePackage(
             releaseKindContract,
             this.#config.releaseKindPackageId,
+            ["setKind", "unsetKind", "hasKind"] as const,
           )
-        : releaseKindContract,
+        : undefined,
       releaseRevenueDistributor: this.#config.releaseRevenueDistributorPluginPackageId
         ? bindModulePackage(
             releaseRevenueDistributorContract,
             this.#config.releaseRevenueDistributorPluginPackageId,
+            ["install", "uninstall", "redeemAndDistribute", "receiveAndDistribute", "isInstalled"] as const,
           )
-        : releaseRevenueDistributorContract,
+        : undefined,
       vault: this.#config.vaultPackageId
-        ? bindModulePackage(vaultContract, this.#config.vaultPackageId)
-        : vaultContract,
+        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "id", "vaultId", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
+        : undefined,
       compositionRoyaltyPool: this.#config.compositionRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
             this.#config.compositionRoyaltyPoolPluginPackageId,
+            ["install", "uninstall", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
           )
-        : compositionRoyaltyPoolContract,
+        : undefined,
       recordingRoyaltyPool: this.#config.recordingRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
             this.#config.recordingRoyaltyPoolPluginPackageId,
+            ["install", "uninstall", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
           )
-        : recordingRoyaltyPoolContract,
+        : undefined,
       compositionRoutedStake: this.#config.compositionRoutedStakePluginPackageId
         ? bindModulePackage(
             compositionRoutedStakeContract,
             this.#config.compositionRoutedStakePluginPackageId,
+            ["install", "uninstall", "createStake", "register", "unregister", "unstake", "restake", "isInstalled", "stakeAddress"] as const,
           )
-        : compositionRoutedStakeContract,
+        : undefined,
       routedStake: this.#config.routedStakePackageId
-        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId)
-        : routedStakeContract,
+        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId, ["share", "register", "unregister", "sweep", "unstake", "restake", "id"] as const)
+        : undefined,
       royaltyPool: this.#config.royaltyPoolPackageId
-        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId)
-        : royaltyPoolContract,
+        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "redeemAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "id", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
+        : undefined,
       recordingAdvisory: this.#config.recordingAdvisoryPackageId
-        ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId)
-        : recordingAdvisoryContract,
+        ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId, ["explicit", "notExplicit", "cleaned", "setRating", "unsetRating", "hasRating", "isExplicit", "isNotExplicit", "isCleaned"] as const)
+        : undefined,
       recordingLanguage: this.#config.recordingLanguagePackageId
-        ? bindModulePackage(recordingLanguageContract, this.#config.recordingLanguagePackageId)
-        : recordingLanguageContract,
+        ? bindModulePackage(recordingLanguageContract, this.#config.recordingLanguagePackageId, ["setLanguages", "setInstrumental", "unsetLanguages", "hasLanguages", "isInstrumental"] as const)
+        : undefined,
       recordingMasterReference: this.#config.recordingMasterReferencePackageId
-        ? bindModulePackage(recordingMasterReferenceContract, this.#config.recordingMasterReferencePackageId)
-        : recordingMasterReferenceContract,
+        ? bindModulePackage(recordingMasterReferenceContract, this.#config.recordingMasterReferencePackageId, ["setMasterReference", "unsetMasterReference", "hasMasterReference"] as const)
+        : undefined,
       recordingPreview: this.#config.recordingPreviewPackageId
-        ? bindModulePackage(recordingPreviewContract, this.#config.recordingPreviewPackageId)
-        : recordingPreviewContract,
+        ? bindModulePackage(recordingPreviewContract, this.#config.recordingPreviewPackageId, ["setPreview", "unsetPreview", "hasPreview"] as const)
+        : undefined,
       releaseSnapshotBundle: this.#config.releaseSnapshotBundlePackageId
         ? bindModulePackage(
             releaseSnapshotBundleContract,
             this.#config.releaseSnapshotBundlePackageId,
-            ["snapshotBundle"],
+            ["setSnapshotBundle", "hasSnapshotBundle"],
           )
-        : releaseSnapshotBundleContract,
+        : undefined,
       coverArt: this.#config.coverArtPackageId
-        ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId, ["still", "animated"])
-        : coverArtContract,
+        ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId, [] as const)
+        : undefined,
       releaseCoverArt: this.#config.releaseCoverArtPackageId
         ? bindModulePackage(
             releaseCoverArtContract,
             this.#config.releaseCoverArtPackageId,
+            ["setCover", "unsetCover", "setTrackCover", "unsetTrackCover", "hasCoverArt"] as const,
           )
-        : releaseCoverArtContract,
+        : undefined,
       releaseCredits: this.#config.releaseCreditsPackageId
         ? bindModulePackage(
             releaseCreditsContract,
             this.#config.releaseCreditsPackageId,
+            ["addCredit", "removeCredit", "hasCredits"] as const,
           )
-        : releaseCreditsContract,
+        : undefined,
     };
   }
 
@@ -748,13 +768,9 @@ export function misoPlatform(config: MisoPlatformConfig) {
   return {
     name: "misoPlatform" as const,
     register: (client: ClientWithCoreApi) => {
-      const protocol = protocolMiso({
-        deployment: config.misoPackageId
-          ? {
-              packageId: config.misoPackageId,
-            }
-          : undefined,
-      }).register(client);
+      const protocol = config.misoPackageId
+        ? protocolMiso({ deployment: { packageId: config.misoPackageId } }).register(client)
+        : undefined;
       return new MisoPlatformClient(client, config, protocol);
     },
   };

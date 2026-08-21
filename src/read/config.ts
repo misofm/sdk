@@ -30,9 +30,6 @@ export interface ProtocolIds {
   record: string;
   /** `miso_record` shared `Settings` object — the mint witness authorizer. */
   recordSettings: string;
-  /** Release coordinator package and its shared derivation-parent object. */
-  releaseRegistry: string;
-  releaseRegistryId: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
