@@ -41,7 +41,6 @@ export interface MisoPlatformDeployment {
     readonly releaseKind: string;
     /** Vault plugin that routes Release revenue into Recording addresses. */
     readonly releaseRevenueDistributorPlugin: string;
-    readonly releaseSnapshotBundle: string;
     readonly recordingAdvisory: string;
     readonly recordingLanguage: string;
     readonly recordingMasterReference: string;

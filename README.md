@@ -39,7 +39,7 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.10.0 @misonetwork/sdk@^0.8.0
+bun add @misofm/sdk@^0.11.0 @misonetwork/sdk@^0.8.0
 ```
 
 For SDK development, the frozen lockfile pins the protocol dev source to the

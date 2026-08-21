@@ -56,7 +56,6 @@ import * as recordingLanguageContract from "./contracts/recording_language/recor
 import * as recordingMasterReferenceContract from "./contracts/recording_master_reference/recording_master_reference.ts";
 import * as recordingPreviewContract from "./contracts/recording_preview/recording_preview.ts";
 import * as vaultActions from "./vault.ts";
-import * as releaseSnapshotBundleContract from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
 import * as coverArtContract from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArtContract from "./contracts/release_cover_art/release_cover_art.ts";
 import * as releaseCreditsContract from "./contracts/release_credits/release_credits.ts";
@@ -116,12 +115,10 @@ import {
   setReleaseDspLinks,
   setReleaseGenres,
   setReleaseKind,
-  setReleaseSnapshotBundle,
   type SetReleaseDescriptionParams,
   type SetReleaseDspLinksParams,
   type SetReleaseGenresParams,
   type SetReleaseKindParams,
-  type SetReleaseSnapshotBundleParams,
 } from "./release-extensions.ts";
 import { addReleaseCredit, type AddReleaseCreditParams } from "./credits.ts";
 import {
@@ -199,7 +196,6 @@ export interface MisoPlatformConfig {
   releaseDescriptionPackageId?: string;
   releaseGenrePackageId?: string;
   releaseDspLinkPackageId?: string;
-  releaseSnapshotBundlePackageId?: string;
   recordingAdvisoryPackageId?: string;
   recordingLanguagePackageId?: string;
   recordingMasterReferencePackageId?: string;
@@ -252,10 +248,6 @@ type ConfiguredReleaseGenres = DistributiveOmit<
 type ConfiguredReleaseDspLinks = DistributiveOmit<
   SetReleaseDspLinksParams,
   "releaseDspLinkPackageId"
->;
-type ConfiguredReleaseSnapshotBundle = DistributiveOmit<
-  SetReleaseSnapshotBundleParams,
-  "releaseSnapshotBundlePackageId" | "oriPackageId"
 >;
 type ConfiguredReleaseCredit = DistributiveOmit<
   AddReleaseCreditParams,
@@ -491,18 +483,6 @@ export class MisoPlatformClient {
           "setReleaseDspLinks",
         ),
       }),
-    setReleaseSnapshotBundle: (p: ConfiguredReleaseSnapshotBundle): TxThunk =>
-      setReleaseSnapshotBundle({
-        ...p,
-        releaseSnapshotBundlePackageId: this.#requiredConfig(
-          "releaseSnapshotBundlePackageId",
-          "setReleaseSnapshotBundle",
-        ),
-        oriPackageId: this.#requiredConfig(
-          "oriPackageId",
-          "setReleaseSnapshotBundle",
-        ),
-      }),
     addReleaseCredit: (p: ConfiguredReleaseCredit): TxThunk =>
       addReleaseCredit({
         ...p,
@@ -650,13 +630,6 @@ export class MisoPlatformClient {
       recordingPreview: this.#config.recordingPreviewPackageId
         ? bindModulePackage(recordingPreviewContract, this.#config.recordingPreviewPackageId, ["setPreview", "unsetPreview", "hasPreview"] as const)
         : undefined,
-      releaseSnapshotBundle: this.#config.releaseSnapshotBundlePackageId
-        ? bindModulePackage(
-            releaseSnapshotBundleContract,
-            this.#config.releaseSnapshotBundlePackageId,
-            ["setSnapshotBundle", "hasSnapshotBundle"],
-          )
-        : undefined,
       coverArt: this.#config.coverArtPackageId
         ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId, [] as const)
         : undefined,
@@ -724,8 +697,6 @@ export function miso<const Name extends string = "miso">(
           releaseDescriptionPackageId: deployment.packages.releaseDescription,
           releaseGenrePackageId: deployment.packages.releaseGenre,
           releaseDspLinkPackageId: deployment.packages.releaseDspLink,
-          releaseSnapshotBundlePackageId:
-            deployment.packages.releaseSnapshotBundle,
           recordingAdvisoryPackageId: deployment.packages.recordingAdvisory,
           recordingLanguagePackageId: deployment.packages.recordingLanguage,
           recordingMasterReferencePackageId: deployment.packages.recordingMasterReference,

@@ -9,7 +9,6 @@ import {
   setReleaseDspLinks,
   setReleaseGenres,
   setReleaseKind,
-  setReleaseSnapshotBundle,
 } from "../src/release-extensions.ts";
 import { setReleaseTrackCover } from "../src/cover.ts";
 
@@ -72,13 +71,6 @@ test("release metadata builders cover every attach-at-publish extension", () => 
     ],
     releaseDspLinkPackageId: PKG,
   })(tx);
-  setReleaseSnapshotBundle({
-    releaseId: A,
-    releaseAdminCapId: A,
-    blobId: 1n,
-    releaseSnapshotBundlePackageId: PKG,
-    oriPackageId: PKG,
-  })(tx);
   setReleaseTrackCover({
     releaseId: A,
     releaseAdminCapId: A,
@@ -97,7 +89,6 @@ test("release metadata builders cover every attach-at-publish extension", () => 
   expect(labels).toContain("release_genre::set_track_primary_genre");
   expect(labels).toContain("release_dsp_link::set_release_link");
   expect(labels).toContain("release_dsp_link::set_track_link");
-  expect(labels).toContain("release_snapshot_bundle::set_snapshot_bundle");
   expect(labels).toContain("release_cover_art::set_track_cover");
   expect(
     calls(tx)
@@ -107,7 +98,6 @@ test("release metadata builders cover every attach-at-publish extension", () => 
           "release_description",
           "release_genre",
           "release_dsp_link",
-          "release_snapshot_bundle",
           "release_cover_art",
           "cover_art",
           "walrus_data",

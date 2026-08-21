@@ -34,7 +34,6 @@ export * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.t
 export * as releaseGenre from "./contracts/release_genre/release_genre.ts";
 export * as releaseKind from "./contracts/release_kind/release_kind.ts";
 export * as releaseRevenueDistributor from "./contracts/release_revenue_distributor/release_revenue_distributor.ts";
-export * as releaseSnapshotBundle from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
 export * as recordingAdvisory from "./contracts/recording_advisory/recording_advisory.ts";
 export * as recordingLanguage from "./contracts/recording_language/recording_language.ts";
 export * as recordingMasterReference from "./contracts/recording_master_reference/recording_master_reference.ts";

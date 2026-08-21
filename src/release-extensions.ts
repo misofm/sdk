@@ -16,7 +16,6 @@ import * as releaseDescription from "./contracts/release_description/release_des
 import * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.ts";
 import * as releaseGenre from "./contracts/release_genre/release_genre.ts";
 import * as releaseKind from "./contracts/release_kind/release_kind.ts";
-import * as releaseSnapshotBundle from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
 import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
 
 type ReleaseAuthorityInput =
@@ -258,29 +257,5 @@ export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
         adminCapIndex: 1,
       });
     }
-  };
-}
-
-export type SetReleaseSnapshotBundleParams = ReleaseExtensionTarget & {
-  /** Plaintext outer Walrus quilt blob id, as the on-chain u256 value. */
-  blobId: bigint | string;
-  releaseSnapshotBundlePackageId: string;
-  oriPackageId: string;
-};
-
-/** Attach the write-once release snapshot-bundle pointer. */
-export function setReleaseSnapshotBundle(
-  p: SetReleaseSnapshotBundleParams,
-): TxThunk {
-  return (tx) => {
-    const bundle = tx.moveCall({
-      target: `${p.oriPackageId}::walrus_data::new_blob`,
-      arguments: [tx.pure.u256(p.blobId)],
-    });
-    invokeWithAdminCap(tx, authority(p), {
-      target: `${p.releaseSnapshotBundlePackageId}::release_snapshot_bundle::set_snapshot_bundle`,
-      arguments: [tx.object(p.releaseId), bundle],
-      adminCapIndex: 1,
-    });
   };
 }
