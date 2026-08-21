@@ -42,7 +42,7 @@ import {
   type ShareCurrencyBinding,
   type TxThunk,
 } from "@misonetwork/sdk";
-import { asU64, directAdminCap, disposeNewAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input, withAdminCap } from "./vault.ts";
+import { asU64, directAdminCap, disposeNewAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input, withAdminCapResult } from "./vault.ts";
 
 const { track, release } = contracts;
 
@@ -72,6 +72,19 @@ export function recordingAuthorityOf(input: RecordingAuthorityInput): AdminCapAu
   if (input.recordingAuthority !== undefined) return input.recordingAuthority;
   if (input.recordingAdminCapId !== undefined) return directAdminCap(input.recordingAdminCapId);
   throw new Error("recording authority is required");
+}
+
+/** Reject a malformed multi-result command before it becomes a PTB argument. */
+export function requiredCommandResult<T>(
+  result: { readonly [index: number]: T | undefined },
+  index: number,
+  command: string,
+): T {
+  const value = result[index];
+  if (value === undefined) {
+    throw new Error(`${command} did not return result ${index}`);
+  }
+  return value;
 }
 
 // ============================================================================
@@ -400,21 +413,22 @@ export function publishRelease(params: PublishReleaseParams): TxThunk {
     const { misoPackageId } = params;
     const trackArgs = params.tracks.map((t) => {
       const typeArguments: [string, string] = [t.recordingShareType, t.compositionShareType];
-      let trackValue: TransactionObjectArgument | undefined;
-      withAdminCap(tx, recordingAuthorityOf(t), (adminCap) => {
-        trackValue = tx.add(track._new({
+      return withAdminCapResult(tx, recordingAuthorityOf(t), (adminCap) =>
+        tx.add(track._new({
           package: misoPackageId,
           typeArguments,
           arguments: [adminCap, tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
-        }));
-      });
-      return trackValue!;
+        })),
+      );
     });
     const created = tx.moveCall({
       target: `${misoPackageId}::release::new`,
       arguments: [tx.object(params.releaseRegistryId), tx.pure.string(params.title), buildTrackVec(tx, misoPackageId, trackArgs), tx.pure.u256(BigInt(params.releaseNonce))],
     });
-    const parts: ReleaseParts = { release: created[0]!, adminCap: created[1]! };
+    const parts: ReleaseParts = {
+      release: requiredCommandResult(created, 0, "release::new"),
+      adminCap: requiredCommandResult(created, 1, "release::new"),
+    };
     finalizeRelease(tx, { ...parts, ...params, misoPackageId });
   };
 }

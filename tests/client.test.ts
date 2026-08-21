@@ -113,6 +113,20 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
     )?.package,
   ).toBe(PRESSING);
 
+  // The public type omits `package`; even an untyped caller cannot replace it.
+  const forcedPackage = c.miso.call.pressing.newActiveState as unknown as (
+    options: { package: string },
+  ) => (tx: Transaction) => unknown;
+  forcedPackage({ package: A })(tx);
+  expect(
+    moveCalls(tx)
+      .filter(
+        (call) =>
+          call.module === "pressing" && call.function === "new_active_state",
+      )
+      .at(-1)?.package,
+  ).toBe(PRESSING);
+
   c.miso.call.vault.id({ arguments: [tx.object(A)] })(tx);
   expect(
     moveCalls(tx).find(

@@ -46,10 +46,27 @@ import * as releaseCredits from "./contracts/release_credits/release_credits.ts"
 import * as releasePartyRole from "./contracts/release_credits/release_party_role.ts";
 import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
 
-function authorityOf(authority: AdminCapAuthority | undefined, legacyCapId: string | undefined): AdminCapAuthority {
-  if (authority !== undefined) return authority;
-  if (legacyCapId !== undefined) return directAdminCap(legacyCapId);
-  throw new Error("admin authority is required");
+type CompositionAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly compositionAdminCapId?: never }
+  | { readonly authority?: never; readonly compositionAdminCapId: string };
+type RecordingAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly recordingAdminCapId?: never }
+  | { readonly authority?: never; readonly recordingAdminCapId: string };
+type ReleaseAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
+  | { readonly authority?: never; readonly releaseAdminCapId: string };
+
+function compositionAuthorityOf(input: CompositionAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.compositionAdminCapId);
+}
+function recordingAuthorityOf(input: RecordingAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.recordingAdminCapId);
+}
+function releaseAuthorityOf(input: ReleaseAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.releaseAdminCapId);
 }
 
 // ── Role model ────────────────────────────────────────────────────────────────
@@ -348,13 +365,9 @@ function buildCredit(
 
 // ── Writers ───────────────────────────────────────────────────────────────────
 
-export interface AttachCompositionCreditParams {
+interface AttachCompositionCreditParamsBase {
   /** The `Composition` object to credit on. */
   compositionId: string;
-  /** Explicit legacy direct cap or Vault authority for this composition. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority`. */
-  compositionAdminCapId?: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -368,6 +381,8 @@ export interface AttachCompositionCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AttachCompositionCreditParams =
+  AttachCompositionCreditParamsBase & CompositionAuthorityInput;
 
 /**
  * Adds a writing credit for a party on a composition. Throws (client-side,
@@ -391,7 +406,7 @@ export function attachCompositionCredit(
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, authorityOf(p.authority, p.compositionAdminCapId), (adminCap) => tx.add(
+    withAdminCap(tx, compositionAuthorityOf(p), (adminCap) => tx.add(
       compositionCredits.addCredit({
         package: p.compositionCreditsPackageId,
         typeArguments: [p.compositionShareType],
@@ -406,13 +421,9 @@ export function attachCompositionCredit(
   };
 }
 
-export interface AttachRecordingCreditParams {
+interface AttachRecordingCreditParamsBase {
   /** The `Recording` object to credit on. */
   recordingId: string;
-  /** Explicit legacy direct cap or Vault authority for this recording. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority`. */
-  recordingAdminCapId?: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -428,6 +439,8 @@ export interface AttachRecordingCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AttachRecordingCreditParams =
+  AttachRecordingCreditParamsBase & RecordingAuthorityInput;
 
 /**
  * Adds a production/performance credit for a party on a recording. Throws
@@ -450,7 +463,7 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
+    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
       recordingCredits.addCredit({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -460,13 +473,9 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
   };
 }
 
-export interface AddRecordingArtistParams {
+interface AddRecordingArtistParamsBase {
   /** The `Recording` object. */
   recordingId: string;
-  /** Explicit legacy direct cap or Vault authority for this recording. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority`. */
-  recordingAdminCapId?: string;
   /** The `Party` to designate. Must already be credited on the recording. */
   partyId: string;
   /** The recording's own share coin type (the `RecordingShare` phantom). */
@@ -476,6 +485,8 @@ export interface AddRecordingArtistParams {
   /** `recording_credits` package id. */
   recordingCreditsPackageId: string;
 }
+export type AddRecordingArtistParams =
+  AddRecordingArtistParamsBase & RecordingAuthorityInput;
 
 /**
  * Designates an already-credited party as a primary artist on a recording. The
@@ -486,7 +497,7 @@ export function addRecordingPrimaryArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
+    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
       recordingCredits.addPrimaryArtist({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -505,7 +516,7 @@ export function addRecordingFeaturedArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, authorityOf(p.authority, p.recordingAdminCapId), (adminCap) => tx.add(
+    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
       recordingCredits.addFeaturedArtist({
         package: p.recordingCreditsPackageId,
         typeArguments: [p.recordingShareType, p.compositionShareType],
@@ -515,13 +526,9 @@ export function addRecordingFeaturedArtist(
   };
 }
 
-export interface AddReleaseCreditParams {
+interface AddReleaseCreditParamsBase {
   /** The `Release` object to credit on. */
   releaseId: string;
-  /** Explicit legacy direct cap or Vault authority for this release. */
-  authority?: AdminCapAuthority;
-  /** @deprecated Pass explicit `authority`. */
-  releaseAdminCapId?: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -533,6 +540,7 @@ export interface AddReleaseCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AddReleaseCreditParams = AddReleaseCreditParamsBase & ReleaseAuthorityInput;
 
 /**
  * Adds a top-line billing credit (a single role) for a party on a release.
@@ -551,7 +559,7 @@ export function addReleaseCredit(p: AddReleaseCreditParams): TxThunk {
       p.displayName,
       [roleArg],
     );
-    withAdminCap(tx, authorityOf(p.authority, p.releaseAdminCapId), (adminCap) => tx.add(
+    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
       releaseCredits.addCredit({
         package: p.releaseCreditsPackageId,
         arguments: [p.releaseId, adminCap, p.partyId, credit],

@@ -60,6 +60,16 @@ export function directAdminCap(
   return { kind: "direct", adminCap };
 }
 
+function requiredVaultResult<T>(
+  result: { readonly [index: number]: T | undefined },
+  index: number,
+  command: string,
+): T {
+  const value = result[index];
+  if (value === undefined) throw new Error(`${command} did not return result ${index}`);
+  return value;
+}
+
 export function vaultAdminCap(
   authority: Omit<VaultAdminCapAuthority, "kind">,
 ): VaultAdminCapAuthority {
@@ -79,9 +89,17 @@ export function withAdminCap(
   authority: AdminCapAuthority,
   use: (adminCap: TransactionArgument) => void,
 ): void {
+  withAdminCapResult(tx, authority, use);
+}
+
+/** Like `withAdminCap`, returning the value constructed while the cap is lent. */
+export function withAdminCapResult<Result>(
+  tx: Transaction,
+  authority: AdminCapAuthority,
+  use: (adminCap: TransactionArgument) => Result,
+): Result {
   if (authority.kind === "direct") {
-    use(object(tx, authority.adminCap));
-    return;
+    return use(object(tx, authority.adminCap));
   }
 
   const borrowed = tx.add(
@@ -91,14 +109,20 @@ export function withAdminCap(
       arguments: [object(tx, authority.vault), object(tx, authority.vaultAdminCap)],
     }),
   );
-  use(borrowed[0]!);
+  const adminCap = borrowed[0];
+  const receipt = borrowed[1];
+  if (adminCap === undefined || receipt === undefined) {
+    throw new Error("vault::borrow_as_admin returned an incomplete result");
+  }
+  const result = use(adminCap);
   tx.add(
     vault.putBack({
       package: authority.vaultPackageId,
       typeArguments: [authority.capType],
-      arguments: [authority.vault, borrowed[0]!, borrowed[1]!],
+      arguments: [authority.vault, adminCap, receipt],
     }),
   );
+  return result;
 }
 
 export interface CustodyNewAdminCapParams {
@@ -179,15 +203,17 @@ export function custodyNewAdminCap(
       arguments: [params.adminCap],
     }),
   );
-  params.configure?.(created[0]!, created[1]!);
+  const vaultObject = requiredVaultResult(created, 0, "vault::_new");
+  const vaultAdminCap = requiredVaultResult(created, 1, "vault::_new");
+  params.configure?.(vaultObject, vaultAdminCap);
   tx.add(
     vault.share({
       package: params.vaultPackageId,
       typeArguments: [params.capType],
-      arguments: [created[0]!],
+      arguments: [vaultObject],
     }),
   );
-  tx.transferObjects([created[1]!], params.owner);
+  tx.transferObjects([vaultAdminCap], params.owner);
 }
 
 export interface CompositionRoyaltyPoolPluginParams {
