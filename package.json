@@ -96,9 +96,9 @@
       "types": "./dist/drop.d.ts",
       "default": "./dist/drop.js"
     },
-    "./extensions/royalty-pool": {
-      "types": "./dist/extensions/royalty-pool.d.ts",
-      "default": "./dist/extensions/royalty-pool.js"
+    "./vault": {
+      "types": "./dist/vault.d.ts",
+      "default": "./dist/vault.js"
     },
     "./package.json": "./package.json"
   },

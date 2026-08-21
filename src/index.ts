@@ -27,7 +27,12 @@
 
 // The recommended entry point is the client extension (see ./client.ts); the bare
 // builders and readers stay exported for callers that hold ids themselves.
-export { miso, misoPlatform, MisoClient, MisoPlatformClient } from "./client.ts";
+export {
+  miso,
+  misoPlatform,
+  MisoClient,
+  MisoPlatformClient,
+} from "./client.ts";
 export type {
   ConfiguredReleaseGraphParams,
   MisoOptions,
@@ -51,7 +56,8 @@ export * as read from "./read/index.ts";
 // `uid_mut` hook.
 export * from "./credits.ts";
 export * from "./cover.ts";
-export * from "./extensions/royalty-pool.ts";
+export * from "./release-extensions.ts";
+export * from "./vault.ts";
 
 // Generated, ABI-bound bindings (BCS structs + type-safe Move calls).
 export * as contracts from "./contracts.ts";

@@ -39,36 +39,58 @@ export interface SetReleaseCoverParams {
   oriPackageId: string;
 }
 
+export interface SetReleaseTrackCoverParams extends SetReleaseCoverParams {
+  /** Zero-based index in the release's flattened tracklist. */
+  trackIndex: number;
+}
+
+function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
+  const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
+  const blob = (id: bigint | string) =>
+    tx.moveCall({
+      target: `${p.oriPackageId}::walrus_data::new_blob`,
+      arguments: [tx.pure.u256(id)],
+    });
+
+  const still = blob(p.stillBlobId);
+  const animated =
+    p.animatedBlobId == null
+      ? tx.moveCall({ target: OPTION_NONE, typeArguments: [walrusType] })
+      : tx.moveCall({
+          target: OPTION_SOME,
+          typeArguments: [walrusType],
+          arguments: [blob(p.animatedBlobId)],
+        });
+
+  return tx.add(
+    coverArt._new({
+      package: p.coverArtPackageId,
+      arguments: [still, animated],
+    }),
+  );
+}
+
 /** Sets (or replaces) a release's album-level cover from Walrus blob ids. */
 export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
-    const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
-    const blob = (id: bigint | string) =>
-      tx.moveCall({
-        target: `${p.oriPackageId}::walrus_data::new_blob`,
-        arguments: [tx.pure.u256(id)],
-      });
-
-    const still = blob(p.stillBlobId);
-    const animated =
-      p.animatedBlobId == null
-        ? tx.moveCall({ target: OPTION_NONE, typeArguments: [walrusType] })
-        : tx.moveCall({
-            target: OPTION_SOME,
-            typeArguments: [walrusType],
-            arguments: [blob(p.animatedBlobId)],
-          });
-
-    const cover = tx.add(
-      coverArt._new({
-        package: p.coverArtPackageId,
-        arguments: [still, animated],
-      }),
-    );
+    const cover = buildCover(tx, p);
     tx.add(
       releaseCoverArt.setCover({
         package: p.releaseCoverArtPackageId,
         arguments: [p.releaseId, p.releaseAdminCapId, cover],
+      }),
+    );
+  };
+}
+
+/** Sets (or replaces) one track's cover from Walrus blob ids. */
+export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
+  return (tx) => {
+    const cover = buildCover(tx, p);
+    tx.add(
+      releaseCoverArt.setTrackCover({
+        package: p.releaseCoverArtPackageId,
+        arguments: [p.releaseId, p.releaseAdminCapId, p.trackIndex, cover],
       }),
     );
   };
@@ -142,11 +164,7 @@ export async function getReleaseCover(
 ): Promise<ReleaseCoverView | null> {
   return (
     (
-      await getReleaseCoversByIds(
-        client,
-        [releaseId],
-        releaseCoverArtPackageId,
-      )
+      await getReleaseCoversByIds(client, [releaseId], releaseCoverArtPackageId)
     )[releaseId] ?? null
   );
 }

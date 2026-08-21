@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Single-PTB publisher for a whole release graph: creates every composition and
-// recording, optionally attaches royalty pools, derives the release id ON-CHAIN
+// recording, derives the release id ON-CHAIN
 // (so recordings need not be shared first), builds the tracks/release,
 // then shares everything and transfers the admin caps — all in ONE transaction.
 //
 // Share currencies must already be published + initialized (their Currency objects
 // shared on-chain); their ids/types are passed in. Ordering is load-bearing:
-//   1. composition::new → recording::new(&comp)  (borrow-before-share) + pool attach
+//   1. composition::new → recording::new(&comp)  (borrow-before-share)
 //   2. release::derive_target_release_id(<recording::id results>) →
 //      track::new(cap, &rec, derivedId, split) → release_registry::new_release
 //   3. publish (share) comps + recs + release, disperse supply, transfer caps
@@ -20,25 +20,16 @@
 // This is the whole-graph orchestration half of the opinionated publish flow —
 // it composes `@misonetwork/sdk`'s bare `composition`/`recording`/`track`/
 // `release` call bindings and this package's `release_registry` binding with its
-// own `disperseShares`/`finalizeRelease` and royalty-pool extension helpers, into
-// one PTB.
+// own `disperseShares`/`finalizeRelease` helpers into one PTB. Royalty pools are
+// installed later through an admin-cap Vault plugin; the retired raw-cap helper
+// is intentionally not used here.
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { contracts } from "@misonetwork/sdk";
-import { attachCompositionRoyaltyPool, attachRecordingRoyaltyPool } from "./extensions/royalty-pool.ts";
 import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
 import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 
 const { composition, recording, track, release } = contracts;
-
-/** A royalty pool to attach to a work, in the same PTB. */
-export interface RoyaltyPoolNode {
-  currency: string;
-  /** `composition_royalty_pool` / `recording_royalty_pool` package id. */
-  extensionPackageId: string;
-  /** Base `royalty_pool` lib package id. */
-  royaltyPoolPackageId: string;
-}
 
 export interface CompositionNode {
   shareType: string;
@@ -49,7 +40,6 @@ export interface CompositionNode {
   shareRecipients: ShareRecipient[];
   /** Recipient of the CompositionAdminCap (the owner). */
   adminAddress: string;
-  royaltyPool?: RoyaltyPoolNode;
 }
 
 export interface RecordingNode {
@@ -64,7 +54,6 @@ export interface RecordingNode {
   parentCompositionId?: string;
   shareRecipients: ShareRecipient[];
   adminAddress: string;
-  royaltyPool?: RoyaltyPoolNode;
 }
 
 /** A track whose recording is created in THIS PTB. */
@@ -130,16 +119,6 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         }),
       );
       const parts: Parts = { work: r[0]!, adminCap: r[1]!, balance: r[2]! };
-      if (c.royaltyPool) {
-        attachCompositionRoyaltyPool(tx, {
-          composition: parts.work,
-          adminCap: parts.adminCap,
-          compositionShareType: c.shareType,
-          currency: c.royaltyPool.currency,
-          compositionRoyaltyPoolPackageId: c.royaltyPool.extensionPackageId,
-          royaltyPoolPackageId: c.royaltyPool.royaltyPoolPackageId,
-        });
-      }
       return parts;
     });
 
@@ -155,17 +134,6 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         recording._new({ package: pkg, typeArguments: typeArgs, arguments: [parent, tx.object(rec.shareCurrencyId), tx.object(rec.shareTreasuryCapId)] }),
       );
       const parts: Parts = { work: r[0]!, adminCap: r[1]!, balance: r[2]! };
-      if (rec.royaltyPool) {
-        attachRecordingRoyaltyPool(tx, {
-          recording: parts.work,
-          adminCap: parts.adminCap,
-          recordingShareType: rec.shareType,
-          compositionShareType: rec.compositionShareType,
-          currency: rec.royaltyPool.currency,
-          recordingRoyaltyPoolPackageId: rec.royaltyPool.extensionPackageId,
-          royaltyPoolPackageId: rec.royaltyPool.royaltyPoolPackageId,
-        });
-      }
       return parts;
     });
 

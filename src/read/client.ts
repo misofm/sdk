@@ -53,15 +53,23 @@ export interface MisoClient {
 export interface CreateMisoClientOptions extends MisoConfigOverrides {
   /** "testnet" | "mainnet". A bare string (e.g. a Worker's `NETWORK` var) is accepted. */
   network?: Network | string;
+  /** Complete verified configuration; required until a deployment is bundled. */
+  config?: MisoConfig;
 }
 
 /**
- * Build the client for a network. Endpoint overrides let a deployment point at a
- * private fullnode or an indexer without forking the config.
+ * Build the client from a complete verified configuration. The network-only
+ * shortcut remains for a future bundled deployment, but currently fails closed.
  */
 export function createMisoClient(options: CreateMisoClientOptions = {}): MisoClient {
-  const { network, ...overrides } = options;
-  const config = misoConfig(networkFrom(network), overrides);
+  const { network, config: providedConfig, ...overrides } = options;
+  const requestedNetwork = networkFrom(network);
+  const config = providedConfig ?? misoConfig(requestedNetwork, overrides);
+  if (network !== undefined && config.network !== requestedNetwork) {
+    throw new Error(
+      `@misofm/sdk/read: provided config is for ${config.network}, not ${requestedNetwork}.`,
+    );
+  }
 
   const grpc = new SuiGrpcClient({ baseUrl: config.grpcUrl, network: config.network });
   const graphqlRaw = new SuiGraphQLClient({ url: config.graphqlUrl, network: config.network });

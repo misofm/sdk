@@ -1,0 +1,138 @@
+// Copyright (c) Miso Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { expect, test } from "bun:test";
+import { Transaction } from "@mysten/sui/transactions";
+import {
+  custodyNewAdminCap,
+  initializeCompositionRoyaltyPool,
+  installCompositionRoyaltyPoolPlugin,
+  installReleaseRevenueDistributorPlugin,
+  registerCompositionRoutedStake,
+  withAdminCap,
+} from "../src/vault.ts";
+
+const VAULT = "0x" + "10".repeat(32);
+const COMP_POOL_PLUGIN = "0x" + "20".repeat(32);
+const ROUTED_PLUGIN = "0x" + "30".repeat(32);
+const REVENUE_PLUGIN = "0x" + "40".repeat(32);
+const A = "0x" + "ab".repeat(32);
+const CAP = "0x" + "cd".repeat(32) + "::composition::CompositionAdminCap<" + "0x" + "ef".repeat(32) + "::share::Share>";
+const COMPOSITION_SHARE = "0x" + "ef".repeat(32) + "::share::Share";
+const RECORDING_SHARE = "0x" + "12".repeat(32) + "::share::Share";
+const SUI = "0x2::sui::SUI";
+
+interface Call {
+  package?: string;
+  module: string;
+  function: string;
+  typeArguments: string[];
+}
+
+function calls(tx: Transaction): Call[] {
+  const data = tx.getData() as {
+    commands: { $kind: string; MoveCall?: Call }[];
+  };
+  return data.commands
+    .filter((command) => command.$kind === "MoveCall" && command.MoveCall)
+    .map((command) => command.MoveCall!);
+}
+
+test("vault authority encloses protocol work in borrow and exact put-back", () => {
+  const tx = new Transaction();
+  withAdminCap(
+    tx,
+    {
+      kind: "vault",
+      vault: tx.object(A),
+      vaultAdminCap: tx.object(A),
+      capType: CAP,
+      vaultPackageId: VAULT,
+    },
+    (cap) => {
+      tx.moveCall({ target: `${A}::example::uses_cap`, arguments: [cap] });
+    },
+  );
+
+  const labels = calls(tx).map((call) => `${call.module}::${call.function}`);
+  expect(labels).toEqual([
+    "vault::borrow_as_admin",
+    "example::uses_cap",
+    "vault::put_back",
+  ]);
+  expect(calls(tx)[0]!.typeArguments).toEqual([CAP]);
+  expect(calls(tx)[2]!.typeArguments).toEqual([CAP]);
+});
+
+test("new capability custody shares the vault and transfers only VaultAdminCap", () => {
+  const tx = new Transaction();
+  custodyNewAdminCap(tx, {
+    adminCap: tx.object(A),
+    capType: CAP,
+    vaultPackageId: VAULT,
+    owner: A,
+    configure: (vault, vaultAdminCap) => {
+      installCompositionRoyaltyPoolPlugin(tx, {
+        vault,
+        vaultAdminCap,
+        compositionShareType: COMPOSITION_SHARE,
+        pluginPackageId: COMP_POOL_PLUGIN,
+      });
+    },
+  });
+  const labels = calls(tx).map((call) => `${call.module}::${call.function}`);
+  expect(labels).toEqual([
+    "vault::new",
+    "composition_royalty_pool::install",
+    "vault::share",
+  ]);
+  expect(calls(tx)[1]!.package).toBe(COMP_POOL_PLUGIN);
+});
+
+test("plugins build their own witnesses and expose no client-side witness input", () => {
+  const tx = new Transaction();
+  installReleaseRevenueDistributorPlugin(tx, {
+    vault: tx.object(A),
+    vaultAdminCap: tx.object(A),
+    pluginPackageId: REVENUE_PLUGIN,
+  });
+  initializeCompositionRoyaltyPool(tx, {
+    vault: tx.object(A),
+    vaultAdminCap: tx.object(A),
+    composition: tx.object(A),
+    compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI,
+    pluginPackageId: COMP_POOL_PLUGIN,
+  });
+  const pluginCalls = calls(tx).filter((call) => call.package !== VAULT);
+  expect(pluginCalls.map((call) => call.function)).toEqual([
+    "install",
+    "initialize_pool",
+  ]);
+  expect(pluginCalls.every((call) => call.module !== "witness")).toBe(true);
+});
+
+test("routed-stake registration pins the vault, composition, recording, and canonical pool", () => {
+  const tx = new Transaction();
+  registerCompositionRoutedStake(tx, {
+    vault: tx.object(A),
+    vaultAdminCap: tx.object(A),
+    composition: tx.object(A),
+    recording: tx.object(A),
+    routedStake: tx.object(A),
+    royaltyPool: tx.object(A),
+    compositionShareType: COMPOSITION_SHARE,
+    recordingShareType: RECORDING_SHARE,
+    currencyType: SUI,
+    pluginPackageId: ROUTED_PLUGIN,
+  });
+  const call = calls(tx)[0]!;
+  expect(`${call.module}::${call.function}`).toBe(
+    "composition_routed_stake::register",
+  );
+  expect(call.typeArguments).toEqual([
+    RECORDING_SHARE,
+    COMPOSITION_SHARE,
+    SUI,
+  ]);
+});
