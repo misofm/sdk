@@ -16,7 +16,7 @@
 //     minato, publishing (sharing) the work, and transferring its admin cap is
 //     an opinion about economics;
 //   - minting a release is a platform primitive: core's `release::new` takes an
-//     unconstructible PTB `&mut UID`, so `release_registry::new_release` is the
+//     unconstructible PTB `&mut UID`, so core `release::new(registry, …)` is the
 //     canonical client path. Choosing a track-assembly strategy, publishing
 //     (sharing) it, and picking a recipient for its `ReleaseAdminCap` is the
 //     opinion, so `finalizeRelease` / `publishRelease` live here.
@@ -42,7 +42,7 @@ import {
   type ShareCurrencyBinding,
   type TxThunk,
 } from "@misonetwork/sdk";
-import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
+import { asU64, directAdminCap, disposeNewAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input, withAdminCap } from "./vault.ts";
 
 const { track, release } = contracts;
 
@@ -61,7 +61,7 @@ export type { TxThunk };
 
 export interface ShareRecipient {
   address: string;
-  value: number;
+  value: U64Input;
 }
 
 /**
@@ -81,7 +81,7 @@ export function disperseShares(
     typeArguments: [shareType],
     arguments: [
       balance,
-      tx.makeMoveVec({ type: "u64", elements: recipients.map((r) => tx.pure.u64(r.value)) }),
+      tx.makeMoveVec({ type: "u64", elements: recipients.map((r) => tx.pure.u64(asU64("share recipient value", r.value)))}),
       tx.makeMoveVec({ type: "address", elements: recipients.map((r) => tx.pure.address(r.address)) }),
     ],
   });
@@ -134,7 +134,10 @@ export interface FinalizeCompositionParams extends CompositionParts {
   /** The composition's `share::Share` type. */
   shareType: string;
   shareRecipients: ShareRecipient[];
-  adminAddress: string;
+  /** Explicit direct delivery or Vault custody for the newly-created admin cap. */
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody: { kind: "direct", owner }`. */
+  adminAddress?: string;
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -148,15 +151,17 @@ export interface FinalizeCompositionParams extends CompositionParts {
 export function finalizeComposition(tx: Transaction, params: FinalizeCompositionParams): void {
   disperseShares(tx, params.minatoPackageId, params.shareType, params.balance, params.shareRecipients);
   tx.add(contracts.composition.publish({ package: params.misoPackageId, typeArguments: [params.shareType], arguments: [params.composition, params.adminCap] }));
-  tx.transferObjects([params.adminCap], params.adminAddress);
+  disposeNewAdminCap(tx, params.adminCap, params.adminCustody ?? { kind: "direct", owner: params.adminAddress! });
 }
 
 export interface PublishCompositionParams extends ShareCurrencyBinding {
   title: string;
   royaltyRateBps: number;
   shareRecipients: ShareRecipient[];
-  /** Sole owner of the shares + CompositionAdminCap (the zkLogin address). */
-  adminAddress: string;
+  /** Explicit direct delivery or Vault custody for the CompositionAdminCap. */
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody`. */
+  adminAddress?: string;
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -176,6 +181,7 @@ export function publishComposition(params: PublishCompositionParams): TxThunk {
       ...parts,
       shareType: params.shareType,
       shareRecipients: params.shareRecipients,
+      adminCustody: params.adminCustody,
       adminAddress: params.adminAddress,
       misoPackageId: params.misoPackageId,
       minatoPackageId: params.minatoPackageId,
@@ -193,7 +199,9 @@ export interface FinalizeRecordingParams extends RecordingParts {
   /** Share type of the parent composition. */
   compositionShareType: string;
   shareRecipients: ShareRecipient[];
-  adminAddress: string;
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody`. */
+  adminAddress?: string;
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -207,7 +215,7 @@ export function finalizeRecording(tx: Transaction, params: FinalizeRecordingPara
   const typeArguments: [string, string] = [params.recordingShareType, params.compositionShareType];
   tx.add(contracts.recording.publish({ package: params.misoPackageId, typeArguments, arguments: [params.recording, params.adminCap] }));
   disperseShares(tx, params.minatoPackageId, params.recordingShareType, params.balance, params.shareRecipients);
-  tx.transferObjects([params.adminCap], params.adminAddress);
+  disposeNewAdminCap(tx, params.adminCap, params.adminCustody ?? { kind: "direct", owner: params.adminAddress! });
 }
 
 export interface PublishRecordingParams extends ShareCurrencyBinding {
@@ -219,7 +227,9 @@ export interface PublishRecordingParams extends ShareCurrencyBinding {
   /** Share type of the parent composition (the recording's `CompositionShare` phantom). */
   compositionShareType: string;
   shareRecipients: ShareRecipient[];
-  adminAddress: string;
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody`. */
+  adminAddress?: string;
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -240,6 +250,7 @@ export function publishRecording(params: PublishRecordingParams): TxThunk {
       recordingShareType: params.shareType,
       compositionShareType: params.compositionShareType,
       shareRecipients: params.shareRecipients,
+      adminCustody: params.adminCustody,
       adminAddress: params.adminAddress,
       misoPackageId: params.misoPackageId,
       minatoPackageId: params.minatoPackageId,
@@ -255,9 +266,9 @@ export interface PublishCompositionAndRecordingParams {
   title: string;
   royaltyRateBps: number;
   /** Share-currency binding for the composition. */
-  composition: ShareCurrencyBinding & { shareRecipients: ShareRecipient[]; adminAddress: string };
+  composition: ShareCurrencyBinding & { shareRecipients: ShareRecipient[]; adminCustody?: AdminCapCustody; adminAddress?: string };
   /** Share-currency binding for the recording. */
-  recording: ShareCurrencyBinding & { shareRecipients: ShareRecipient[]; adminAddress: string };
+  recording: ShareCurrencyBinding & { shareRecipients: ShareRecipient[]; adminCustody?: AdminCapCustody; adminAddress?: string };
   misoPackageId: string;
   minatoPackageId: string;
 }
@@ -299,6 +310,7 @@ export function publishCompositionAndRecording(params: PublishCompositionAndReco
       ...comp,
       shareType: params.composition.shareType,
       shareRecipients: params.composition.shareRecipients,
+      adminCustody: params.composition.adminCustody,
       adminAddress: params.composition.adminAddress,
       misoPackageId: params.misoPackageId,
       minatoPackageId: params.minatoPackageId,
@@ -309,6 +321,7 @@ export function publishCompositionAndRecording(params: PublishCompositionAndReco
       recordingShareType: params.recording.shareType,
       compositionShareType: params.composition.shareType,
       shareRecipients: params.recording.shareRecipients,
+      adminCustody: params.recording.adminCustody,
       adminAddress: params.recording.adminAddress,
       misoPackageId: params.misoPackageId,
       minatoPackageId: params.minatoPackageId,
@@ -321,8 +334,10 @@ export function publishCompositionAndRecording(params: PublishCompositionAndReco
 // ============================================================================
 
 export interface FinalizeReleaseParams extends ReleaseParts {
-  /** Recipient of the `ReleaseAdminCap`. */
-  adminAddress: string;
+  /** Explicit direct delivery or Vault custody for the ReleaseAdminCap. */
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody`. */
+  adminAddress?: string;
   misoPackageId: string;
 }
 
@@ -330,7 +345,7 @@ export interface FinalizeReleaseParams extends ReleaseParts {
  * The opinionated finish for a release: publish (share) it and transfer its
  * admin cap to `adminAddress`.
  *
- * MUST run in the same PTB as the `release_registry::new_release` that produced
+ * MUST run in the same PTB as `release::new(registry, …)` that produced
  * these parts —
  * `Release` is `key`-only with no `drop`, so an unpublished release cannot
  * outlive its transaction. Splitting create from finalize is what lets a caller
@@ -339,12 +354,15 @@ export interface FinalizeReleaseParams extends ReleaseParts {
  */
 export function finalizeRelease(tx: Transaction, params: FinalizeReleaseParams): void {
   tx.add(release.publish({ package: params.misoPackageId, arguments: [params.release, params.adminCap] }));
-  tx.transferObjects([params.adminCap], tx.pure.address(params.adminAddress));
+  disposeNewAdminCap(tx, params.adminCap, params.adminCustody ?? { kind: "direct", owner: params.adminAddress! });
 }
 
 export interface TrackInput {
   recordingId: string;
-  recordingAdminCapId: string;
+  /** Explicit legacy direct cap or Vault custody authority for this recording. */
+  recordingAuthority?: AdminCapAuthority;
+  /** @deprecated Pass `recordingAuthority: directAdminCap(id)` explicitly. */
+  recordingAdminCapId?: string;
   /** Share type of the recording (the track `RecordingShare` phantom). */
   recordingShareType: string;
   /** Share type of the parent composition (the track `CompositionShare` phantom). */
@@ -356,13 +374,14 @@ export interface PublishReleaseParams {
   title: string;
   /** The ordered tracklist. Display grouping (discs/sides) is extension data. */
   tracks: TrackInput[];
-  /** `release_registry` extension package, distinct from its shared object id. */
-  releaseRegistryPackageId: string;
+  /** Shared core `miso::release::ReleaseRegistry` object. */
   releaseRegistryId: string;
   releaseId: string;
   releaseNonce: string;
   misoPackageId: string;
-  adminAddress: string;
+  adminCustody?: AdminCapCustody;
+  /** @deprecated Pass explicit `adminCustody`. */
+  adminAddress?: string;
 }
 
 function buildTrackVec(
@@ -379,29 +398,24 @@ function buildTrackVec(
  */
 export function publishRelease(params: PublishReleaseParams): TxThunk {
   return (tx) => {
-    const { misoPackageId, releaseRegistryPackageId } = params;
+    const { misoPackageId } = params;
     const trackArgs = params.tracks.map((t) => {
       const typeArguments: [string, string] = [t.recordingShareType, t.compositionShareType];
-      return tx.add(
-        track._new({
+      let trackValue: TransactionObjectArgument | undefined;
+      withAdminCap(tx, t.recordingAuthority ?? directAdminCap(t.recordingAdminCapId!), (adminCap) => {
+        trackValue = tx.add(track._new({
           package: misoPackageId,
           typeArguments,
-          arguments: [tx.object(t.recordingAdminCapId), tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
-        }),
-      );
+          arguments: [adminCap, tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
+        }));
+      });
+      return trackValue!;
     });
-    const created = tx.add(
-      releaseRegistry.newRelease({
-        package: releaseRegistryPackageId,
-        arguments: [
-          tx.object(params.releaseRegistryId),
-          tx.pure.string(params.title),
-          buildTrackVec(tx, misoPackageId, trackArgs),
-          tx.pure.u256(BigInt(params.releaseNonce)),
-        ],
-      }),
-    );
+    const created = tx.moveCall({
+      target: `${misoPackageId}::release::new`,
+      arguments: [tx.object(params.releaseRegistryId), tx.pure.string(params.title), buildTrackVec(tx, misoPackageId, trackArgs), tx.pure.u256(BigInt(params.releaseNonce))],
+    });
     const parts: ReleaseParts = { release: created[0]!, adminCap: created[1]! };
-    finalizeRelease(tx, { ...parts, adminAddress: params.adminAddress, misoPackageId });
+    finalizeRelease(tx, { ...parts, adminCustody: params.adminCustody, adminAddress: params.adminAddress, misoPackageId });
   };
 }

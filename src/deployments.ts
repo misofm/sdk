@@ -13,7 +13,6 @@ export interface MisoPlatformDeployment {
   readonly packages: {
     readonly pressing: string;
     readonly record: string;
-    readonly releaseRegistry: string;
     readonly minato: string;
     readonly drop: string;
     readonly credit: string;
@@ -44,6 +43,10 @@ export interface MisoPlatformDeployment {
     /** Vault plugin that routes Release revenue into Recording addresses. */
     readonly releaseRevenueDistributorPlugin: string;
     readonly releaseSnapshotBundle: string;
+    readonly recordingAdvisory: string;
+    readonly recordingLanguage: string;
+    readonly recordingMasterReference: string;
+    readonly recordingPreview: string;
     /** External `ori::walrus_data::WalrusData` dependency used by cover art. */
     readonly ori: string;
   };

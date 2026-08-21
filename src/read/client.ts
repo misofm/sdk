@@ -27,6 +27,10 @@ import type { SuiClientRegistration } from "@mysten/sui/client";
 import { party, type PartyClient } from "@misonetwork/miso-party/client";
 import { misoConfig, networkFrom, type MisoConfig, type MisoConfigOverrides, type Network } from "./config.ts";
 
+function definedOverrides<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
+}
+
 /**
  * The structural slice of a Sui client the protocol SDK's read helpers want. They
  * declare `ClientWithCoreApi` against their own @mysten/sui; this alias names the
@@ -64,7 +68,11 @@ export interface CreateMisoClientOptions extends MisoConfigOverrides {
 export function createMisoClient(options: CreateMisoClientOptions = {}): MisoClient {
   const { network, config: providedConfig, ...overrides } = options;
   const requestedNetwork = networkFrom(network);
-  const config = providedConfig ?? misoConfig(requestedNetwork, overrides);
+  // A caller-supplied verified deployment may still override transport URLs or
+  // the discover shelf; undefined fields never erase verified config values.
+  const config = providedConfig
+    ? { ...providedConfig, ...definedOverrides(overrides) }
+    : misoConfig(requestedNetwork, overrides);
   if (network !== undefined && config.network !== requestedNetwork) {
     throw new Error(
       `@misofm/sdk/read: provided config is for ${config.network}, not ${requestedNetwork}.`,

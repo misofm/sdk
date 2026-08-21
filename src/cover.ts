@@ -18,6 +18,7 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
+import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
@@ -25,8 +26,10 @@ import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_ar
 export interface SetReleaseCoverParams {
   /** The `Release` object to attach the cover to. */
   releaseId: string;
-  /** The release's `ReleaseAdminCap`. */
-  releaseAdminCapId: string;
+  /** Explicit legacy direct cap or Vault authority for this release. */
+  authority?: AdminCapAuthority;
+  /** @deprecated Pass explicit `authority`. */
+  releaseAdminCapId?: string;
   /** Walrus blob id of the still cover image, as `u256` (decimal string or bigint). */
   stillBlobId: bigint | string;
   /** Optional animated-cover Walrus blob id (`u256`); omit for a still-only cover. */
@@ -74,12 +77,12 @@ function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
 export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    tx.add(
+    withAdminCap(tx, p.authority ?? directAdminCap(p.releaseAdminCapId!), (adminCap) => tx.add(
       releaseCoverArt.setCover({
         package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, p.releaseAdminCapId, cover],
+        arguments: [p.releaseId, adminCap, cover],
       }),
-    );
+    ));
   };
 }
 
@@ -87,12 +90,12 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
 export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    tx.add(
+    withAdminCap(tx, p.authority ?? directAdminCap(p.releaseAdminCapId!), (adminCap) => tx.add(
       releaseCoverArt.setTrackCover({
         package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, p.releaseAdminCapId, p.trackIndex, cover],
+        arguments: [p.releaseId, adminCap, p.trackIndex, cover],
       }),
-    );
+    ));
   };
 }
 

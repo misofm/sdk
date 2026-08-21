@@ -111,6 +111,7 @@
   ],
   "scripts": {
     "codegen": "sui-ts-codegen generate",
+    "codegen:check": "bun run codegen && perl -pi -e 's/[ \\t]+$//' src/contracts/royalty_pool/pool.ts && git diff --exit-code -- src/contracts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build": "tsc -p tsconfig.build.json",

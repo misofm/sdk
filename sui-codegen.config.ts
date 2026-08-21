@@ -11,9 +11,8 @@ import type { SuiCodegenConfig } from "@mysten/codegen";
 // Extensions add data to a protocol work. Vault plugins instead custody an admin
 // cap and provide business logic through a temporary, hot-potato capability loan.
 // Both are part of the platform client, but they deliberately have different
-// packages and bindings. The utility `release_registry` is the canonical
-// client-facing release-creation primitive: core's `release::new` takes
-// `parent: &mut UID`, so it is not PTB-callable.
+// packages and bindings. Core `miso::release::ReleaseRegistry` is the canonical
+// shared derivation parent, and core `release::new` is PTB-callable.
 //
 // Paths resolve against sibling checkouts. Regenerating requires:
 //   ~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}
@@ -25,15 +24,6 @@ const config: SuiCodegenConfig = {
     // The record production line: one uncapped run per release, plus a
     // `Listing<Currency>` per payment rail.
     { package: "@local-pkg/miso_pressing", path: "../pressing/move" },
-
-    // The canonical derivation parent for release ids. Core's `release::new` takes
-    // `parent: &mut UID` and is therefore not PTB-callable; this shared singleton
-    // is how a client actually mints a Release. Created once by the package's
-    // `init` — discover its id from `ReleaseRegistryCreatedEvent` in the publish tx.
-    {
-      package: "@local-pkg/release_registry",
-      path: "../../misonetwork/protocol-utilities/release_registry",
-    },
 
     // Royalty pools — accumulator-based distribution bound to a work.
     {
@@ -103,6 +93,25 @@ const config: SuiCodegenConfig = {
     {
       package: "@local-pkg/release_snapshot_bundle",
       path: "../../misonetwork/protocol-extensions/release_snapshot_bundle",
+    },
+
+    // Recording metadata is data-only; its cap-gated writers work with either a
+    // legacy direct cap or a Vault loan through the SDK authority helpers.
+    {
+      package: "@local-pkg/recording_advisory",
+      path: "../../misonetwork/protocol-extensions/recording_advisory",
+    },
+    {
+      package: "@local-pkg/recording_language",
+      path: "../../misonetwork/protocol-extensions/recording_language",
+    },
+    {
+      package: "@local-pkg/recording_master_reference",
+      path: "../../misonetwork/protocol-extensions/recording_master_reference",
+    },
+    {
+      package: "@local-pkg/recording_preview",
+      path: "../../misonetwork/protocol-extensions/recording_preview",
     },
 
     // Runtime release economics is business logic, so it is a vault plugin.

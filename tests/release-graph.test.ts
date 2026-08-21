@@ -32,7 +32,6 @@ test("publishReleaseGraph: create → derive → track → registry → publish 
     release: { title: "EP", nonce: "1", adminAddress: A, releaseRegistryId: A, tracks: [{ recordingIndex: 0, splitBps: 5000 }, { recordingIndex: 1, splitBps: 5000 }] },
     misoPackageId: PKG,
     minatoPackageId: PKG,
-    releaseRegistryPackageId: PKG,
   })(tx);
 
   const seq = fns(tx);
@@ -45,15 +44,14 @@ test("publishReleaseGraph: create → derive → track → registry → publish 
   expect(count("recording::id")).toBe(2);
   expect(count("release::derive_target_release_id")).toBe(1);
   expect(count("track::new")).toBe(2);
-  expect(count("release_registry::new_release")).toBe(1);
-  expect(count("release::new")).toBe(0);
+  expect(count("release::new")).toBe(1);
 
   expect(last("composition::new")).toBeLessThan(first("composition::publish"));
   expect(last("recording::new")).toBeLessThan(first("recording::publish"));
   expect(last("recording::id")).toBeLessThan(first("release::derive_target_release_id"));
   expect(first("release::derive_target_release_id")).toBeLessThan(first("track::new"));
-  expect(last("track::new")).toBeLessThan(first("release_registry::new_release"));
-  expect(first("release_registry::new_release")).toBeLessThan(first("release::publish"));
+  expect(last("track::new")).toBeLessThan(first("release::new"));
+  expect(first("release::new")).toBeLessThan(first("release::publish"));
 });
 
 test("publishReleaseGraph: cap-backed existing recording mixes with fresh", () => {
@@ -68,7 +66,7 @@ test("publishReleaseGraph: cap-backed existing recording mixes with fresh", () =
         { recordingId: A, recordingAdminCapId: A, recordingShareType: share("55"), compositionShareType: share("66"), splitBps: 5000 },
       ],
     },
-    misoPackageId: PKG, minatoPackageId: PKG, releaseRegistryPackageId: PKG,
+    misoPackageId: PKG, minatoPackageId: PKG,
   })(tx);
   const seq = fns(tx);
   expect(seq.filter((f) => f === "release::derive_target_release_id")).toHaveLength(1);
@@ -83,10 +81,10 @@ test("publishReleaseGraph: an all-cap release still derives and creates its trac
       title: "COMPILATION", nonce: "7", adminAddress: A, releaseRegistryId: A,
       tracks: [{ recordingId: A, recordingAdminCapId: A, recordingShareType: share("55"), compositionShareType: share("66"), splitBps: 10000 }],
     },
-    misoPackageId: PKG, minatoPackageId: PKG, releaseRegistryPackageId: PKG,
+    misoPackageId: PKG, minatoPackageId: PKG,
   })(tx);
   const seq = fns(tx);
   expect(seq.filter((f) => f === "release::derive_target_release_id")).toHaveLength(1);
   expect(seq.filter((f) => f === "track::new")).toHaveLength(1);
-  expect(seq.filter((f) => f === "release_registry::new_release")).toHaveLength(1);
+  expect(seq.filter((f) => f === "release::new")).toHaveLength(1);
 });

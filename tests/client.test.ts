@@ -16,7 +16,6 @@ import { networkFrom } from "../src/read/config.ts";
 const PRESSING = "0x" + "12".repeat(32);
 const MISO = "0x" + "cd".repeat(32);
 const MINATO = "0x" + "ef".repeat(32);
-const RELEASE_REGISTRY = "0x" + "34".repeat(32);
 const SHARE = "0x" + "ab".repeat(32) + "::share::Share";
 const A = "0x" + "11".repeat(32);
 const VAULT = "0x" + "56".repeat(32);
@@ -27,7 +26,6 @@ const DEPLOYMENT = {
   packages: {
     pressing: PRESSING,
     minato: MINATO,
-    releaseRegistry: RELEASE_REGISTRY,
     releaseCoverArt: A,
     releaseCredits: A,
     vault: VAULT,
@@ -49,7 +47,6 @@ function client() {
       packageId: PRESSING,
       misoPackageId: MISO,
       minatoPackageId: MINATO,
-      releaseRegistryPackageId: RELEASE_REGISTRY,
       releaseRegistryId: A,
     }),
   );
@@ -109,12 +106,12 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
     )?.package,
   ).toBe(PRESSING);
 
-  c.miso.call.releaseRegistry.id({ arguments: [tx.object(A)] })(tx);
+  c.miso.call.vault.id({ arguments: [tx.object(A)] })(tx);
   expect(
     moveCalls(tx).find(
-      (call) => call.module === "release_registry" && call.function === "id",
+      (call) => call.module === "vault" && call.function === "id",
     )?.package,
-  ).toBe(RELEASE_REGISTRY);
+  ).toBe(VAULT);
 
   c.miso.call.releaseCoverArt.hasCoverArt({
     arguments: [tx.object(A)],
@@ -175,8 +172,8 @@ test("miso() binds whole-release graph package ids", () => {
   const calls = moveCalls(tx);
   expect(calls.find((call) => call.module === "release")?.package).toBe(MISO);
   expect(
-    calls.find((call) => call.module === "release_registry")?.package,
-  ).toBe(RELEASE_REGISTRY);
+    calls.find((call) => call.module === "release" && call.function === "new")?.package,
+  ).toBe(MISO);
 });
 
 interface Call {
@@ -241,7 +238,6 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
   }).$extend(
     misoPlatform({
       packageId: PRESSING,
-      releaseRegistryPackageId: RELEASE_REGISTRY,
       releaseRegistryId: A,
     }),
   );
@@ -269,7 +265,7 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
   ).toBe(PRESSING);
 });
 
-test("client.misoPlatform.tx.publishRelease binds the registry package and object", () => {
+test("client.misoPlatform.tx.publishRelease binds the core registry object", () => {
   const tx = new Transaction();
   client().misoPlatform.tx.publishRelease({
     title: "LP",
@@ -289,7 +285,7 @@ test("client.misoPlatform.tx.publishRelease binds the registry package and objec
 
   const registry = moveCalls(tx).find(
     (call) =>
-      call.module === "release_registry" && call.function === "new_release",
+      call.module === "release" && call.function === "new",
   );
-  expect(registry?.package).toBe(RELEASE_REGISTRY);
+  expect(registry?.package).toBe(MISO);
 });

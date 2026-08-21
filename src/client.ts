@@ -39,7 +39,6 @@ import {
 
 import * as listingContract from "./contracts/miso_pressing/listing.ts";
 import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
-import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
 import * as genreContract from "./contracts/genre/genre.ts";
 import * as releaseDescriptionContract from "./contracts/release_description/release_description.ts";
 import * as releaseDspLinkContract from "./contracts/release_dsp_link/release_dsp_link.ts";
@@ -50,6 +49,12 @@ import * as vaultContract from "./contracts/vault/vault.ts";
 import * as compositionRoyaltyPoolContract from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
 import * as recordingRoyaltyPoolContract from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
 import * as compositionRoutedStakeContract from "./contracts/composition_routed_stake/composition_routed_stake.ts";
+import * as routedStakeContract from "./contracts/routed_stake/routed_stake.ts";
+import * as royaltyPoolContract from "./contracts/royalty_pool/pool.ts";
+import * as recordingAdvisoryContract from "./contracts/recording_advisory/recording_advisory.ts";
+import * as recordingLanguageContract from "./contracts/recording_language/recording_language.ts";
+import * as recordingMasterReferenceContract from "./contracts/recording_master_reference/recording_master_reference.ts";
+import * as recordingPreviewContract from "./contracts/recording_preview/recording_preview.ts";
 import * as vaultActions from "./vault.ts";
 import * as releaseSnapshotBundleContract from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
 import * as coverArtContract from "./contracts/cover_art/cover_art.ts";
@@ -127,9 +132,16 @@ import {
 } from "./cover.ts";
 
 /** Defaults `options.package` to `pkg` for every generated call function. */
-function bindModulePackage<M extends object>(mod: M, pkg: string): M {
+function bindModulePackage<M extends object>(
+  mod: M,
+  pkg: string,
+  referenceReturns: readonly string[] = [],
+): M {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries({ ...mod })) {
+    // PTB commands cannot consume Move references returned by a previous call.
+    // Keep those helpers in `contracts`, but not in executable `client.call`.
+    if (referenceReturns.includes(key)) continue;
     out[key] =
       typeof value === "function"
         ? (options: { package?: string }) =>
@@ -169,9 +181,7 @@ export interface MisoPlatformConfig {
    * builders (they disperse shares via minato).
    */
   minatoPackageId?: string;
-  /** The published `release_registry` extension package used to mint releases. */
-  releaseRegistryPackageId?: string;
-  /** The one shared `ReleaseRegistry` object created by that package's `init`. */
+  /** The shared core `miso::release::ReleaseRegistry` object. */
   releaseRegistryId?: string;
   /** Release metadata/discovery extension package ids. */
   releaseKindPackageId?: string;
@@ -179,8 +189,14 @@ export interface MisoPlatformConfig {
   releaseGenrePackageId?: string;
   releaseDspLinkPackageId?: string;
   releaseSnapshotBundlePackageId?: string;
+  recordingAdvisoryPackageId?: string;
+  recordingLanguagePackageId?: string;
+  recordingMasterReferencePackageId?: string;
+  recordingPreviewPackageId?: string;
   /** Shared custody package; needed for VaultAdminCap authority orchestration. */
   vaultPackageId?: string;
+  /** Generic royalty-pool value package used by pool and routed-stake helpers. */
+  royaltyPoolPackageId?: string;
   /** Vault plugins, deliberately separate from data-extension package ids. */
   compositionRoyaltyPoolPluginPackageId?: string;
   recordingRoyaltyPoolPluginPackageId?: string;
@@ -209,7 +225,6 @@ type ConfiguredRelease<T> = Omit<
   T,
   | "misoPackageId"
   | "minatoPackageId"
-  | "releaseRegistryPackageId"
   | "releaseRegistryId"
 >;
 
@@ -244,10 +259,7 @@ type ConfiguredReleaseTrackCover = Omit<
 >;
 
 /** Whole-graph params with this client's package ids dropped. */
-export type ConfiguredReleaseGraphParams = Omit<
-  PublishReleaseGraphParams,
-  "misoPackageId" | "minatoPackageId" | "releaseRegistryPackageId"
->;
+export type ConfiguredReleaseGraphParams = Omit<PublishReleaseGraphParams, "misoPackageId" | "minatoPackageId">;
 
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
@@ -311,15 +323,14 @@ export class MisoPlatformClient {
     return minatoPackageId;
   }
 
-  #releaseRegistry(): { packageId: string; id: string } {
-    const { releaseRegistryPackageId: packageId, releaseRegistryId: id } =
-      this.#config;
-    if (!packageId || !id) {
+  #releaseRegistryId(): string {
+    const { releaseRegistryId: id } = this.#config;
+    if (!id) {
       throw new Error(
-        "misoPlatform: `releaseRegistryPackageId` and `releaseRegistryId` are required to build a release — pass both to misoPlatform(...).",
+        "misoPlatform: `releaseRegistryId` is required to build a release.",
       );
     }
-    return { packageId, id };
+    return id;
   }
 
   #requiredConfig(field: keyof MisoPlatformConfig, operation: string): string {
@@ -424,21 +435,17 @@ export class MisoPlatformClient {
         minatoPackageId: this.#minatoPackageId(),
       }),
     publishRelease: (p: ConfiguredRelease<PublishReleaseParams>): TxThunk => {
-      const registry = this.#releaseRegistry();
       return publishRelease({
         ...p,
         misoPackageId: this.#misoPackageId(),
-        releaseRegistryPackageId: registry.packageId,
-        releaseRegistryId: registry.id,
+        releaseRegistryId: this.#releaseRegistryId(),
       });
     },
     publishReleaseGraph: (p: ConfiguredReleaseGraphParams): TxThunk => {
-      const registry = this.#releaseRegistry();
       return publishReleaseGraph({
         ...p,
         misoPackageId: this.#misoPackageId(),
         minatoPackageId: this.#minatoPackageId(),
-        releaseRegistryPackageId: registry.packageId,
       });
     },
     setReleaseKind: (p: ConfiguredReleaseKind): TxThunk =>
@@ -552,19 +559,14 @@ export class MisoPlatformClient {
     return {
       listing: bindModulePackage(listingContract, this.packageId),
       pressing: bindModulePackage(pressingContract, this.packageId),
-      releaseRegistry: this.#config.releaseRegistryPackageId
-        ? bindModulePackage(
-            releaseRegistry,
-            this.#config.releaseRegistryPackageId,
-          )
-        : releaseRegistry,
       genre: this.#config.genrePackageId
-        ? bindModulePackage(genreContract, this.#config.genrePackageId)
+        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["name"])
         : genreContract,
       releaseDescription: this.#config.releaseDescriptionPackageId
         ? bindModulePackage(
             releaseDescriptionContract,
             this.#config.releaseDescriptionPackageId,
+            ["description"],
           )
         : releaseDescriptionContract,
       releaseDspLink: this.#config.releaseDspLinkPackageId
@@ -612,14 +614,33 @@ export class MisoPlatformClient {
             this.#config.compositionRoutedStakePluginPackageId,
           )
         : compositionRoutedStakeContract,
+      routedStake: this.#config.routedStakePackageId
+        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId)
+        : routedStakeContract,
+      royaltyPool: this.#config.royaltyPoolPackageId
+        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId)
+        : royaltyPoolContract,
+      recordingAdvisory: this.#config.recordingAdvisoryPackageId
+        ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId)
+        : recordingAdvisoryContract,
+      recordingLanguage: this.#config.recordingLanguagePackageId
+        ? bindModulePackage(recordingLanguageContract, this.#config.recordingLanguagePackageId)
+        : recordingLanguageContract,
+      recordingMasterReference: this.#config.recordingMasterReferencePackageId
+        ? bindModulePackage(recordingMasterReferenceContract, this.#config.recordingMasterReferencePackageId)
+        : recordingMasterReferenceContract,
+      recordingPreview: this.#config.recordingPreviewPackageId
+        ? bindModulePackage(recordingPreviewContract, this.#config.recordingPreviewPackageId)
+        : recordingPreviewContract,
       releaseSnapshotBundle: this.#config.releaseSnapshotBundlePackageId
         ? bindModulePackage(
             releaseSnapshotBundleContract,
             this.#config.releaseSnapshotBundlePackageId,
+            ["snapshotBundle"],
           )
         : releaseSnapshotBundleContract,
       coverArt: this.#config.coverArtPackageId
-        ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId)
+        ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId, ["still", "animated"])
         : coverArtContract,
       releaseCoverArt: this.#config.releaseCoverArtPackageId
         ? bindModulePackage(
@@ -642,8 +663,6 @@ export class MisoPlatformClient {
     PressingAdminCap: pressingContract.PressingAdminCap,
     Listing: listingContract.Listing,
     Price: listingContract.Price,
-    ReleaseRegistry: releaseRegistry.ReleaseRegistry,
-    ReleaseRegistryCreatedEvent: releaseRegistry.ReleaseRegistryCreatedEvent,
     VaultAdminCap: vaultContract.VaultAdminCap,
     VaultCreatedEvent: vaultContract.VaultCreatedEvent,
     ReleaseRevenueDistributedEvent:
@@ -680,7 +699,6 @@ export function miso<const Name extends string = "miso">(
           settingsId: deployment.objects.recordSettings,
           misoPackageId: deployment.protocol.packageId,
           minatoPackageId: deployment.packages.minato,
-          releaseRegistryPackageId: deployment.packages.releaseRegistry,
           releaseRegistryId: deployment.objects.releaseRegistry,
           releaseKindPackageId: deployment.packages.releaseKind,
           releaseDescriptionPackageId: deployment.packages.releaseDescription,
@@ -688,7 +706,12 @@ export function miso<const Name extends string = "miso">(
           releaseDspLinkPackageId: deployment.packages.releaseDspLink,
           releaseSnapshotBundlePackageId:
             deployment.packages.releaseSnapshotBundle,
+          recordingAdvisoryPackageId: deployment.packages.recordingAdvisory,
+          recordingLanguagePackageId: deployment.packages.recordingLanguage,
+          recordingMasterReferencePackageId: deployment.packages.recordingMasterReference,
+          recordingPreviewPackageId: deployment.packages.recordingPreview,
           vaultPackageId: deployment.packages.vault,
+          royaltyPoolPackageId: deployment.packages.royaltyPool,
           compositionRoyaltyPoolPluginPackageId:
             deployment.packages.compositionRoyaltyPoolPlugin,
           recordingRoyaltyPoolPluginPackageId:

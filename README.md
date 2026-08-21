@@ -234,7 +234,6 @@ const thunk = publishReleaseGraph({
   },
   misoPackageId: "0x...",
   minatoPackageId: "0x...",
-  releaseRegistryPackageId: "0x...",
 });
 ```
 
@@ -410,7 +409,7 @@ bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
 `sui-codegen.config.ts` lists the platform package (`miso_pressing`), utility
-`release_registry`, data extensions, generic `royalty_pool`/`routed_stake`, and
+core release registry, data extensions, generic `royalty_pool`/`routed_stake`, and
 the `vault` plus all vault-plugin packages. The protocol CORE (`miso` —
 composition/recording/release/track) generates into
 `@misonetwork/sdk` instead, which this package depends on for those bindings —

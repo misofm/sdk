@@ -9,6 +9,7 @@ import {
   installCompositionRoyaltyPoolPlugin,
   installReleaseRevenueDistributorPlugin,
   registerCompositionRoutedStake,
+  receivingCoins,
   withAdminCap,
 } from "../src/vault.ts";
 
@@ -135,4 +136,11 @@ test("routed-stake registration pins the vault, composition, recording, and cano
     COMPOSITION_SHARE,
     SUI,
   ]);
+});
+
+test("receiving coin vectors use exact Receiving inputs, never ordinary object inputs", () => {
+  const tx = new Transaction();
+  receivingCoins(tx, SUI, [{ objectId: A, version: "7", digest: "11111111111111111111111111111111" }]);
+  const inputs = (tx.getData() as { inputs: { $kind: string; Object?: { $kind?: string } }[] }).inputs;
+  expect(inputs.some((input) => input.$kind === "Object" && input.Object?.$kind === "Receiving")).toBe(true);
 });
