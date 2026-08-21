@@ -48,6 +48,23 @@ exact `0.8.0` release commit. Source-Git installs use `prepare` only to emit
 frozen CI, `build`, and `prepack` commands. The platform package does not run a
 custom script that modifies a consumer's `node_modules`.
 
+### Pre-publish Git-head workflow
+
+Before these versions are published, install both immutable Git heads at the
+application root. Bun must be allowed to run both source-package `prepare`
+scripts, so the root `package.json` must include exactly these SDK entries:
+
+```json
+{
+  "trustedDependencies": ["@misonetwork/sdk", "@misofm/sdk"]
+}
+```
+
+Without them, Bun blocks `prepare` and the Git packages have no `dist` artifact
+to import. This is only for the pre-publish source-Git workflow. Published npm
+packages and packed tarballs already include `dist`; install those normally,
+with one `@misonetwork/sdk@^0.8.0` peer at the application root.
+
 ## The model
 
 A release has exactly **one** `Pressing`: a single uncapped run whose counter numbers
