@@ -10,34 +10,63 @@ import { test, expect } from "bun:test";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { miso, misoPlatform } from "../src/client.ts";
-import { MISO_PLATFORM_DEPLOYMENTS } from "../src/deployments.ts";
+import type { MisoPlatformDeployment } from "../src/deployments.ts";
 import { networkFrom } from "../src/read/config.ts";
 
 const PRESSING = "0x" + "12".repeat(32);
 const MISO = "0x" + "cd".repeat(32);
 const MINATO = "0x" + "ef".repeat(32);
-const RELEASE_REGISTRY = "0x" + "34".repeat(32);
 const SHARE = "0x" + "ab".repeat(32) + "::share::Share";
 const A = "0x" + "11".repeat(32);
+const VAULT = "0x" + "56".repeat(32);
+
+/** Addresses are injected only after the Ledger-admin deployment is verified. */
+const DEPLOYMENT = {
+  protocol: { packageId: MISO },
+  packages: {
+    pressing: PRESSING,
+    minato: MINATO,
+    releaseCoverArt: A,
+    releaseCredits: A,
+    vault: VAULT,
+    compositionRoyaltyPoolPlugin: A,
+    recordingRoyaltyPoolPlugin: A,
+    compositionRoutedStakePlugin: A,
+    routedStake: A,
+    releaseRevenueDistributorPlugin: A,
+  },
+  objects: { recordSettings: A, releaseRegistry: A, genreRegistry: A },
+} as unknown as MisoPlatformDeployment;
 
 function client() {
-  return new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" }).$extend(
-    misoPlatform({ packageId: PRESSING, misoPackageId: MISO, minatoPackageId: MINATO, releaseRegistryPackageId: RELEASE_REGISTRY, releaseRegistryId: A }),
+  return new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(
+    misoPlatform({
+      packageId: PRESSING,
+      misoPackageId: MISO,
+      minatoPackageId: MINATO,
+      releaseRegistryId: A,
+    }),
   );
 }
 
-test("miso() exposes the full platform facade with nested protocol", () => {
+test("pressing-only misoPlatform configuration does not register the fail-closed protocol extension", () => {
+  const c = new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" })
+    .$extend(misoPlatform({ packageId: PRESSING }));
+  expect(c.misoPlatform.packageId).toBe(PRESSING);
+  expect(c.misoPlatform.protocol).toBeUndefined();
+});
+
+test("miso() accepts an explicit verified deployment and exposes nested protocol", () => {
   const c = new SuiGrpcClient({
     network: "testnet",
     baseUrl: "https://fullnode.testnet.sui.io:443",
-  }).$extend(miso());
+  }).$extend(miso({ deployment: DEPLOYMENT }));
 
-  expect(c.miso.packageId).toBe(
-    MISO_PLATFORM_DEPLOYMENTS.testnet.packages.pressing,
-  );
-  expect(c.miso.protocol.deployment).toEqual(
-    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol,
-  );
+  expect(c.miso.packageId).toBe(PRESSING);
+  expect(c.miso.protocol.deployment).toEqual(DEPLOYMENT.protocol);
 
   const tx = new Transaction();
   c.miso.tx.publishComposition({
@@ -50,30 +79,17 @@ test("miso() exposes the full platform facade with nested protocol", () => {
     adminAddress: A,
   })(tx);
   const calls = moveCalls(tx);
-  expect(
-    calls.find((call) => call.module === "composition")?.package,
-  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId);
-  expect(calls.find((call) => call.module === "minato")?.package).toBe(
-    MISO_PLATFORM_DEPLOYMENTS.testnet.packages.minato,
-  );
+  expect(calls.find((call) => call.module === "composition")?.package).toBe(MISO);
+  expect(calls.find((call) => call.module === "minato")?.package).toBe(MINATO);
 });
 
-test("miso() fails closed when the platform is not bundled", () => {
+test("miso() fails closed while no deployment is bundled", () => {
   expect(() =>
     new SuiGrpcClient({
-      network: "mainnet",
-      baseUrl: "https://fullnode.mainnet.sui.io:443",
+      network: "testnet",
+      baseUrl: "https://fullnode.testnet.sui.io:443",
     }).$extend(miso()),
   ).toThrow(/no bundled Miso platform deployment/);
-});
-
-test("bundled deployment includes ids required by platform publishing", () => {
-  const { packages } = MISO_PLATFORM_DEPLOYMENTS.testnet;
-  expect(packages.royaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(packages.compositionRoyaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(packages.recordingRoyaltyPool).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(packages.coverArt).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(packages.ori).toMatch(/^0x[0-9a-f]{64}$/);
 });
 
 test("network parsing defaults only missing values and rejects typos", () => {
@@ -83,32 +99,76 @@ test("network parsing defaults only missing values and rejects typos", () => {
   expect(() => networkFrom("tesnet")).toThrow(/unsupported network/);
 });
 
-test("miso() binds generated platform calls to the selected packages", () => {
+test("miso() binds generated platform and vault calls to an explicit deployment", () => {
   const c = new SuiGrpcClient({
     network: "testnet",
     baseUrl: "https://fullnode.testnet.sui.io:443",
-  }).$extend(miso());
+  }).$extend(miso({ deployment: DEPLOYMENT }));
   const tx = new Transaction();
   c.miso.call.pressing.newActiveState({})(tx);
   expect(
     moveCalls(tx).find(
-      (call) => call.module === "pressing" && call.function === "new_active_state",
+      (call) =>
+        call.module === "pressing" && call.function === "new_active_state",
     )?.package,
-  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.pressing);
+  ).toBe(PRESSING);
 
-  c.miso.call.releaseRegistry.id({ arguments: [tx.object(A)] })(tx);
+  // The public type omits `package`; even an untyped caller cannot replace it.
+  const forcedPackage = c.miso.call.pressing.newActiveState as unknown as (
+    options: { package: string },
+  ) => (tx: Transaction) => unknown;
+  forcedPackage({ package: A })(tx);
+  expect(
+    moveCalls(tx)
+      .filter(
+        (call) =>
+          call.module === "pressing" && call.function === "new_active_state",
+      )
+      .at(-1)?.package,
+  ).toBe(PRESSING);
+
+  c.miso.call.vault.id({ arguments: [tx.object(A)] })(tx);
   expect(
     moveCalls(tx).find(
-      (call) => call.module === "release_registry" && call.function === "id",
+      (call) => call.module === "vault" && call.function === "id",
     )?.package,
-  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry);
+  ).toBe(VAULT);
+
+  c.miso.call.releaseCoverArt.hasCoverArt({
+    arguments: [tx.object(A)],
+  })(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) =>
+        call.module === "release_cover_art" &&
+        call.function === "has_cover_art",
+    )?.package,
+  ).toBe(A);
+
+  c.miso.call.releaseCredits.hasCredits({ arguments: [tx.object(A)] })(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) =>
+        call.module === "release_credits" && call.function === "has_credits",
+    )?.package,
+  ).toBe(A);
+
+  c.miso.call.vault.id({
+    typeArguments: [SHARE],
+    arguments: [tx.object(A)],
+  })(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) => call.module === "vault" && call.function === "id",
+    )?.package,
+  ).toBe(VAULT);
 });
 
 test("miso() binds whole-release graph package ids", () => {
   const c = new SuiGrpcClient({
     network: "testnet",
     baseUrl: "https://fullnode.testnet.sui.io:443",
-  }).$extend(miso());
+  }).$extend(miso({ deployment: DEPLOYMENT }));
   const tx = new Transaction();
   c.miso.tx.publishReleaseGraph({
     compositions: [],
@@ -117,8 +177,7 @@ test("miso() binds whole-release graph package ids", () => {
       title: "R",
       nonce: "1",
       adminAddress: A,
-      releaseRegistryId:
-        MISO_PLATFORM_DEPLOYMENTS.testnet.objects.releaseRegistry,
+      releaseRegistryId: A,
       tracks: [
         {
           recordingId: A,
@@ -132,12 +191,10 @@ test("miso() binds whole-release graph package ids", () => {
   })(tx);
 
   const calls = moveCalls(tx);
-  expect(calls.find((call) => call.module === "release")?.package).toBe(
-    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId,
-  );
+  expect(calls.find((call) => call.module === "release")?.package).toBe(MISO);
   expect(
-    calls.find((call) => call.module === "release_registry")?.package,
-  ).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry);
+    calls.find((call) => call.module === "release" && call.function === "new")?.package,
+  ).toBe(MISO);
 });
 
 interface Call {
@@ -147,8 +204,12 @@ interface Call {
 }
 
 function moveCalls(tx: Transaction): Call[] {
-  const data = tx.getData() as { commands: { $kind: string; MoveCall?: Call }[] };
-  return data.commands.filter((c) => c.$kind === "MoveCall" && c.MoveCall).map((c) => c.MoveCall!);
+  const data = tx.getData() as {
+    commands: { $kind: string; MoveCall?: Call }[];
+  };
+  return data.commands
+    .filter((c) => c.$kind === "MoveCall" && c.MoveCall)
+    .map((c) => c.MoveCall!);
 }
 
 test("client.misoPlatform.tx.publishComposition binds miso + minato package ids", () => {
@@ -164,16 +225,21 @@ test("client.misoPlatform.tx.publishComposition binds miso + minato package ids"
   })(tx);
 
   const calls = moveCalls(tx);
-  const compNew = calls.find((c) => c.module === "composition" && c.function === "new");
+  const compNew = calls.find(
+    (c) => c.module === "composition" && c.function === "new",
+  );
   expect(compNew?.package).toBe(MISO); // miso bound
-  const disperse = calls.find((c) => c.module === "minato" && c.function === "disperse_balance");
+  const disperse = calls.find(
+    (c) => c.module === "minato" && c.function === "disperse_balance",
+  );
   expect(disperse?.package).toBe(MINATO); // minato bound
 });
 
 test("client without misoPackageId/minatoPackageId throws on publish builders, not on pressing builders", () => {
-  const sellOnly = new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" }).$extend(
-    misoPlatform({ packageId: PRESSING }),
-  );
+  const sellOnly = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(misoPlatform({ packageId: PRESSING }));
 
   expect(() =>
     sellOnly.misoPlatform.tx.publishComposition({
@@ -187,8 +253,14 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
     }),
   ).toThrow(/misoPackageId.*is required/);
 
-  const withoutMiso = new SuiGrpcClient({ network: "testnet", baseUrl: "https://fullnode.testnet.sui.io:443" }).$extend(
-    misoPlatform({ packageId: PRESSING, releaseRegistryPackageId: RELEASE_REGISTRY, releaseRegistryId: A }),
+  const withoutMiso = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(
+    misoPlatform({
+      packageId: PRESSING,
+      releaseRegistryId: A,
+    }),
   );
   expect(() =>
     withoutMiso.misoPlatform.tx.publishRelease({
@@ -208,19 +280,33 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
     listings: [],
     adminCapRecipient: A,
   })(tx);
-  expect(moveCalls(tx).find((c) => c.module === "pressing" && c.function === "new")?.package).toBe(PRESSING);
+  expect(
+    moveCalls(tx).find((c) => c.module === "pressing" && c.function === "new")
+      ?.package,
+  ).toBe(PRESSING);
 });
 
-test("client.misoPlatform.tx.publishRelease binds the registry package and object", () => {
+test("client.misoPlatform.tx.publishRelease binds the core registry object", () => {
   const tx = new Transaction();
   client().misoPlatform.tx.publishRelease({
     title: "LP",
-    tracks: [{ recordingId: A, recordingAdminCapId: A, recordingShareType: SHARE, compositionShareType: SHARE, splitBps: 10000 }],
+    tracks: [
+      {
+        recordingId: A,
+        recordingAdminCapId: A,
+        recordingShareType: SHARE,
+        compositionShareType: SHARE,
+        splitBps: 10000,
+      },
+    ],
     releaseId: A,
     releaseNonce: "0",
     adminAddress: A,
   })(tx);
 
-  const registry = moveCalls(tx).find((call) => call.module === "release_registry" && call.function === "new_release");
-  expect(registry?.package).toBe(RELEASE_REGISTRY);
+  const registry = moveCalls(tx).find(
+    (call) =>
+      call.module === "release" && call.function === "new",
+  );
+  expect(registry?.package).toBe(MISO);
 });

@@ -14,9 +14,8 @@
 //
 // A release is protocol. Pressing a record off it and selling that record is
 // platform. Keeping the split at the package boundary is what stops the protocol
-// from quietly growing a storefront. Core's `release::new` is the sole practical
-// exception: it needs `&mut UID`, which cannot cross a PTB command boundary, so
-// the platform's `release_registry` extension owns the PTB-callable minting path.
+// from quietly growing a storefront. Core `release::new` uses its shared
+// `ReleaseRegistry` as the PTB-callable derivation parent.
 //
 // Extensions live on this side of the line for the same reason. An extension is
 // not part of what a Composition or Recording IS — it is a choice Miso makes
@@ -27,7 +26,12 @@
 
 // The recommended entry point is the client extension (see ./client.ts); the bare
 // builders and readers stay exported for callers that hold ids themselves.
-export { miso, misoPlatform, MisoClient, MisoPlatformClient } from "./client.ts";
+export {
+  miso,
+  misoPlatform,
+  MisoClient,
+  MisoPlatformClient,
+} from "./client.ts";
 export type {
   ConfiguredReleaseGraphParams,
   MisoOptions,
@@ -51,7 +55,9 @@ export * as read from "./read/index.ts";
 // `uid_mut` hook.
 export * from "./credits.ts";
 export * from "./cover.ts";
-export * from "./extensions/royalty-pool.ts";
+export * from "./release-extensions.ts";
+export * from "./recording-extensions.ts";
+export * from "./vault.ts";
 
 // Generated, ABI-bound bindings (BCS structs + type-safe Move calls).
 export * as contracts from "./contracts.ts";

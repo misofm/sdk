@@ -2,8 +2,8 @@
 
 The complete client SDK for the **Miso platform layer** on Sui: composed catalog,
 artist, wallet, and receipt reads; the record production line and sale of copies;
-first-party protocol extensions (credits, cover art, royalty pools); and the
-opinionated publish flow built on `@misonetwork/sdk`'s bare protocol primitives.
+and vault-custodied business-logic plugins built on `@misonetwork/sdk`'s
+protocol and data-extension primitives.
 
 ## The split
 
@@ -12,8 +12,8 @@ holding:
 
 | Scope | Layer | Owns |
 | --- | --- | --- |
-| `@misonetwork/*` | **Protocol** | Composition, Recording, Release as bare primitives — mint a work, don't disperse/publish/transfer it. The permissionless layer anyone can build on |
-| `@misofm/*` | **Platform** | Pressing, Listing, Record (how Miso sells copies of a release) — the first-party extensions (credits, cover art, royalty pools) — plus the opinionated finish for publishing works: disperse share supply via minato, publish (share), transfer the admin cap, provision share currencies, and orchestrate a whole release graph in one PTB |
+| `@misonetwork/*` | **Protocol** | Composition, Recording, Release; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
+| `@misofm/*` | **Platform** | Pressing, Listing, Record, and Vault plugins that apply Miso business logic to custodied protocol admin caps |
 
 A release is protocol. Pressing a record off that release and selling it is
 platform. So is deciding *what to do* with a freshly-minted work's share
@@ -21,14 +21,12 @@ supply — the protocol only knows how to mint one. Keeping the boundary at the
 package line is what stops the open protocol from quietly growing a
 storefront (or an opinion about tokenomics).
 
-**Extensions are platform too.** An extension is not part of what a Composition
-or Recording *is* — it is a choice about how to describe one: which credit roles
-exist and what they are called, what counts as a cover, whether royalties
-accumulate in a pool. The protocol offers a cap-gated `&mut UID` hook and takes
-no position on what hangs off it; every module that *does* take a position is
-business logic, and ships from here. (They lived in `@misonetwork/sdk` through
-its 0.2.x line; `@misonetwork/sdk` 0.3.0 dropped them and `@misofm/sdk` 0.2.0
-picked them up, with signatures unchanged — only the import specifier moves.)
+Extensions add data to a work. Plugins provide business logic: a shared
+`Vault<AdminCap>` custodies the raw cap, while its owner holds a
+`VaultAdminCap<AdminCap>`. A plugin borrows the cap and must return the exact
+object in the same PTB. The SDK supports both vault authorities and legacy
+address-owned admin caps explicitly; it never silently treats a legacy cap as a
+vaulted one.
 
 This package depends on `@misonetwork/sdk` and imports its bare
 `createComposition`/`createRecording` primitives, composing them with its own
@@ -56,7 +54,7 @@ never picks one.
 
 ## Usage
 
-Register the extension on any client implementing Sui's Core API
+Register the client extension on any client implementing Sui's Core API
 ([SDK building guidelines](https://sdk.mystenlabs.com/sui/sdk-building)):
 
 ```ts
@@ -65,7 +63,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { miso } from "@misofm/sdk";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
-  miso(),
+  miso({ deployment: verifiedDeployment }),
 );
 
 // The permissionless protocol SDK is part of the same facade.
@@ -96,10 +94,10 @@ Holding the ids yourself? Every builder and reader is exported bare, taking
 import { buyRecord, getSale } from "@misofm/sdk/pressing";
 ```
 
-Mainnet is selected automatically once the complete platform deployment is
-included in this SDK. Until then, registering `miso()` on a Mainnet client fails
-closed. Localnet, Devnet, forks, and private deployments can provide one complete
-explicit deployment through `miso({ deployment })`.
+No package IDs are bundled until the Ledger-admin deployment records the new
+immutable stack. `miso()` therefore fails closed; pass one complete verified
+deployment through `miso({ deployment })`. The post-publish update is confined
+to `src/deployments.ts`.
 
 ### High-level platform reads
 
@@ -116,7 +114,7 @@ import {
   getOwnedRecords,
 } from "@misofm/sdk/read";
 
-const miso = createMisoClient({ network: "testnet" });
+const miso = createMisoClient({ config: verifiedReadConfig });
 
 const discover = await getDiscoverShelf(miso);
 const release = await getReleaseDetail(miso, releaseId);
@@ -128,7 +126,7 @@ The package root also exposes the same functions under the `read` namespace:
 ```ts
 import { read } from "@misofm/sdk";
 
-const miso = read.createMisoClient({ network: "testnet" });
+const miso = read.createMisoClient({ config: verifiedReadConfig });
 const artist = await read.getArtistProfile(miso, partyId);
 ```
 
@@ -236,7 +234,6 @@ const thunk = publishReleaseGraph({
   },
   misoPackageId: "0x...",
   minatoPackageId: "0x...",
-  releaseRegistryPackageId: "0x...",
 });
 ```
 
@@ -349,13 +346,18 @@ const cover = await getReleaseCover(client, releaseId, releaseCoverArtPackageId)
 // ({ kind: "blob", blobId } | { kind: "quiltPatch", quiltId, version, startIndex, endIndex })
 ```
 
-### Royalty pools (`extensions/royalty-pool.ts`)
+### Vault plugins (`vault.ts`)
 
-`attachCompositionRoyaltyPool(tx, params)` / `attachRecordingRoyaltyPool(tx, params)`
-create and share a `RoyaltyPool<Share, Currency>` for a work inside its publish
-PTB — after `@misonetwork/sdk`'s `createComposition`/`createRecording`, before
-this package's opinionated finish. `publishReleaseGraph` accepts them as
-`royaltyPool` nodes and does the sequencing for you.
+`vault.ts` contains composable PTB builders for custody and plugin flows:
+`invokeWithAdminCap` safely sequences `borrow_as_admin → Move call → put_back`, and
+`custodyNewAdminCap` shares the Vault while transferring only its owner-held
+`VaultAdminCap`. Plugin installers construct their witnesses inside their Move
+package; callers supply no witness.
+
+It also builds Composition/Recording royalty-pool initialization and cranks,
+Release `redeem_and_distribute` / `receive_and_distribute`, and the full
+Composition routed-stake lifecycle. Receive flows take coin IDs and construct
+the required `vector<Receiving<Coin<Currency>>>` in the PTB.
 
 ### Extension types
 
@@ -378,7 +380,7 @@ carry an optional `RecordingRoleLevel` (`Producer`, `Vocalist`, `Engineer`,
 
 ```
 src/
-  deployments.ts         baked per-network package and singleton object ids
+  deployments.ts         fail-closed deployment schema and future address injection point
   client.ts              the full client.miso facade; protocol lives at client.miso.protocol
   pressing.ts            facade: builders, readers, and the id derivations
   queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
@@ -390,8 +392,7 @@ src/
   cover.ts               EXTENSION: release cover art (Walrus blob via ori)
   drop.ts                existing launch-drop compatibility surface
   read/                  high-level catalog, artist, wallet, and receipt views
-  extensions/
-    royalty-pool.ts      EXTENSION: create + share a RoyaltyPool<Share, Currency>
+  vault.ts               Vault authority, plugin, event, and receiving-coin builders
   execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult
   internal.ts            private helpers (the 0x1::option moveCall targets) — NOT exported
   contracts.ts           barrel re-exporting the generated bindings as `contracts`
@@ -407,19 +408,18 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists the **platform** package (`miso_pressing`), the
-canonical release-minting extension (`release_registry`), and the
-first-party **extension** packages (`royalty_pool`, `composition_royalty_pool`,
-`recording_royalty_pool`, `cover_art`, `release_cover_art`,
-`composition_credits`, `recording_credits`, `release_credits`). The protocol
-CORE (`miso` — composition/recording/release/track) generates into
+`sui-codegen.config.ts` lists the platform package (`miso_pressing`), data
+extensions, generic `royalty_pool`/`routed_stake`, and the `vault` plus all
+vault-plugin packages. The protocol CORE (`miso` —
+composition/recording/release/track) generates into
 `@misonetwork/sdk` instead, which this package depends on for those bindings —
 adding the core here to save an import is how the split this package exists to
 enforce gets undone.
 
 Paths resolve against sibling checkouts, so regenerating requires
-`~/Documents/GitHub/misofm/{sdk, pressing, protocol-extensions}` and
-`~/Documents/GitHub/misonetwork/{protocol, share}`.
+`~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}` and
+`~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
+royalty-pool, routed-stake, share}`.
 
 ## Dependency on `@misonetwork/sdk`
 

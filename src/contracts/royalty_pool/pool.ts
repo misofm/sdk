@@ -5,30 +5,38 @@
 
 /**
  * Accumulator-based royalty distribution pool for the protocol's share tokens.
- * 
+ *
  * A `RoyaltyPool<Share, Currency>` is a derived object of any UID-bearing parent.
- * Its address is deterministically derived from `(parent_id, Currency)` — at most
- * one pool per `(parent, Currency)` pair. The `Share` phantom identifies which
- * share-token type can stake against the pool.
- * 
+ * Its address is deterministically derived from `(parent_id, Share, Currency)` —
+ * at most one pool per triple, and the pool at that address is necessarily typed
+ * `RoyaltyPool<Share, Currency>` (the same type parameters produce the address and
+ * the object) and necessarily shared (the pool is key-only; `share` is its only
+ * consumer). The `Share` phantom identifies which share-token type can stake
+ * against the pool.
+ *
  * Holders create a `Stake<Share>` (see `royalty_pool::stake`) and register it.
  * Callers fund the pool by handing it a `Balance<Currency>` via `deposit`; the
  * accumulator advances and claims pay out the per-stake proportional share since
  * each stake's last claim.
- * 
- * `receive_and_deposit` and `redeem_and_deposit` exist as recovery valves for
- * funds that land directly at the pool's address — either pending `Coin<Currency>`
- * transfers or balances credited to the pool's funds-accumulator. Both are
- * permissionless: anyone who notices stuck funds can fold them in. The canonical
- * funding path remains `deposit(balance)` from a higher-layer extension (e.g.
- * `composition_royalty_distributor`) that pulls from the parent's address. Note
- * the recovery valves run through `deposit`, which aborts while no shares are
- * staked — and the pool has no other withdrawal path — so funds sent to the pool's
- * address before the first registration stay locked until a stake registers.
- * Payers should always target the parent's address, never the pool's.
- * 
+ *
+ * The pool is funded two ways, both committing the funds to share holders:
+ *
+ * - `deposit(balance)` from any caller holding `&mut` on the pool — e.g.
+ *   `routed_stake::sweep`, which deposits a wrapped stake's claimed rewards into
+ *   its parent's pool.
+ * - Delivery to the pool's derived address — pending `Coin<Currency>` transfers or
+ *   address-balance credits (e.g. `release_revenue_distributor` settles each
+ *   track's split there). The address is a pure function of
+ *   `(parent_id, Share, Currency)`, so senders need the pool neither shared nor
+ *   even created yet; a later `new` claims exactly that ID — and can only be the
+ *   correctly-typed, shared pool. `receive_and_deposit` and `redeem_and_deposit`
+ *   fold such funds into the accumulator, permissionlessly: anyone can complete
+ *   the delivery. Both run through `deposit`, which aborts while no shares are
+ *   staked — and the pool has no other withdrawal path — so funds at the pool's
+ *   address wait, locked, until the pool exists and a stake registers.
+ *
  * ### No activation delay (deliberate)
- * 
+ *
  * Registration earns from the next deposit onward; there is no bonding or
  * unbonding period (contrast Sui native staking's next-epoch activation). With the
  * protocol's fixed-supply share token this is safe: a stake's take of any deposit
@@ -37,9 +45,9 @@
  * supply on every deposit. Short-lived or just-in-time registrations can only
  * compete for the _unregistered_ supply's drift — the designed incentive for being
  * registered — never below any registered stake's floor.
- * 
+ *
  * ### Precision
- * 
+ *
  * The share token's shape is fixed at issuance by the protocol — exactly 10¹³ base
  * units, 6 decimals, supply made immutable via `miso_share::share::initialize`
  * (`make_supply_fixed`) — so `staked_shares ≤ 10¹³` objectively. A deposit of
@@ -66,7 +74,7 @@ export const RoyaltyPool = new MoveStruct({ name: `${$moduleName}::RoyaltyPool<p
          */
         cumulative_deposits: bcs.u128()
     } });
-export const RoyaltyPoolKey = new MoveTuple({ name: `${$moduleName}::RoyaltyPoolKey<phantom Currency>`, fields: [bcs.bool()] });
+export const RoyaltyPoolKey = new MoveTuple({ name: `${$moduleName}::RoyaltyPoolKey<phantom Share, phantom Currency>`, fields: [bcs.bool()] });
 export const RoyaltyPoolCreatedEvent = new MoveStruct({ name: `${$moduleName}::RoyaltyPoolCreatedEvent<phantom Share, phantom Currency>`, fields: {
         pool_id: bcs.Address,
         parent_id: bcs.Address
@@ -104,9 +112,10 @@ export interface NewOptions {
     ];
 }
 /**
- * Construct a pool as a derived object of `parent`. The derivation key includes
- * only the `Currency` `TypeName`, so the pool's address is determined entirely by
- * `(parent_id, Currency)`.
+ * Construct a pool as a derived object of `parent`. The derivation key encodes
+ * both type parameters, so the pool's address is determined entirely by
+ * `(parent_id, Share, Currency)` — and therefore always names a pool of exactly
+ * this type (see `RoyaltyPoolKey`).
  *
  * Cap-gating happens at the parent: callers must obtain `&mut UID` via whatever
  * cap-gated accessor the parent exposes.
@@ -548,6 +557,7 @@ export interface DerivedAddressOptions {
         parentId: RawTransactionArgument<string>
     ];
     typeArguments: [
+        string,
         string
     ];
 }

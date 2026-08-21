@@ -44,6 +44,30 @@ import * as recordingCredits from "./contracts/recording_credits/recording_credi
 import * as recordingPartyRole from "./contracts/recording_credits/recording_party_role.ts";
 import * as releaseCredits from "./contracts/release_credits/release_credits.ts";
 import * as releasePartyRole from "./contracts/release_credits/release_party_role.ts";
+import { directAdminCap, invokeWithAdminCap, type AdminCapAuthority } from "./vault.ts";
+
+type CompositionAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly compositionAdminCapId?: never }
+  | { readonly authority?: never; readonly compositionAdminCapId: string };
+type RecordingAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly recordingAdminCapId?: never }
+  | { readonly authority?: never; readonly recordingAdminCapId: string };
+type ReleaseAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
+  | { readonly authority?: never; readonly releaseAdminCapId: string };
+
+function compositionAuthorityOf(input: CompositionAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.compositionAdminCapId);
+}
+function recordingAuthorityOf(input: RecordingAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.recordingAdminCapId);
+}
+function releaseAuthorityOf(input: ReleaseAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  return directAdminCap(input.releaseAdminCapId);
+}
 
 // ── Role model ────────────────────────────────────────────────────────────────
 
@@ -341,11 +365,9 @@ function buildCredit(
 
 // ── Writers ───────────────────────────────────────────────────────────────────
 
-export interface AttachCompositionCreditParams {
+interface AttachCompositionCreditParamsBase {
   /** The `Composition` object to credit on. */
   compositionId: string;
-  /** The composition's `CompositionAdminCap`. */
-  compositionAdminCapId: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -359,6 +381,8 @@ export interface AttachCompositionCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AttachCompositionCreditParams =
+  AttachCompositionCreditParamsBase & CompositionAuthorityInput;
 
 /**
  * Adds a writing credit for a party on a composition. Throws (client-side,
@@ -382,26 +406,18 @@ export function attachCompositionCredit(
       p.displayName,
       roleArgs,
     );
-    tx.add(
-      compositionCredits.addCredit({
-        package: p.compositionCreditsPackageId,
-        typeArguments: [p.compositionShareType],
-        arguments: [
-          p.compositionId,
-          p.compositionAdminCapId,
-          p.partyId,
-          credit,
-        ],
-      }),
-    );
+    invokeWithAdminCap(tx, compositionAuthorityOf(p), {
+      target: `${p.compositionCreditsPackageId}::composition_credits::add_credit`,
+      typeArguments: [p.compositionShareType],
+      arguments: [tx.object(p.compositionId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 
-export interface AttachRecordingCreditParams {
+interface AttachRecordingCreditParamsBase {
   /** The `Recording` object to credit on. */
   recordingId: string;
-  /** The recording's `RecordingAdminCap`. */
-  recordingAdminCapId: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -417,6 +433,8 @@ export interface AttachRecordingCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AttachRecordingCreditParams =
+  AttachRecordingCreditParamsBase & RecordingAuthorityInput;
 
 /**
  * Adds a production/performance credit for a party on a recording. Throws
@@ -439,21 +457,18 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
       p.displayName,
       roleArgs,
     );
-    tx.add(
-      recordingCredits.addCredit({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, p.recordingAdminCapId, p.partyId, credit],
-      }),
-    );
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_credit`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 
-export interface AddRecordingArtistParams {
+interface AddRecordingArtistParamsBase {
   /** The `Recording` object. */
   recordingId: string;
-  /** The recording's `RecordingAdminCap`. */
-  recordingAdminCapId: string;
   /** The `Party` to designate. Must already be credited on the recording. */
   partyId: string;
   /** The recording's own share coin type (the `RecordingShare` phantom). */
@@ -463,6 +478,8 @@ export interface AddRecordingArtistParams {
   /** `recording_credits` package id. */
   recordingCreditsPackageId: string;
 }
+export type AddRecordingArtistParams =
+  AddRecordingArtistParamsBase & RecordingAuthorityInput;
 
 /**
  * Designates an already-credited party as a primary artist on a recording. The
@@ -473,13 +490,12 @@ export function addRecordingPrimaryArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    tx.add(
-      recordingCredits.addPrimaryArtist({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, p.recordingAdminCapId, p.partyId],
-      }),
-    );
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_primary_artist`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId)],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -492,21 +508,18 @@ export function addRecordingFeaturedArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    tx.add(
-      recordingCredits.addFeaturedArtist({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, p.recordingAdminCapId, p.partyId],
-      }),
-    );
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_featured_artist`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId)],
+      adminCapIndex: 1,
+    });
   };
 }
 
-export interface AddReleaseCreditParams {
+interface AddReleaseCreditParamsBase {
   /** The `Release` object to credit on. */
   releaseId: string;
-  /** The release's `ReleaseAdminCap`. */
-  releaseAdminCapId: string;
   /** The `Party` being credited. */
   partyId: string;
   /** Human-readable name for the credit (≤200 bytes, non-empty). */
@@ -518,6 +531,7 @@ export interface AddReleaseCreditParams {
   /** `miso_credit` package id (home of `credit::new`). */
   misoCreditPackageId: string;
 }
+export type AddReleaseCreditParams = AddReleaseCreditParamsBase & ReleaseAuthorityInput;
 
 /**
  * Adds a top-line billing credit (a single role) for a party on a release.
@@ -536,12 +550,11 @@ export function addReleaseCredit(p: AddReleaseCreditParams): TxThunk {
       p.displayName,
       [roleArg],
     );
-    tx.add(
-      releaseCredits.addCredit({
-        package: p.releaseCreditsPackageId,
-        arguments: [p.releaseId, p.releaseAdminCapId, p.partyId, credit],
-      }),
-    );
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCreditsPackageId}::release_credits::add_credit`,
+      arguments: [tx.object(p.releaseId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 

@@ -7,10 +7,9 @@
 // `lib/money.ts`, `lib/drops.ts`) lives here instead, so a redeploy is a change
 // in ONE file that every surface picks up.
 //
-// Testnet values are baked from the verified 2026-08-19 deployment. Mainnet is
-// deliberately unavailable until this ABI is deployed there.
-
-import { MISO_PLATFORM_DEPLOYMENTS } from "../deployments.ts";
+// There are intentionally no baked network IDs while the immutable stack is
+// republished. A read client must receive a complete verified configuration from
+// its caller; silently retaining the old ABI would be unsafe.
 
 export type Network = "testnet" | "mainnet";
 
@@ -31,9 +30,6 @@ export interface ProtocolIds {
   record: string;
   /** `miso_record` shared `Settings` object — the mint witness authorizer. */
   recordSettings: string;
-  /** Release coordinator package and its shared derivation-parent object. */
-  releaseRegistry: string;
-  releaseRegistryId: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
@@ -95,50 +91,22 @@ export interface MisoConfig {
   discoverReleaseIds: readonly string[];
 }
 
-const TESTNET: MisoConfig = {
-  network: "testnet",
-  protocol: {
-    miso: MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.packageId,
-    drop: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.drop,
-    record: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.record,
-    recordSettings: MISO_PLATFORM_DEPLOYMENTS.testnet.objects.recordSettings,
-    releaseRegistry: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseRegistry,
-    releaseRegistryId: MISO_PLATFORM_DEPLOYMENTS.testnet.objects.releaseRegistry,
-    releaseCoverArt: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseCoverArt,
-    compositionCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.compositionCredits,
-    recordingCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.recordingCredits,
-    releaseCredits: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.releaseCredits,
-    credit: MISO_PLATFORM_DEPLOYMENTS.testnet.packages.credit,
-  },
-  party: MISO_PLATFORM_DEPLOYMENTS.testnet.party,
-  money: {
-    usdCoinType: "0x77774cb7b8cb5622b4ef2658101bf5f1e965418297fe874b683df8f760b6e749::fakeusd::FakeUsd",
-    usdDecimals: 6,
-  },
-  grpcUrl: "https://fullnode.testnet.sui.io",
-  graphqlUrl: "https://graphql.testnet.sui.io/graphql",
-  walrusAggregatorUrl: "https://aggregator.walrus-testnet.walrus.space",
-  apiBaseUrl: "https://api.testnet.miso.fm",
-  // Content from the retired deployment is intentionally not carried forward.
-  discoverReleaseIds: [],
-};
-
 /** Fields a deployment may override without forking the whole config (endpoints, shelf). */
 export type MisoConfigOverrides = Partial<
   Pick<MisoConfig, "grpcUrl" | "graphqlUrl" | "walrusAggregatorUrl" | "apiBaseUrl" | "discoverReleaseIds">
 >;
 
 /**
- * The config for `network`. Mainnet throws until its packages are deployed and
- * filled in here — a mainnet worker must fail loudly, never read testnet ids.
+ * Bundled read configuration is disabled until the Ledger-admin publish flow has
+ * recorded every new immutable package and singleton object. This is fail-closed
+ * by design: old testnet types cannot be mistaken for the current ABI.
  */
 export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}): MisoConfig {
-  if (network === "mainnet") {
-    throw new Error(
-      `@misofm/sdk/read: no bundled Miso platform deployment for network "${network}".`,
-    );
-  }
-  return { ...TESTNET, ...stripUndefined(overrides) };
+  void overrides;
+  throw new Error(
+    `@misofm/sdk/read: no bundled Miso platform deployment for network "${network}". ` +
+      "Pass a complete verified MisoConfig to createMisoClient instead.",
+  );
 }
 
 /** `{ a: undefined }` must not clobber a real default when spread. */

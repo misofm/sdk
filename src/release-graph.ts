@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Single-PTB publisher for a whole release graph: creates every composition and
-// recording, optionally attaches royalty pools, derives the release id ON-CHAIN
+// recording, derives the release id ON-CHAIN
 // (so recordings need not be shared first), builds the tracks/release,
 // then shares everything and transfers the admin caps — all in ONE transaction.
 //
 // Share currencies must already be published + initialized (their Currency objects
 // shared on-chain); their ids/types are passed in. Ordering is load-bearing:
-//   1. composition::new → recording::new(&comp)  (borrow-before-share) + pool attach
+//   1. composition::new → recording::new(&comp)  (borrow-before-share)
 //   2. release::derive_target_release_id(<recording::id results>) →
-//      track::new(cap, &rec, derivedId, split) → release_registry::new_release
+//      track::new(cap, &rec, derivedId, split) → release::new(registry, …)
 //   3. publish (share) comps + recs + release, disperse supply, transfer caps
 // Steps 1–2 borrow the works; step 3 consumes them into share_object.
 //
@@ -19,53 +19,40 @@
 //
 // This is the whole-graph orchestration half of the opinionated publish flow —
 // it composes `@misonetwork/sdk`'s bare `composition`/`recording`/`track`/
-// `release` call bindings and this package's `release_registry` binding with its
-// own `disperseShares`/`finalizeRelease` and royalty-pool extension helpers, into
-// one PTB.
+// `release` core call bindings with its
+// own `disperseShares`/`finalizeRelease` helpers into one PTB. Royalty pools are
+// installed later through an admin-cap Vault plugin; the retired raw-cap helper
+// is intentionally not used here.
 
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { contracts } from "@misonetwork/sdk";
-import { attachCompositionRoyaltyPool, attachRecordingRoyaltyPool } from "./extensions/royalty-pool.ts";
-import { disperseShares, finalizeRelease, type ShareRecipient } from "./transactions.ts";
-import * as releaseRegistry from "./contracts/release_registry/release_registry.ts";
+import { custodyOf, disperseShares, finalizeRelease, recordingAuthorityOf, requiredCommandResult, type AdminCustodyInput, type RecordingAuthorityInput, type ShareRecipient } from "./transactions.ts";
+import { disposeNewAdminCap, invokeWithAdminCap } from "./vault.ts";
 
-const { composition, recording, track, release } = contracts;
+const { composition, recording, track } = contracts;
 
-/** A royalty pool to attach to a work, in the same PTB. */
-export interface RoyaltyPoolNode {
-  currency: string;
-  /** `composition_royalty_pool` / `recording_royalty_pool` package id. */
-  extensionPackageId: string;
-  /** Base `royalty_pool` lib package id. */
-  royaltyPoolPackageId: string;
-}
-
-export interface CompositionNode {
+interface CompositionNodeBase {
   shareType: string;
   shareCurrencyId: string;
   shareTreasuryCapId: string;
   title: string;
   royaltyRateBps: number;
   shareRecipients: ShareRecipient[];
-  /** Recipient of the CompositionAdminCap (the owner). */
-  adminAddress: string;
-  royaltyPool?: RoyaltyPoolNode;
 }
+export type CompositionNode = CompositionNodeBase & AdminCustodyInput;
 
-export interface RecordingNode {
+interface RecordingNodeBase {
   shareType: string;
   shareCurrencyId: string;
   shareTreasuryCapId: string;
   /** The parent composition's share type. */
   compositionShareType: string;
-  /** Index into `compositions[]` if the parent is created in THIS PTB… */
-  parentCompositionIndex?: number;
-  /** …or the on-chain composition object id if the parent already exists. */
-  parentCompositionId?: string;
   shareRecipients: ShareRecipient[];
-  adminAddress: string;
-  royaltyPool?: RoyaltyPoolNode;
 }
+type RecordingParent =
+  | { readonly parentCompositionIndex: number; readonly parentCompositionId?: never }
+  | { readonly parentCompositionIndex?: never; readonly parentCompositionId: string };
+export type RecordingNode = RecordingNodeBase & RecordingParent & AdminCustodyInput;
 
 /** A track whose recording is created in THIS PTB. */
 export interface FreshTrackNode {
@@ -78,27 +65,33 @@ export interface FreshTrackNode {
  * A track over an EXISTING recording, authorized by its admin cap held by the
  * sender. This can coexist with recordings created in this PTB.
  */
-export interface CapTrackNode {
+interface CapTrackNodeBase {
   recordingId: string;
-  recordingAdminCapId: string;
   recordingShareType: string;
   compositionShareType: string;
   splitBps: number;
 }
+export type CapTrackNode = CapTrackNodeBase & RecordingAuthorityInput;
 
 export type TrackNode = FreshTrackNode | CapTrackNode;
 
 const isFresh = (t: TrackNode): t is FreshTrackNode => "recordingIndex" in t;
 
-export interface ReleaseNode {
+function requiredAt<T>(items: readonly T[], index: number, description: string): T {
+  const item = items[index];
+  if (item === undefined) throw new Error(`${description} index ${index} is out of range`);
+  return item;
+}
+
+interface ReleaseNodeBase {
   title: string;
   /** u256 nonce as a decimal string (deterministic release id). */
   nonce: string;
-  adminAddress: string;
   releaseRegistryId: string;
   /** The ordered tracklist. Display grouping (discs/sides) is extension data. */
   tracks: TrackNode[];
 }
+export type ReleaseNode = ReleaseNodeBase & AdminCustodyInput;
 
 export interface PublishReleaseGraphParams {
   compositions: CompositionNode[];
@@ -106,8 +99,6 @@ export interface PublishReleaseGraphParams {
   release?: ReleaseNode;
   misoPackageId: string;
   minatoPackageId: string;
-  /** `release_registry` extension package, distinct from its shared object id. */
-  releaseRegistryPackageId: string;
 }
 
 interface Parts {
@@ -118,7 +109,7 @@ interface Parts {
 
 /** Builds the entire graph in a single transaction (see file header for ordering). */
 export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Transaction) => void {
-  const { misoPackageId: pkg, minatoPackageId, releaseRegistryPackageId } = params;
+  const { misoPackageId: pkg, minatoPackageId } = params;
   return (tx) => {
     // ── 1) Create every composition, then every recording (borrow-before-share) ──
     const comps: Parts[] = params.compositions.map((c) => {
@@ -129,43 +120,32 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
           arguments: [tx.pure.string(c.title), tx.pure.u16(c.royaltyRateBps), tx.object(c.shareCurrencyId), tx.object(c.shareTreasuryCapId)],
         }),
       );
-      const parts: Parts = { work: r[0]!, adminCap: r[1]!, balance: r[2]! };
-      if (c.royaltyPool) {
-        attachCompositionRoyaltyPool(tx, {
-          composition: parts.work,
-          adminCap: parts.adminCap,
-          compositionShareType: c.shareType,
-          currency: c.royaltyPool.currency,
-          compositionRoyaltyPoolPackageId: c.royaltyPool.extensionPackageId,
-          royaltyPoolPackageId: c.royaltyPool.royaltyPoolPackageId,
-        });
-      }
+      const parts: Parts = {
+        work: requiredCommandResult(r, 0, "composition::_new"),
+        adminCap: requiredCommandResult(r, 1, "composition::_new"),
+        balance: requiredCommandResult(r, 2, "composition::_new"),
+      };
       return parts;
     });
 
     const recTypeArgs = (i: number): [string, string] => {
-      const n = params.recordings[i]!;
+      const n = requiredAt(params.recordings, i, "recording");
       return [n.shareType, n.compositionShareType];
     };
 
     const recs: Parts[] = params.recordings.map((rec, i) => {
-      const parent = rec.parentCompositionIndex !== undefined ? comps[rec.parentCompositionIndex]!.work : tx.object(rec.parentCompositionId!);
+      const parent = rec.parentCompositionIndex !== undefined
+        ? requiredAt(comps, rec.parentCompositionIndex, "parent composition").work
+        : tx.object(rec.parentCompositionId);
       const typeArgs = recTypeArgs(i);
       const r = tx.add(
         recording._new({ package: pkg, typeArguments: typeArgs, arguments: [parent, tx.object(rec.shareCurrencyId), tx.object(rec.shareTreasuryCapId)] }),
       );
-      const parts: Parts = { work: r[0]!, adminCap: r[1]!, balance: r[2]! };
-      if (rec.royaltyPool) {
-        attachRecordingRoyaltyPool(tx, {
-          recording: parts.work,
-          adminCap: parts.adminCap,
-          recordingShareType: rec.shareType,
-          compositionShareType: rec.compositionShareType,
-          currency: rec.royaltyPool.currency,
-          recordingRoyaltyPoolPackageId: rec.royaltyPool.extensionPackageId,
-          royaltyPoolPackageId: rec.royaltyPool.royaltyPoolPackageId,
-        });
-      }
+      const parts: Parts = {
+        work: requiredCommandResult(r, 0, "recording::_new"),
+        adminCap: requiredCommandResult(r, 1, "recording::_new"),
+        balance: requiredCommandResult(r, 2, "recording::_new"),
+      };
       return parts;
     });
 
@@ -177,50 +157,57 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         type: "0x2::object::ID",
         elements: ordered.map((t) =>
           isFresh(t)
-            ? tx.add(recording.id({ package: pkg, typeArguments: recTypeArgs(t.recordingIndex), arguments: [recs[t.recordingIndex]!.work] }))
+            ? tx.add(recording.id({ package: pkg, typeArguments: recTypeArgs(t.recordingIndex), arguments: [requiredAt(recs, t.recordingIndex, "fresh recording").work] }))
             : tx.pure.id(t.recordingId),
         ),
       });
       const splitVec = tx.makeMoveVec({ type: "u64", elements: ordered.map((t) => tx.pure.u64(t.splitBps)) });
       // This returns an ID value (not an object); pass the result straight to
       // `track::new` so every track consents to this exact release target.
-      const releaseId = tx.add(
-        release.deriveTargetReleaseId({ package: pkg, arguments: [idVec, splitVec, tx.pure.u256(BigInt(rel.nonce)), tx.pure.id(rel.releaseRegistryId)] }),
-      );
+      const releaseId = tx.moveCall({
+        target: `${pkg}::release::derive_target_release_id`,
+        arguments: [tx.object(rel.releaseRegistryId), idVec, splitVec, tx.pure.u256(BigInt(rel.nonce))],
+      });
 
       const trackArgs = ordered.map((t) => {
         if (isFresh(t)) {
           const typeArgs = recTypeArgs(t.recordingIndex);
-          const parts = recs[t.recordingIndex]!;
+          const parts = requiredAt(recs, t.recordingIndex, "fresh recording");
           return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [parts.adminCap, parts.work, releaseId, tx.pure.u16(t.splitBps)] }));
         }
         const typeArgs: [string, string] = [t.recordingShareType, t.compositionShareType];
         const rec = tx.object(t.recordingId);
-        return tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [tx.object(t.recordingAdminCapId), rec, releaseId, tx.pure.u16(t.splitBps)] }));
+        return invokeWithAdminCap(tx, recordingAuthorityOf(t), {
+          target: `${pkg}::track::new`,
+          typeArguments: typeArgs,
+          arguments: [rec, releaseId, tx.pure.u16(t.splitBps)],
+          adminCapIndex: 0,
+        });
       });
       const trackVec = tx.makeMoveVec({ type: `${pkg}::track::Track`, elements: trackArgs });
-      const created = tx.add(
-        releaseRegistry.newRelease({
-          package: releaseRegistryPackageId,
-          arguments: [tx.object(rel.releaseRegistryId), tx.pure.string(rel.title), trackVec, tx.pure.u256(BigInt(rel.nonce))],
-        }),
-      );
-      const releaseParts = { release: created[0]!, adminCap: created[1]! };
-      finalizeRelease(tx, { ...releaseParts, adminAddress: rel.adminAddress, misoPackageId: pkg });
+      const created = tx.moveCall({
+        target: `${pkg}::release::new`,
+        arguments: [tx.object(rel.releaseRegistryId), tx.pure.string(rel.title), trackVec, tx.pure.u256(BigInt(rel.nonce))],
+      });
+      const releaseParts = {
+        release: requiredCommandResult(created, 0, "release::new"),
+        adminCap: requiredCommandResult(created, 1, "release::new"),
+      };
+      finalizeRelease(tx, { ...releaseParts, adminCustody: custodyOf(rel), misoPackageId: pkg });
     }
 
     // ── 3) Share every work, disperse its supply, transfer admin caps ──
     params.compositions.forEach((c, i) => {
-      const parts = comps[i]!;
+      const parts = requiredAt(comps, i, "composition");
       disperseShares(tx, minatoPackageId, c.shareType, parts.balance, c.shareRecipients);
       tx.add(composition.publish({ package: pkg, typeArguments: [c.shareType], arguments: [parts.work, parts.adminCap] }));
-      tx.transferObjects([parts.adminCap], c.adminAddress);
+      disposeNewAdminCap(tx, parts.adminCap, custodyOf(c));
     });
     params.recordings.forEach((rec, i) => {
-      const parts = recs[i]!;
+      const parts = requiredAt(recs, i, "recording");
       tx.add(recording.publish({ package: pkg, typeArguments: recTypeArgs(i), arguments: [parts.work, parts.adminCap] }));
       disperseShares(tx, minatoPackageId, rec.shareType, parts.balance, rec.shareRecipients);
-      tx.transferObjects([parts.adminCap], rec.adminAddress);
+      disposeNewAdminCap(tx, parts.adminCap, custodyOf(rec));
     });
   };
 }

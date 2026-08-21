@@ -18,15 +18,23 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
+import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
 
-export interface SetReleaseCoverParams {
+type ReleaseAuthorityInput =
+  | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
+  | { readonly authority?: never; readonly releaseAdminCapId: string };
+function releaseAuthorityOf(input: ReleaseAuthorityInput): AdminCapAuthority {
+  if (input.authority !== undefined) return input.authority;
+  if (input.releaseAdminCapId !== undefined) return directAdminCap(input.releaseAdminCapId);
+  throw new Error("release authority is required");
+}
+
+interface SetReleaseCoverParamsBase {
   /** The `Release` object to attach the cover to. */
   releaseId: string;
-  /** The release's `ReleaseAdminCap`. */
-  releaseAdminCapId: string;
   /** Walrus blob id of the still cover image, as `u256` (decimal string or bigint). */
   stillBlobId: bigint | string;
   /** Optional animated-cover Walrus blob id (`u256`); omit for a still-only cover. */
@@ -38,39 +46,60 @@ export interface SetReleaseCoverParams {
   /** `ori` package (home of `walrus_data::new_blob` / the `WalrusData` type). */
   oriPackageId: string;
 }
+export type SetReleaseCoverParams = SetReleaseCoverParamsBase & ReleaseAuthorityInput;
+
+export type SetReleaseTrackCoverParams = SetReleaseCoverParams & {
+  /** Zero-based index in the release's flattened tracklist. */
+  trackIndex: U64Input;
+};
+
+function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
+  const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
+  const blob = (id: bigint | string) =>
+    tx.moveCall({
+      target: `${p.oriPackageId}::walrus_data::new_blob`,
+      arguments: [tx.pure.u256(id)],
+    });
+
+  const still = blob(p.stillBlobId);
+  const animated =
+    p.animatedBlobId == null
+      ? tx.moveCall({ target: OPTION_NONE, typeArguments: [walrusType] })
+      : tx.moveCall({
+          target: OPTION_SOME,
+          typeArguments: [walrusType],
+          arguments: [blob(p.animatedBlobId)],
+        });
+
+  return tx.add(
+    coverArt._new({
+      package: p.coverArtPackageId,
+      arguments: [still, animated],
+    }),
+  );
+}
 
 /** Sets (or replaces) a release's album-level cover from Walrus blob ids. */
 export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
-    const walrusType = `${p.oriPackageId}::walrus_data::WalrusData`;
-    const blob = (id: bigint | string) =>
-      tx.moveCall({
-        target: `${p.oriPackageId}::walrus_data::new_blob`,
-        arguments: [tx.pure.u256(id)],
-      });
+    const cover = buildCover(tx, p);
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCoverArtPackageId}::release_cover_art::set_cover`,
+      arguments: [tx.object(p.releaseId), cover],
+      adminCapIndex: 1,
+    });
+  };
+}
 
-    const still = blob(p.stillBlobId);
-    const animated =
-      p.animatedBlobId == null
-        ? tx.moveCall({ target: OPTION_NONE, typeArguments: [walrusType] })
-        : tx.moveCall({
-            target: OPTION_SOME,
-            typeArguments: [walrusType],
-            arguments: [blob(p.animatedBlobId)],
-          });
-
-    const cover = tx.add(
-      coverArt._new({
-        package: p.coverArtPackageId,
-        arguments: [still, animated],
-      }),
-    );
-    tx.add(
-      releaseCoverArt.setCover({
-        package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, p.releaseAdminCapId, cover],
-      }),
-    );
+/** Sets (or replaces) one track's cover from Walrus blob ids. */
+export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
+  return (tx) => {
+    const cover = buildCover(tx, p);
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCoverArtPackageId}::release_cover_art::set_track_cover`,
+      arguments: [tx.object(p.releaseId), tx.pure.u64(asU64("trackIndex", p.trackIndex)), cover],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -142,11 +171,7 @@ export async function getReleaseCover(
 ): Promise<ReleaseCoverView | null> {
   return (
     (
-      await getReleaseCoversByIds(
-        client,
-        [releaseId],
-        releaseCoverArtPackageId,
-      )
+      await getReleaseCoversByIds(client, [releaseId], releaseCoverArtPackageId)
     )[releaseId] ?? null
   );
 }

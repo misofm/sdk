@@ -80,6 +80,10 @@
       "types": "./dist/release-extensions.d.ts",
       "default": "./dist/release-extensions.js"
     },
+    "./recording-extensions": {
+      "types": "./dist/recording-extensions.d.ts",
+      "default": "./dist/recording-extensions.js"
+    },
     "./read": {
       "types": "./dist/read/index.d.ts",
       "default": "./dist/read/index.js"
@@ -96,9 +100,9 @@
       "types": "./dist/drop.d.ts",
       "default": "./dist/drop.js"
     },
-    "./extensions/royalty-pool": {
-      "types": "./dist/extensions/royalty-pool.d.ts",
-      "default": "./dist/extensions/royalty-pool.js"
+    "./vault": {
+      "types": "./dist/vault.d.ts",
+      "default": "./dist/vault.js"
     },
     "./package.json": "./package.json"
   },
@@ -111,6 +115,7 @@
   ],
   "scripts": {
     "codegen": "sui-ts-codegen generate",
+    "codegen:check": "bun run codegen && perl -pi -e 's/[ \\t]+$//' src/contracts/royalty_pool/pool.ts && git diff --exit-code -- src/contracts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build": "tsc -p tsconfig.build.json",

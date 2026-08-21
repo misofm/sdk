@@ -14,6 +14,9 @@ import { publishCompositionAndRecording, publishRelease } from "../src/transacti
 
 const PKG = "0x" + "cd".repeat(32);
 const A = "0x" + "ab".repeat(32);
+const REGISTRY = "0x" + "01".repeat(32);
+const RECORDING = "0x" + "02".repeat(32);
+const RECORDING_CAP = "0x" + "03".repeat(32);
 
 test("publishCompositionAndRecording orders new→new→publish→publish and borrows the composition in-PTB", () => {
   const tx = new Transaction();
@@ -104,7 +107,6 @@ test("publishRelease wires one track -> registry release -> publish", () => {
     tracks: [
       { recordingId: A, recordingAdminCapId: A, recordingShareType: `${PKG}::r::R`, compositionShareType: `${PKG}::s::S`, splitBps: 10000 },
     ],
-    releaseRegistryPackageId: PKG,
     releaseRegistryId: A,
     releaseId: A,
     releaseNonce: "0",
@@ -115,13 +117,24 @@ test("publishRelease wires one track -> registry release -> publish", () => {
   const calls = releaseCalls(tx);
   const has = (module: string, fn: string) => calls.some((c) => c.module === module && c.function === fn);
   expect(has("track", "new")).toBe(true);
-  expect(has("release_registry", "new_release")).toBe(true);
+  expect(has("release", "new")).toBe(true);
   expect(has("release", "publish")).toBe(true);
   // track::new carries both share types
   expect(calls.find((c) => c.module === "track" && c.function === "new")!.typeArguments).toEqual([`${PKG}::r::R`, `${PKG}::s::S`]);
-  // release_registry::new_release takes (registry, title, tracks, nonce).
-  expect(calls.find((c) => c.module === "release_registry" && c.function === "new_release")!.argCount).toBe(4);
+  // core release::new takes (registry, title, tracks, nonce).
+  expect(calls.find((c) => c.module === "release" && c.function === "new")!.argCount).toBe(4);
   // the admin cap is routed by finalizeRelease, not by the primitive
   const kinds = (tx.getData() as { commands: { $kind: string }[] }).commands.map((c) => c.$kind);
   expect(kinds).toContain("TransferObjects");
+});
+
+test("release construction passes the exact shared registry as the first core release::new argument", () => {
+  const tx = new Transaction();
+  publishRelease({ title: "LP", tracks: [{ recordingId: RECORDING, recordingAuthority: { kind: "direct", adminCap: RECORDING_CAP }, recordingShareType: `${PKG}::r::R`, compositionShareType: `${PKG}::s::S`, splitBps: 10000 }], releaseRegistryId: REGISTRY, releaseId: A, releaseNonce: "0", misoPackageId: PKG, adminCustody: { kind: "vault", owner: A, vaultPackageId: PKG, capType: `${PKG}::release::ReleaseAdminCap` } })(tx);
+  const data = tx.getData() as { inputs: unknown[]; commands: { $kind: string; MoveCall?: { module: string; function: string; arguments: { $kind: string; Input?: number }[] } }[] };
+  const releaseNew = data.commands.find((command) => command.MoveCall?.module === "release" && command.MoveCall.function === "new")!.MoveCall!;
+  expect(releaseNew.arguments[0]!.$kind).toBe("Input");
+  expect(JSON.stringify(data.inputs[releaseNew.arguments[0]!.Input!])).toContain(REGISTRY.slice(2));
+  expect(data.commands.some((command) => command.MoveCall?.module === "vault" && command.MoveCall.function === "new")).toBe(true);
+  expect(data.commands.some((command) => command.MoveCall?.module === "vault" && command.MoveCall.function === "share")).toBe(true);
 });
