@@ -349,7 +349,7 @@ const cover = await getReleaseCover(client, releaseId, releaseCoverArtPackageId)
 ### Vault plugins (`vault.ts`)
 
 `vault.ts` contains composable PTB builders for custody and plugin flows:
-`withAdminCap` safely sequences `borrow_as_admin → use → put_back`, and
+`invokeWithAdminCap` safely sequences `borrow_as_admin → Move call → put_back`, and
 `custodyNewAdminCap` shares the Vault while transferring only its owner-held
 `VaultAdminCap`. Plugin installers construct their witnesses inside their Move
 package; callers supply no witness.
@@ -408,9 +408,9 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists the platform package (`miso_pressing`), utility
-core release registry, data extensions, generic `royalty_pool`/`routed_stake`, and
-the `vault` plus all vault-plugin packages. The protocol CORE (`miso` —
+`sui-codegen.config.ts` lists the platform package (`miso_pressing`), data
+extensions, generic `royalty_pool`/`routed_stake`, and the `vault` plus all
+vault-plugin packages. The protocol CORE (`miso` —
 composition/recording/release/track) generates into
 `@misonetwork/sdk` instead, which this package depends on for those bindings —
 adding the core here to save an import is how the split this package exists to
@@ -419,7 +419,7 @@ enforce gets undone.
 Paths resolve against sibling checkouts, so regenerating requires
 `~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}` and
 `~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
-protocol-utilities, royalty-pool, routed-stake, share}`.
+royalty-pool, routed-stake, share}`.
 
 ## Dependency on `@misonetwork/sdk`
 

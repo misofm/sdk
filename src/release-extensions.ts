@@ -17,7 +17,7 @@ import * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.t
 import * as releaseGenre from "./contracts/release_genre/release_genre.ts";
 import * as releaseKind from "./contracts/release_kind/release_kind.ts";
 import * as releaseSnapshotBundle from "./contracts/release_snapshot_bundle/release_snapshot_bundle.ts";
-import { asU64, directAdminCap, type AdminCapAuthority, type U64Input, withAdminCap } from "./vault.ts";
+import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
 
 type ReleaseAuthorityInput =
   | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
@@ -47,12 +47,11 @@ export function setReleaseKind(p: SetReleaseKindParams): TxThunk {
     );
   }
   return (tx) => {
-    withAdminCap(tx, authority(p), (adminCap) => tx.add(
-      releaseKind.setKind({
-        package: p.releaseKindPackageId,
-        arguments: [p.releaseId, adminCap, p.kind],
-      }),
-    ));
+    invokeWithAdminCap(tx, authority(p), {
+      target: `${p.releaseKindPackageId}::release_kind::set_kind`,
+      arguments: [tx.object(p.releaseId), tx.pure.string(p.kind)],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -73,12 +72,11 @@ export function setReleaseDescription(p: SetReleaseDescriptionParams): TxThunk {
     );
   }
   return (tx) => {
-    withAdminCap(tx, authority(p), (adminCap) => tx.add(
-      releaseDescription.setDescription({
-        package: p.releaseDescriptionPackageId,
-        arguments: [p.releaseId, adminCap, p.description],
-      }),
-    ));
+    invokeWithAdminCap(tx, authority(p), {
+      target: `${p.releaseDescriptionPackageId}::release_description::set_description`,
+      arguments: [tx.object(p.releaseId), tx.pure.string(p.description)],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -122,35 +120,31 @@ export type SetReleaseGenresParams = ReleaseExtensionTarget & {
 
 /** Attach primary/secondary release genres and optional per-track overrides. */
 export function setReleaseGenres(p: SetReleaseGenresParams): TxThunk {
-  return (tx) => withAdminCap(tx, authority(p), (adminCap) => {
-    tx.add(
-      releaseGenre.setPrimaryGenre({
-        package: p.releaseGenrePackageId,
-        arguments: [p.releaseId, adminCap, p.primaryGenreId],
-      }),
-    );
+  return (tx) => {
+    invokeWithAdminCap(tx, authority(p), {
+      target: `${p.releaseGenrePackageId}::release_genre::set_primary_genre`,
+      arguments: [tx.object(p.releaseId), tx.object(p.primaryGenreId)],
+      adminCapIndex: 1,
+    });
     for (const genreId of p.secondaryGenreIds ?? []) {
-      tx.add(
-        releaseGenre.addSecondaryGenre({
-          package: p.releaseGenrePackageId,
-          arguments: [p.releaseId, adminCap, genreId],
-        }),
-      );
+      invokeWithAdminCap(tx, authority(p), {
+        target: `${p.releaseGenrePackageId}::release_genre::add_secondary_genre`,
+        arguments: [tx.object(p.releaseId), tx.object(genreId)],
+        adminCapIndex: 1,
+      });
     }
     for (const assignment of p.trackPrimaryGenres ?? []) {
-      tx.add(
-        releaseGenre.setTrackPrimaryGenre({
-          package: p.releaseGenrePackageId,
-          arguments: [
-            p.releaseId,
-            adminCap,
-            asU64("trackIndex", assignment.trackIndex),
-            assignment.genreId,
-          ],
-        }),
-      );
+      invokeWithAdminCap(tx, authority(p), {
+        target: `${p.releaseGenrePackageId}::release_genre::set_track_primary_genre`,
+        arguments: [
+          tx.object(p.releaseId),
+          tx.pure.u64(asU64("trackIndex", assignment.trackIndex)),
+          tx.object(assignment.genreId),
+        ],
+        adminCapIndex: 1,
+      });
     }
-  });
+  };
 }
 
 export type DspLink =
@@ -247,26 +241,24 @@ export type SetReleaseDspLinksParams = ReleaseExtensionTarget & {
 
 /** Attach release-level and per-track DSP links. */
 export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
-  return (tx) => withAdminCap(tx, authority(p), (adminCap) => {
+  return (tx) => {
     for (const link of p.releaseLinks ?? []) {
       const value = buildDspLink(tx, p.releaseDspLinkPackageId, link);
-      tx.add(
-        releaseDspLink.setReleaseLink({
-          package: p.releaseDspLinkPackageId,
-          arguments: [p.releaseId, adminCap, value],
-        }),
-      );
+      invokeWithAdminCap(tx, authority(p), {
+        target: `${p.releaseDspLinkPackageId}::release_dsp_link::set_release_link`,
+        arguments: [tx.object(p.releaseId), value],
+        adminCapIndex: 1,
+      });
     }
     for (const item of p.trackLinks ?? []) {
       const value = buildDspLink(tx, p.releaseDspLinkPackageId, item.link);
-      tx.add(
-        releaseDspLink.setTrackLink({
-          package: p.releaseDspLinkPackageId,
-          arguments: [p.releaseId, adminCap, asU64("trackIndex", item.trackIndex), value],
-        }),
-      );
+      invokeWithAdminCap(tx, authority(p), {
+        target: `${p.releaseDspLinkPackageId}::release_dsp_link::set_track_link`,
+        arguments: [tx.object(p.releaseId), tx.pure.u64(asU64("trackIndex", item.trackIndex)), value],
+        adminCapIndex: 1,
+      });
     }
-  });
+  };
 }
 
 export type SetReleaseSnapshotBundleParams = ReleaseExtensionTarget & {
@@ -285,11 +277,10 @@ export function setReleaseSnapshotBundle(
       target: `${p.oriPackageId}::walrus_data::new_blob`,
       arguments: [tx.pure.u256(p.blobId)],
     });
-    withAdminCap(tx, authority(p), (adminCap) => tx.add(
-      releaseSnapshotBundle.setSnapshotBundle({
-        package: p.releaseSnapshotBundlePackageId,
-        arguments: [p.releaseId, adminCap, bundle],
-      }),
-    ));
+    invokeWithAdminCap(tx, authority(p), {
+      target: `${p.releaseSnapshotBundlePackageId}::release_snapshot_bundle::set_snapshot_bundle`,
+      arguments: [tx.object(p.releaseId), bundle],
+      adminCapIndex: 1,
+    });
   };
 }

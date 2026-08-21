@@ -5,7 +5,7 @@
 
 import type { TransactionArgument } from "@mysten/sui/transactions";
 import type { TxThunk } from "./transactions.ts";
-import { type AdminCapAuthority, withAdminCap } from "./vault.ts";
+import { invokeWithAdminCap, type AdminCapAuthority } from "./vault.ts";
 import * as advisory from "./contracts/recording_advisory/recording_advisory.ts";
 import * as language from "./contracts/recording_language/recording_language.ts";
 import * as masterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
@@ -25,14 +25,19 @@ export interface SetRecordingAdvisoryParams extends RecordingExtensionTarget {
 }
 
 export function setRecordingAdvisory(p: SetRecordingAdvisoryParams): TxThunk {
-  return (tx) => withAdminCap(tx, p.authority, (cap) => {
+  return (tx) => {
     const rating = tx.add(
       p.rating === "Explicit" ? advisory.explicit({ package: p.recordingAdvisoryPackageId })
         : p.rating === "NotExplicit" ? advisory.notExplicit({ package: p.recordingAdvisoryPackageId })
           : advisory.cleaned({ package: p.recordingAdvisoryPackageId }),
     );
-    tx.add(advisory.setRating({ package: p.recordingAdvisoryPackageId, typeArguments: [p.recordingShareType, p.compositionShareType], arguments: [p.recordingId, cap, rating] }));
-  });
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingAdvisoryPackageId}::recording_advisory::set_rating`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), rating],
+      adminCapIndex: 1,
+    });
+  };
 }
 
 export interface SetRecordingLanguagesParams extends RecordingExtensionTarget {
@@ -42,11 +47,25 @@ export interface SetRecordingLanguagesParams extends RecordingExtensionTarget {
 }
 
 export function setRecordingLanguages(p: SetRecordingLanguagesParams): TxThunk {
-  return (tx) => withAdminCap(tx, p.authority, (cap) => tx.add(language.setLanguages({ package: p.recordingLanguagePackageId, typeArguments: [p.recordingShareType, p.compositionShareType], arguments: [p.recordingId, cap, p.languages] })));
+  return (tx) => {
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingLanguagePackageId}::recording_language::set_languages`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), p.languages],
+      adminCapIndex: 1,
+    });
+  };
 }
 
 export function setRecordingInstrumental(p: Omit<SetRecordingLanguagesParams, "languages">): TxThunk {
-  return (tx) => withAdminCap(tx, p.authority, (cap) => tx.add(language.setInstrumental({ package: p.recordingLanguagePackageId, typeArguments: [p.recordingShareType, p.compositionShareType], arguments: [p.recordingId, cap] })));
+  return (tx) => {
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingLanguagePackageId}::recording_language::set_instrumental`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId)],
+      adminCapIndex: 1,
+    });
+  };
 }
 
 interface RecordingWalrusReferenceParams extends RecordingExtensionTarget {
@@ -58,12 +77,26 @@ export interface SetRecordingMasterReferenceParams extends RecordingWalrusRefere
   readonly recordingMasterReferencePackageId: string;
 }
 export function setRecordingMasterReference(p: SetRecordingMasterReferenceParams): TxThunk {
-  return (tx) => withAdminCap(tx, p.authority, (cap) => tx.add(masterReference.setMasterReference({ package: p.recordingMasterReferencePackageId, typeArguments: [p.recordingShareType, p.compositionShareType], arguments: [p.recordingId, cap, p.reference] })));
+  return (tx) => {
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingMasterReferencePackageId}::recording_master_reference::set_master_reference`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), p.reference],
+      adminCapIndex: 1,
+    });
+  };
 }
 
 export interface SetRecordingPreviewParams extends RecordingWalrusReferenceParams {
   readonly recordingPreviewPackageId: string;
 }
 export function setRecordingPreview(p: SetRecordingPreviewParams): TxThunk {
-  return (tx) => withAdminCap(tx, p.authority, (cap) => tx.add(preview.setPreview({ package: p.recordingPreviewPackageId, typeArguments: [p.recordingShareType, p.compositionShareType], arguments: [p.recordingId, cap, p.reference] })));
+  return (tx) => {
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingPreviewPackageId}::recording_preview::set_preview`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), p.reference],
+      adminCapIndex: 1,
+    });
+  };
 }

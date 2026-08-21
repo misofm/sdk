@@ -3,6 +3,7 @@
 
 import { expect, test } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
+import * as vaultApi from "../src/vault.ts";
 import {
   custodyNewAdminCap,
   initializeCompositionRoyaltyPool,
@@ -10,7 +11,7 @@ import {
   installReleaseRevenueDistributorPlugin,
   registerCompositionRoutedStake,
   receivingCoins,
-  withAdminCap,
+  invokeWithAdminCap,
 } from "../src/vault.ts";
 
 const VAULT = "0x" + "10".repeat(32);
@@ -39,9 +40,9 @@ function calls(tx: Transaction): Call[] {
     .map((command) => command.MoveCall!);
 }
 
-test("vault authority encloses protocol work in borrow and exact put-back", () => {
+test("vault authority encloses an independent result in borrow and exact put-back", () => {
   const tx = new Transaction();
-  withAdminCap(
+  const track = invokeWithAdminCap(
     tx,
     {
       kind: "vault",
@@ -50,19 +51,31 @@ test("vault authority encloses protocol work in borrow and exact put-back", () =
       capType: CAP,
       vaultPackageId: VAULT,
     },
-    (cap) => {
-      tx.moveCall({ target: `${A}::example::uses_cap`, arguments: [cap] });
+    {
+      target: `${A}::track::new`,
+      arguments: [tx.object(A), tx.pure.id(A), tx.pure.u16(10_000)],
+      adminCapIndex: 0,
     },
   );
 
   const labels = calls(tx).map((call) => `${call.module}::${call.function}`);
   expect(labels).toEqual([
     "vault::borrow_as_admin",
-    "example::uses_cap",
+    "track::new",
     "vault::put_back",
   ]);
   expect(calls(tx)[0]!.typeArguments).toEqual([CAP]);
   expect(calls(tx)[2]!.typeArguments).toEqual([CAP]);
+  const data = tx.getData() as { commands: { $kind: string; MoveCall?: { arguments: { $kind: string; NestedResult?: [number, number] }[] } }[] };
+  // `track` is the target call's own result, while its cap input is the Vault
+  // borrow's nested result; no borrowed value is surfaced by the API.
+  expect(track.$kind).toBe("Result");
+  expect(data.commands[1]!.MoveCall!.arguments[0]!.NestedResult).toEqual([0, 0]);
+});
+
+test("vault module exports no borrowed-cap callback helper", () => {
+  expect("withAdminCap" in vaultApi).toBe(false);
+  expect("withAdminCapResult" in vaultApi).toBe(false);
 });
 
 test("new capability custody shares the vault and transfers only VaultAdminCap", () => {

@@ -6,9 +6,8 @@
  *
  * A direct admin cap remains supported for existing works. New work should give
  * the owner a `VaultAdminCap<AdminCap>` and keep the raw admin cap inside the
- * shared Vault. `withAdminCap` is the only generic escape hatch: it borrows a
- * cap, runs the supplied PTB commands, and returns the exact cap before the
- * transaction can finish.
+ * shared Vault. Every authorized call borrows and returns the raw cap inside
+ * one helper; borrowed capabilities are never exposed to application code.
  */
 
 import type { BcsType } from "@mysten/sui/bcs";
@@ -84,23 +83,40 @@ export function vaultAdminCap(
  * the transaction. The direct branch preserves compatibility with pre-vault
  * work without silently treating it as protected custody.
  */
-export function withAdminCap(
-  tx: Transaction,
-  authority: AdminCapAuthority,
-  use: (adminCap: TransactionArgument) => void,
-): void {
-  withAdminCapResult(tx, authority, use);
+/**
+ * A Move call whose argument list contains exactly one temporarily lent cap.
+ * No callback receives that cap, so it cannot escape past `put_back`.
+ */
+export interface AdminCapMoveCall {
+  readonly target: string;
+  readonly typeArguments?: string[];
+  readonly arguments: TransactionArgument[];
+  readonly adminCapIndex: number;
 }
 
-/** Like `withAdminCap`, returning the value constructed while the cap is lent. */
-export function withAdminCapResult<Result>(
+/**
+ * Invoke one cap-authorized Move call without exposing a borrowed cap to JS.
+ * The returned PTB result belongs to `call.target`, never to the Vault borrow.
+ */
+export function invokeWithAdminCap(
   tx: Transaction,
   authority: AdminCapAuthority,
-  use: (adminCap: TransactionArgument) => Result,
-): Result {
-  if (authority.kind === "direct") {
-    return use(object(tx, authority.adminCap));
+  call: AdminCapMoveCall,
+): TransactionObjectArgument {
+  if (call.adminCapIndex < 0 || call.adminCapIndex > call.arguments.length) {
+    throw new Error("admin cap argument index is out of range");
   }
+
+  const invoke = (adminCap: TransactionArgument) => tx.moveCall({
+    target: call.target,
+    typeArguments: call.typeArguments,
+    arguments: [
+      ...call.arguments.slice(0, call.adminCapIndex),
+      adminCap,
+      ...call.arguments.slice(call.adminCapIndex),
+    ],
+  });
+  if (authority.kind === "direct") return invoke(object(tx, authority.adminCap));
 
   const borrowed = tx.add(
     vault.borrowAsAdmin({
@@ -114,7 +130,7 @@ export function withAdminCapResult<Result>(
   if (adminCap === undefined || receipt === undefined) {
     throw new Error("vault::borrow_as_admin returned an incomplete result");
   }
-  const result = use(adminCap);
+  const result = invoke(adminCap);
   tx.add(
     vault.putBack({
       package: authority.vaultPackageId,

@@ -18,7 +18,7 @@ import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
-import { asU64, directAdminCap, type AdminCapAuthority, type U64Input, withAdminCap } from "./vault.ts";
+import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
@@ -83,12 +83,11 @@ function buildCover(tx: Parameters<TxThunk>[0], p: SetReleaseCoverParams) {
 export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
-      releaseCoverArt.setCover({
-        package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, adminCap, cover],
-      }),
-    ));
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCoverArtPackageId}::release_cover_art::set_cover`,
+      arguments: [tx.object(p.releaseId), cover],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -96,12 +95,11 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
 export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
   return (tx) => {
     const cover = buildCover(tx, p);
-    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
-      releaseCoverArt.setTrackCover({
-        package: p.releaseCoverArtPackageId,
-        arguments: [p.releaseId, adminCap, asU64("trackIndex", p.trackIndex), cover],
-      }),
-    ));
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCoverArtPackageId}::release_cover_art::set_track_cover`,
+      arguments: [tx.object(p.releaseId), tx.pure.u64(asU64("trackIndex", p.trackIndex)), cover],
+      adminCapIndex: 1,
+    });
   };
 }
 

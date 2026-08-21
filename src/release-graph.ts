@@ -27,7 +27,7 @@
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { contracts } from "@misonetwork/sdk";
 import { custodyOf, disperseShares, finalizeRelease, recordingAuthorityOf, requiredCommandResult, type AdminCustodyInput, type RecordingAuthorityInput, type ShareRecipient } from "./transactions.ts";
-import { disposeNewAdminCap, withAdminCapResult } from "./vault.ts";
+import { disposeNewAdminCap, invokeWithAdminCap } from "./vault.ts";
 
 const { composition, recording, track } = contracts;
 
@@ -177,9 +177,12 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         }
         const typeArgs: [string, string] = [t.recordingShareType, t.compositionShareType];
         const rec = tx.object(t.recordingId);
-        return withAdminCapResult(tx, recordingAuthorityOf(t), (adminCap) =>
-          tx.add(track._new({ package: pkg, typeArguments: typeArgs, arguments: [adminCap, rec, releaseId, tx.pure.u16(t.splitBps)] })),
-        );
+        return invokeWithAdminCap(tx, recordingAuthorityOf(t), {
+          target: `${pkg}::track::new`,
+          typeArguments: typeArgs,
+          arguments: [rec, releaseId, tx.pure.u16(t.splitBps)],
+          adminCapIndex: 0,
+        });
       });
       const trackVec = tx.makeMoveVec({ type: `${pkg}::track::Track`, elements: trackArgs });
       const created = tx.moveCall({

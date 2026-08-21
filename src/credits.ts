@@ -44,7 +44,7 @@ import * as recordingCredits from "./contracts/recording_credits/recording_credi
 import * as recordingPartyRole from "./contracts/recording_credits/recording_party_role.ts";
 import * as releaseCredits from "./contracts/release_credits/release_credits.ts";
 import * as releasePartyRole from "./contracts/release_credits/release_party_role.ts";
-import { directAdminCap, type AdminCapAuthority, withAdminCap } from "./vault.ts";
+import { directAdminCap, invokeWithAdminCap, type AdminCapAuthority } from "./vault.ts";
 
 type CompositionAuthorityInput =
   | { readonly authority: AdminCapAuthority; readonly compositionAdminCapId?: never }
@@ -406,18 +406,12 @@ export function attachCompositionCredit(
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, compositionAuthorityOf(p), (adminCap) => tx.add(
-      compositionCredits.addCredit({
-        package: p.compositionCreditsPackageId,
-        typeArguments: [p.compositionShareType],
-        arguments: [
-          p.compositionId,
-          adminCap,
-          p.partyId,
-          credit,
-        ],
-      }),
-    ));
+    invokeWithAdminCap(tx, compositionAuthorityOf(p), {
+      target: `${p.compositionCreditsPackageId}::composition_credits::add_credit`,
+      typeArguments: [p.compositionShareType],
+      arguments: [tx.object(p.compositionId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -463,13 +457,12 @@ export function attachRecordingCredit(p: AttachRecordingCreditParams): TxThunk {
       p.displayName,
       roleArgs,
     );
-    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
-      recordingCredits.addCredit({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, adminCap, p.partyId, credit],
-      }),
-    ));
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_credit`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -497,13 +490,12 @@ export function addRecordingPrimaryArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
-      recordingCredits.addPrimaryArtist({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, adminCap, p.partyId],
-      }),
-    ));
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_primary_artist`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId)],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -516,13 +508,12 @@ export function addRecordingFeaturedArtist(
   p: AddRecordingArtistParams,
 ): TxThunk {
   return (tx) => {
-    withAdminCap(tx, recordingAuthorityOf(p), (adminCap) => tx.add(
-      recordingCredits.addFeaturedArtist({
-        package: p.recordingCreditsPackageId,
-        typeArguments: [p.recordingShareType, p.compositionShareType],
-        arguments: [p.recordingId, adminCap, p.partyId],
-      }),
-    ));
+    invokeWithAdminCap(tx, recordingAuthorityOf(p), {
+      target: `${p.recordingCreditsPackageId}::recording_credits::add_featured_artist`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [tx.object(p.recordingId), tx.object(p.partyId)],
+      adminCapIndex: 1,
+    });
   };
 }
 
@@ -559,12 +550,11 @@ export function addReleaseCredit(p: AddReleaseCreditParams): TxThunk {
       p.displayName,
       [roleArg],
     );
-    withAdminCap(tx, releaseAuthorityOf(p), (adminCap) => tx.add(
-      releaseCredits.addCredit({
-        package: p.releaseCreditsPackageId,
-        arguments: [p.releaseId, adminCap, p.partyId, credit],
-      }),
-    ));
+    invokeWithAdminCap(tx, releaseAuthorityOf(p), {
+      target: `${p.releaseCreditsPackageId}::release_credits::add_credit`,
+      arguments: [tx.object(p.releaseId), tx.object(p.partyId), credit],
+      adminCapIndex: 1,
+    });
   };
 }
 

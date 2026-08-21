@@ -42,7 +42,7 @@ import {
   type ShareCurrencyBinding,
   type TxThunk,
 } from "@misonetwork/sdk";
-import { asU64, directAdminCap, disposeNewAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input, withAdminCapResult } from "./vault.ts";
+import { asU64, directAdminCap, disposeNewAdminCap, invokeWithAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input } from "./vault.ts";
 
 const { track, release } = contracts;
 
@@ -413,13 +413,12 @@ export function publishRelease(params: PublishReleaseParams): TxThunk {
     const { misoPackageId } = params;
     const trackArgs = params.tracks.map((t) => {
       const typeArguments: [string, string] = [t.recordingShareType, t.compositionShareType];
-      return withAdminCapResult(tx, recordingAuthorityOf(t), (adminCap) =>
-        tx.add(track._new({
-          package: misoPackageId,
-          typeArguments,
-          arguments: [adminCap, tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
-        })),
-      );
+      return invokeWithAdminCap(tx, recordingAuthorityOf(t), {
+        target: `${misoPackageId}::track::new`,
+        typeArguments,
+        arguments: [tx.object(t.recordingId), tx.pure.id(params.releaseId), tx.pure.u16(t.splitBps)],
+        adminCapIndex: 0,
+      });
     });
     const created = tx.moveCall({
       target: `${misoPackageId}::release::new`,

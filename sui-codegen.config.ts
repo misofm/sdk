@@ -17,7 +17,7 @@ import type { SuiCodegenConfig } from "@mysten/codegen";
 // Paths resolve against sibling checkouts. Regenerating requires:
 //   ~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}
 //   ~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
-//     protocol-utilities, royalty-pool, routed-stake, share}
+//     royalty-pool, routed-stake, share}
 const config: SuiCodegenConfig = {
   output: "./src/contracts",
   packages: [
