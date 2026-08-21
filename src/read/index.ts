@@ -21,6 +21,7 @@ export { misoConfig, networkFrom } from "./config.ts";
 export type {
   MisoConfig,
   MisoConfigOverrides,
+  DiscoverSale,
   MoneyIds,
   Network,
   PartyIds,
@@ -30,12 +31,13 @@ export type {
 export {
   currencyInfo,
   getDiscoverShelf,
-  getDropPreview,
   getPressingDetail,
+  getPressingPreview,
   getRecordAlbum,
   getReleaseDetail,
   getReleaseResources,
   getTrackCredits,
+  getSaleDetail,
   primaryArtistNames,
   readReleaseCover,
 } from "./catalog.ts";

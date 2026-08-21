@@ -9,22 +9,24 @@
 // permanent, edited in place rather than replaced. A sale needs both switches open.
 //
 // EVERYTHING IS ADDRESS MATH. The pressing's UID derives off its release's, each
-// listing's off the pressing's. So there is no registry and no pointer to follow:
+// listing's off the pressing's. The core `ReleaseRegistry` owns release creation,
+// but there is no pressing registry or pointer to follow:
 // `derivePressingId`/`deriveListingId` answer "where is it" offline, which is why the
 // builders here take a RELEASE id and compute the rest. A caller cannot pass a
 // listing that belongs to some other pressing, because it never picks one.
 
 import type { ClientWithCoreApi } from "@mysten/sui/client";
-import { deriveObjectID, normalizeStructTag } from "@mysten/sui/utils";
+import { deriveObjectID, normalizeStructTag, normalizeSuiAddress, parseStructTag } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
 import { isNotFound } from "./queries.ts";
+import { asU64, type U64Input } from "./vault.ts";
 import * as listing from "./contracts/miso_pressing/listing.ts";
 import * as pressing from "./contracts/miso_pressing/pressing.ts";
 
 /** Pricing policy: pay exactly `amount` (fixed) or at least `amount` (floor). */
 export type ListingPrice = {
   kind: "fixed" | "floor";
-  amount: bigint | number | string;
+  amount: U64Input;
 };
 
 /** Whether a currency's listing takes payment. Below the pressing's own run state. */
@@ -38,7 +40,7 @@ export type ListingSwitch = "enabled" | "disabled";
  * this run scheduled for" is an event-log question once a run has sold anything.
  */
 export type PressingRunState =
-  | { kind: "scheduled"; startTimestampMs: bigint | number }
+  | { kind: "scheduled"; startTimestampMs: U64Input }
   | { kind: "active" }
   | { kind: "paused" };
 
@@ -122,7 +124,7 @@ function priceArg(tx: Tx, misoPressingPackageId: string, price: ListingPrice) {
   const make =
     price.kind === "fixed" ? listing.newFixedPrice : listing.newFloorPrice;
   return tx.add(
-    make({ package: misoPressingPackageId, arguments: [BigInt(price.amount)] }),
+    make({ package: misoPressingPackageId, arguments: [asU64("listing price", price.amount)] }),
   );
 }
 
@@ -147,7 +149,7 @@ function runStateArg(
       return tx.add(
         pressing.newScheduledState({
           ...pkg,
-          arguments: [BigInt(state.startTimestampMs)],
+          arguments: [asU64("pressing schedule timestamp", state.startTimestampMs)],
         }),
       );
     case "active":
@@ -360,7 +362,7 @@ export interface BuyRecordParams {
    */
   releaseId: string;
   /** Amount to pay in the currency's smallest unit (exact for `fixed`, ≥ for `floor`). */
-  amount: bigint | number | string;
+  amount: U64Input;
   /** The listing's `Currency` type, e.g. `0x2::sui::SUI`. */
   currencyType: string;
   /** The `miso_record` `Settings` shared object — it must authorize `miso_pressing`'s
@@ -404,7 +406,7 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
     );
     const payment = tx.balance({
       type: p.currencyType,
-      balance: BigInt(p.amount),
+      balance: asU64("purchase amount", p.amount),
       useGasCoin: p.useGasCoin ?? false,
     });
     const record = tx.add(
@@ -439,34 +441,70 @@ export interface ListingView {
   pressingId: string;
   price: { kind: "fixed" | "floor"; amount: bigint };
   state: ListingSwitch;
-  /** The `Currency` type, parsed from the object's type tag (`null` if unavailable). */
-  currencyType: string | null;
+  /** The exact normalized `Currency` type from the validated outer type tag. */
+  currencyType: string;
 }
 
-/** Extracts `CURRENCY` from a `…::listing::Listing<CURRENCY>` type tag. */
-function currencyFromType(type: string | null | undefined): string | null {
-  if (!type) return null;
-  const lt = type.indexOf("<");
-  return lt >= 0 && type.endsWith(">") ? type.slice(lt + 1, -1) : null;
-}
-
-/** Reads one object's BCS content + type, or `null` when it does not exist. */
+/** Reads one object's BCS content + type, or `null` only when it does not exist. */
 async function fetch(
   client: ClientWithCoreApi,
   objectId: string,
-): Promise<{ content: Uint8Array; type?: string } | null> {
+): Promise<{ content: Uint8Array; type: string } | null> {
   try {
     const { object } = await client.core.getObject({
       objectId,
       include: { content: true },
     });
-    return object?.content
-      ? { content: object.content, type: object.type }
-      : null;
+    if (!object) return null;
+    if (!object.content || !object.type) {
+      throw new Error(`object ${objectId} has no BCS content or full type`);
+    }
+    return { content: object.content, type: object.type };
   } catch (e) {
     if (isNotFound(e)) return null;
     throw e;
   }
+}
+
+function sameId(a: string, b: string): boolean {
+  return normalizeSuiAddress(a) === normalizeSuiAddress(b);
+}
+
+function requireId(label: string, actual: string, expected: string): void {
+  if (!sameId(actual, expected)) {
+    throw new Error(`${label} ${actual} does not match expected ${expected}`);
+  }
+}
+
+/** Require the exact configured package/module/struct outer tag. */
+function requirePressingType(type: string, misoPressingPackageId: string): void {
+  const actual = normalizeStructTag(type);
+  const expected = normalizeStructTag(`${misoPressingPackageId}::pressing::Pressing`);
+  if (actual !== expected) {
+    throw new Error(`Pressing has type ${actual}, expected configured ${expected}`);
+  }
+}
+
+/** Validate the whole Listing<CURRENCY> tag and return its normalized Currency. */
+function requireListingCurrency(type: string, misoPressingPackageId: string): string {
+  const actual = normalizeStructTag(type);
+  const tag = parseStructTag(actual);
+  if (
+    tag.address !== normalizeSuiAddress(misoPressingPackageId) ||
+    tag.module !== "listing" ||
+    tag.name !== "Listing" ||
+    tag.typeParams.length !== 1
+  ) {
+    throw new Error(`Listing has type ${actual}, not a configured miso_pressing::listing::Listing<CURRENCY>`);
+  }
+  const currencyType = normalizeStructTag(tag.typeParams[0]!);
+  const expected = normalizeStructTag(
+    `${misoPressingPackageId}::listing::Listing<${currencyType}>`,
+  );
+  if (actual !== expected) {
+    throw new Error(`Listing has non-canonical type ${actual}, expected ${expected}`);
+  }
+  return currencyType;
 }
 
 // The generated `MoveEnum` parsers emit `{ $kind, <Variant>: … }`; older ones omitted
@@ -491,14 +529,27 @@ function variant<T extends string>(
 export async function getPressing(
   client: ClientWithCoreApi,
   pressingId: string,
+  misoPressingPackageId: string,
 ): Promise<PressingView | null> {
   const got = await fetch(client, pressingId);
   if (!got) return null;
-  return parsePressing(pressingId, got.content);
+  return parsePressing(pressingId, got.content, got.type, misoPressingPackageId);
 }
 
-function parsePressing(pressingId: string, content: Uint8Array): PressingView {
+function parsePressing(
+  pressingId: string,
+  content: Uint8Array,
+  type: string,
+  misoPressingPackageId: string,
+): PressingView {
+  requirePressingType(type, misoPressingPackageId);
   const parsed = pressing.Pressing.parse(content);
+  requireId("Pressing UID", parsed.id, pressingId);
+  requireId(
+    "Pressing derived id",
+    pressingId,
+    derivePressingId(parsed.release_id, misoPressingPackageId),
+  );
   const s = parsed.state as {
     $kind?: string;
     Scheduled?: { start_timestamp_ms: string };
@@ -524,18 +575,32 @@ function parsePressing(pressingId: string, content: Uint8Array): PressingView {
 export async function getListing(
   client: ClientWithCoreApi,
   listingId: string,
+  misoPressingPackageId: string,
 ): Promise<ListingView | null> {
   const got = await fetch(client, listingId);
   if (!got) return null;
-  return parseListing(listingId, got.content, got.type);
+  return parseListing(listingId, got.content, got.type, misoPressingPackageId);
 }
 
 function parseListing(
   listingId: string,
   content: Uint8Array,
-  type?: string,
+  type: string,
+  misoPressingPackageId: string,
 ): ListingView {
+  const currencyType = requireListingCurrency(type, misoPressingPackageId);
   const parsed = listing.Listing.parse(content);
+  requireId("Listing UID", parsed.id, listingId);
+  requireId(
+    "Listing pressing",
+    parsed.pressing_id,
+    derivePressingId(parsed.release_id, misoPressingPackageId),
+  );
+  requireId(
+    "Listing derived id",
+    listingId,
+    deriveListingId(parsed.pressing_id, currencyType, misoPressingPackageId),
+  );
   const p = parsed.price as {
     $kind?: string;
     Fixed?: { amount: string };
@@ -559,7 +624,7 @@ function parseListing(
     },
     state:
       variant(st, "Enabled", "Disabled") === "Enabled" ? "enabled" : "disabled",
-    currencyType: currencyFromType(type),
+    currencyType,
   };
 }
 
@@ -592,16 +657,47 @@ export async function getSale(
   });
   const pressingObject = objects[0];
   const listingObject = objects[1];
-  return {
-    pressing:
-      !pressingObject ||
-      pressingObject instanceof Error ||
-      !pressingObject.content
-        ? null
-        : parsePressing(pressingId, pressingObject.content),
-    listing:
-      !listingObject || listingObject instanceof Error || !listingObject.content
-        ? null
-        : parseListing(listingId, listingObject.content, listingObject.type),
-  };
+  if (pressingObject instanceof Error && !isNotFound(pressingObject)) {
+    throw pressingObject;
+  }
+  if (listingObject instanceof Error && !isNotFound(listingObject)) {
+    throw listingObject;
+  }
+  const parsedPressing =
+    !pressingObject || pressingObject instanceof Error
+      ? null
+      : parseBatchPressing(pressingId, pressingObject.content, pressingObject.type, p.misoPressingPackageId);
+  const parsedListing =
+    !listingObject || listingObject instanceof Error
+      ? null
+      : parseBatchListing(listingId, listingObject.content, listingObject.type, p.misoPressingPackageId);
+  if (parsedPressing) requireId("Sale pressing release", parsedPressing.releaseId, p.releaseId);
+  if (parsedListing) {
+    requireId("Sale listing release", parsedListing.releaseId, p.releaseId);
+    requireId("Sale listing pressing", parsedListing.pressingId, pressingId);
+    if (parsedListing.currencyType !== normalizeStructTag(p.currencyType)) {
+      throw new Error(`Sale listing currency ${parsedListing.currencyType} does not match requested ${normalizeStructTag(p.currencyType)}`);
+    }
+  }
+  return { pressing: parsedPressing, listing: parsedListing };
+}
+
+function parseBatchPressing(
+  pressingId: string,
+  content: Uint8Array | undefined,
+  type: string | undefined,
+  misoPressingPackageId: string,
+): PressingView {
+  if (!content || !type) throw new Error(`Pressing ${pressingId} has no BCS content or full type`);
+  return parsePressing(pressingId, content, type, misoPressingPackageId);
+}
+
+function parseBatchListing(
+  listingId: string,
+  content: Uint8Array | undefined,
+  type: string | undefined,
+  misoPressingPackageId: string,
+): ListingView {
+  if (!content || !type) throw new Error(`Listing ${listingId} has no BCS content or full type`);
+  return parseListing(listingId, content, type, misoPressingPackageId);
 }

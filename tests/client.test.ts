@@ -20,7 +20,7 @@ const SHARE = "0x" + "ab".repeat(32) + "::share::Share";
 const A = "0x" + "11".repeat(32);
 const VAULT = "0x" + "56".repeat(32);
 
-/** Addresses are injected only after the Ledger-admin deployment is verified. */
+/** Addresses are injected only after the admin-cli deployment is verified. */
 const DEPLOYMENT = {
   protocol: { packageId: MISO },
   packages: {

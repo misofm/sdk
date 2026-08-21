@@ -12,17 +12,24 @@ import {
   getRecordingCreditsByIds,
   getReleaseCreditsByIds,
 } from "../src/credits.ts";
-import { getCurrentDrops, getDropsByIds } from "../src/drop.ts";
-import { getSale } from "../src/pressing.ts";
+import { getListing, getPressing, getSale } from "../src/pressing.ts";
 import { getReleaseResources } from "../src/read/catalog.ts";
 import type { MisoClient } from "../src/read/client.ts";
 
 function missingClient(calls: unknown[][]): ClientWithCoreApi {
   return {
     core: {
+      getObject: async ({ objectId }: { objectId: string }) => {
+        calls.push([objectId]);
+        return { object: undefined };
+      },
       getObjects: async ({ objectIds }: { objectIds: string[] }) => {
         calls.push(objectIds);
-        return { objects: objectIds.map(() => new Error("not found")) };
+        return {
+          objects: objectIds.map(
+            (objectId) => new Error(`Object ${objectId} not found`),
+          ),
+        };
       },
     },
   } as unknown as ClientWithCoreApi;
@@ -55,18 +62,14 @@ describe("bulk Core reads", () => {
     }
   });
 
-  test("drop pointers, drops, and a two-object sale never fan out", async () => {
-    const pointerCalls: unknown[][] = [];
-    expect(
-      await getCurrentDrops(missingClient(pointerCalls), ["0x1", "0x2"], "0xa"),
-    ).toEqual({});
-    expect(pointerCalls).toHaveLength(1);
+  test("pressings, listings, and a two-object sale never fan out", async () => {
+    const pressingCalls: unknown[][] = [];
+    expect(await getPressing(missingClient(pressingCalls), "0x1", "0xa")).toBeNull();
+    expect(pressingCalls).toHaveLength(1);
 
-    const dropCalls: unknown[][] = [];
-    expect(
-      await getDropsByIds(missingClient(dropCalls), ["0x1", "0x2"]),
-    ).toEqual({});
-    expect(dropCalls).toHaveLength(1);
+    const listingCalls: unknown[][] = [];
+    expect(await getListing(missingClient(listingCalls), "0x2", "0xa")).toBeNull();
+    expect(listingCalls).toHaveLength(1);
 
     const saleCalls: unknown[][] = [];
     expect(

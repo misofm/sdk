@@ -13,7 +13,7 @@
 
 import { resolveGenreNames } from "./genres.ts";
 import { getReleaseResources } from "./catalog.ts";
-import { getDrop } from "../drop.ts";
+import { getPressing } from "../pressing.ts";
 import type { MisoClient } from "./client.ts";
 import type {
   ArtistProfile,
@@ -128,7 +128,7 @@ export async function getPartySummaries(
 /**
  * The party's pinned pressing, resolved through to its release and cover.
  * `null` — a successful empty — when nothing is pinned or the pin is dangling
- * (the pressing it named has since been superseded and destroyed).
+ * (the pressing id was invalid or was never opened).
  */
 async function resolveFeaturedRelease(
   client: MisoClient,
@@ -138,7 +138,7 @@ async function resolveFeaturedRelease(
   const pressingId = await client.sui.party.getFeaturedDrop(partyId);
   if (!pressingId) return null;
 
-  const pressing = await getDrop(client.protocol, pressingId);
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
   if (!pressing) return null;
 
   const [resources, entity] = await Promise.all([

@@ -358,12 +358,12 @@ export class MisoPlatformClient {
 
   /** The run itself, or `null` if this release has never opened one. */
   getPressing(pressingId: string): Promise<PressingView | null> {
-    return getPressing(this.#client, pressingId);
+    return getPressing(this.#client, pressingId, this.packageId);
   }
 
   /** One currency's offer, or `null` if the run does not sell in it. */
   getListing(listingId: string): Promise<ListingView | null> {
-    return getListing(this.#client, listingId);
+    return getListing(this.#client, listingId, this.packageId);
   }
 
   /** Run + one currency's offer in a single round trip, by address math. */

@@ -4,7 +4,7 @@
 // Per-network on-chain identity: which packages the reads address, which objects
 // they read, and which endpoints they read through. Every id that used to be a
 // hard-coded constant inside miso-app (`lib/party.ts`, `lib/release.ts`,
-// `lib/money.ts`, `lib/drops.ts`) lives here instead, so a redeploy is a change
+// `lib/money.ts`, `lib/pressing.ts`) lives here instead, so a redeploy is a change
 // in ONE file that every surface picks up.
 //
 // There are intentionally no baked network IDs while the immutable stack is
@@ -24,8 +24,8 @@ export function networkFrom(value: string | undefined): Network {
 export interface ProtocolIds {
   /** `miso` core — Composition / Recording / Release, and the origin of every derived admin cap. */
   miso: string;
-  /** `miso_drop` — `drop::buy` and the `Drop` objects the pressing pages read. */
-  drop: string;
+  /** `miso_pressing` — permanent Pressing runs and per-currency Listings. */
+  pressing: string;
   /** `miso_record` package — the exact owner/type namespace for `record::Record`. */
   record: string;
   /** `miso_record` shared `Settings` object — the mint witness authorizer. */
@@ -61,7 +61,7 @@ export interface PartyIds {
 
 /** The currency the app prices records in, and where test dollars come from. */
 export interface MoneyIds {
-  /** Coin type balances, drops, and purchases are denominated in. */
+  /** Coin type balances, listings, and purchases are denominated in. */
   usdCoinType: string;
   usdDecimals: number;
 }
@@ -87,17 +87,23 @@ export interface MisoConfig {
    * public host to hand back a URL a browser can actually fetch.
    */
   apiBaseUrl: string;
-  /** Releases the Discover shelf lists, in display order. Resolved to their live drop at read time. */
-  discoverReleaseIds: readonly string[];
+  /** Explicit currency offers on the Discover shelf, in display order. */
+  discoverSales: readonly DiscoverSale[];
+}
+
+/** One release/currency pair to resolve by Pressing and Listing derived address. */
+export interface DiscoverSale {
+  releaseId: string;
+  currencyType: string;
 }
 
 /** Fields a deployment may override without forking the whole config (endpoints, shelf). */
 export type MisoConfigOverrides = Partial<
-  Pick<MisoConfig, "grpcUrl" | "graphqlUrl" | "walrusAggregatorUrl" | "apiBaseUrl" | "discoverReleaseIds">
+  Pick<MisoConfig, "grpcUrl" | "graphqlUrl" | "walrusAggregatorUrl" | "apiBaseUrl" | "discoverSales">
 >;
 
 /**
- * Bundled read configuration is disabled until the Ledger-admin publish flow has
+ * Bundled read configuration is disabled until the admin-cli publish flow has
  * recorded every new immutable package and singleton object. This is fail-closed
  * by design: old testnet types cannot be mistaken for the current ABI.
  */

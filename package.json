@@ -1,6 +1,7 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.9.0",
+  "version": "0.10.0",
+  "packageManager": "bun@1.4.0",
   "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
   "repository": {
@@ -96,10 +97,6 @@
       "types": "./dist/auth.d.ts",
       "default": "./dist/auth.js"
     },
-    "./drop": {
-      "types": "./dist/drop.d.ts",
-      "default": "./dist/drop.js"
-    },
     "./vault": {
       "types": "./dist/vault.d.ts",
       "default": "./dist/vault.js"
@@ -120,22 +117,26 @@
     "test": "bun test",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json"
+    "prepare": "tsc -p tsconfig.build.json --noCheck"
   },
   "devDependencies": {
+    "@misonetwork/sdk": "github:misonetwork/sdk#5a5ef3d3cecda4d20acf1d74512d7b16e69330f7",
     "@mysten/codegen": "^0.11.14",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.24.0",
     "@types/bun": "^1.3.14"
   },
   "peerDependencies": {
+    "@misonetwork/sdk": "^0.8.0",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.4.0",
     "typescript": "^5"
   },
   "dependencies": {
-    "@misonetwork/miso-party": "^0.2.0",
-    "@misonetwork/sdk": "^0.7.0"
+    "@misonetwork/miso-party": "^0.2.0"
   },
+  "trustedDependencies": [
+    "@misonetwork/sdk"
+  ],
   "main": "./dist/index.js"
 }

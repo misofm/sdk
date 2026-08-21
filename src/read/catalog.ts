@@ -6,11 +6,16 @@
 // callers get different answers, which is what makes this layer edge-cacheable.
 //
 // The composition of these reads is the point. A pressing page used to cost the
-// browser five sequential round-trips to the chain (drop → release → cover →
+// browser five sequential round-trips to the chain (pressing → release → cover →
 // credits → recordings); the same work happens once here, inside one datacenter,
 // and every subsequent visitor is served from cache.
 
-import { getCurrentDrops, getDrop, type DropView } from "../drop.ts";
+import {
+  getPressing,
+  getSale,
+  type ListingView as ContractListingView,
+  type PressingView as ContractPressingView,
+} from "../pressing.ts";
 import {
   getReleaseCoversByIds,
   parseReleaseCoverContent,
@@ -29,7 +34,7 @@ import { getReleaseById, getReleasesByIds, isNotFound } from "@misonetwork/sdk";
 import type { Release } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
 import { getRecordingTitles, parseReleaseObject } from "./works.ts";
-import { gte, int, ms, msOrNull, u64, u64OrNull } from "./internal/scalars.ts";
+import { int, u64 } from "./internal/scalars.ts";
 import { quiltPatchId, u256ToB64Url } from "./internal/walrus.ts";
 import type {
   Cover,
@@ -37,12 +42,15 @@ import type {
   Credit,
   Currency,
   DiscoverItem,
-  DropPreview,
+  ListingView,
   PressingDetail,
+  PressingPreview,
   PressingView,
   Price,
   RecordAlbum,
   ReleaseDetail,
+  SaleDetail,
+  SaleView,
   TrackCredits,
   TrackView,
   WorkState,
@@ -100,25 +108,43 @@ export function currencyInfo(type: string | null): Currency {
 
 // ── Projections ──────────────────────────────────────────────────────────────
 
-function toPressingView(drop: DropView): PressingView {
-  const quantitySold = u64(drop.quantitySold);
-  const maxSupply = u64OrNull(drop.maxSupply);
+function toPressingView(pressing: ContractPressingView): PressingView {
+  return {
+    id: pressing.id,
+    releaseId: pressing.releaseId,
+    state:
+      pressing.state.kind === "scheduled"
+        ? {
+            kind: "scheduled",
+            startTimestampMs: Number(pressing.state.startTimestampMs ?? 0n),
+          }
+        : pressing.state.kind === "paused"
+          ? { kind: "paused" }
+          : { kind: "active" },
+    supply: u64(pressing.supply),
+  };
+}
+
+function toListingView(listing: ContractListingView): ListingView {
   const price: Price = {
-    kind: drop.price.kind,
-    amount: u64(drop.price.amount),
+    kind: listing.price.kind,
+    amount: u64(listing.price.amount),
   };
   return {
-    id: drop.id,
-    releaseId: drop.releaseId,
-    edition: int(drop.edition),
+    id: listing.id,
+    pressingId: listing.pressingId,
+    releaseId: listing.releaseId,
     price,
-    currency: currencyInfo(drop.currencyType),
-    quantitySold,
-    maxSupply,
-    startTimestampMs: ms(drop.startTimestampMs),
-    endTimestampMs: msOrNull(drop.endTimestampMs),
-    soldOut: maxSupply !== null && gte(quantitySold, maxSupply),
+    currency: currencyInfo(listing.currencyType),
+    state: listing.state,
   };
+}
+
+function toSaleView(
+  pressing: ContractPressingView,
+  listing: ContractListingView,
+): SaleView {
+  return { pressing: toPressingView(pressing), listing: toListingView(listing) };
 }
 
 function toWorkState(state: Release["state"]): WorkState {
@@ -265,7 +291,7 @@ export async function getReleaseResources(
  * Identity (the release object) is HARD — a failure here is a failed read.
  * Decoration (cover, credits) is SOFT: a release with no cover extension set is a
  * normal state, not a broken page, so those reads swallow their errors. That
- * split is inherited from `lib/drops.ts` and is what keeps a half-configured
+ * split keeps a half-configured
  * release renderable.
  */
 export type ReleaseInclude = "trackCredits";
@@ -361,13 +387,13 @@ export async function getTrackCredits(
 
 // ── Pressing ─────────────────────────────────────────────────────────────────
 
-/** Everything the pressing buy page renders. `null` when no such pressing exists. */
+/** Everything a Pressing page renders. `null` when no such Pressing exists. */
 export async function getPressingDetail(
   client: MisoClient,
   pressingId: string,
   options: GetReleaseOptions = {},
 ): Promise<PressingDetail | null> {
-  const pressing = await getDrop(client.protocol, pressingId);
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
   if (!pressing) return null;
   const release = await getReleaseDetail(client, pressing.releaseId, options);
   return { pressing: toPressingView(pressing), release };
@@ -375,15 +401,15 @@ export async function getPressingDetail(
 
 /**
  * The confirmation preview behind "paste a pressing id to pin it". Verifies the
- * object really is a `Drop` before spending reads on it — a release id or a
+ * object really is a `Pressing` before spending reads on it — a release id or a
  * record id pasted by mistake must come back as `null`, not as a half-built card.
  */
-export async function getDropPreview(
+export async function getPressingPreview(
   client: MisoClient,
-  dropId: string,
-): Promise<DropPreview | null> {
-  const pressing = await getDrop(client.protocol, dropId);
-  if (!pressing?.currencyType) return null;
+  pressingId: string,
+): Promise<PressingPreview | null> {
+  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
+  if (!pressing) return null;
 
   const { release, cover } = await getReleaseResources(
     client,
@@ -392,14 +418,35 @@ export async function getDropPreview(
   );
 
   return {
-    pressingId: dropId,
-    currency: currencyInfo(pressing.currencyType),
+    pressingId,
     title: release.title,
     subtitle: null,
     coverUrl: cover?.still.url ?? null,
-    price: { kind: pressing.price.kind, amount: u64(pressing.price.amount) },
+    state: toPressingView(pressing).state,
+    supply: u64(pressing.supply),
     trackCount: release.tracks.length,
   };
+}
+
+/**
+ * Everything a currency-specific buy page renders. The Listing is derived from
+ * the release's Pressing and the requested currency, never found through an old
+ * drop pointer.
+ */
+export async function getSaleDetail(
+  client: MisoClient,
+  releaseId: string,
+  currencyType: string,
+  options: GetReleaseOptions = {},
+): Promise<SaleDetail | null> {
+  const sale = await getSale(client.protocol, {
+    releaseId,
+    currencyType,
+    misoPressingPackageId: client.config.protocol.pressing,
+  });
+  if (!sale.pressing || !sale.listing) return null;
+  const release = await getReleaseDetail(client, sale.pressing.releaseId, options);
+  return { sale: toSaleView(sale.pressing, sale.listing), release };
 }
 
 // ── Discover ─────────────────────────────────────────────────────────────────
@@ -407,21 +454,29 @@ export async function getDropPreview(
 /**
  * The records currently on sale.
  *
- * Configured by RELEASE id, never by drop id: a release id is permanent, while a
- * drop is superseded (and the old `Drop` destroyed) whenever a new edition opens.
- * Following the release's `CurrentDropKey` pointer keeps this list pointing at the
- * live edition without anyone touching the config.
+ * Configured by release + currency: Pressing and Listing ids are deterministic,
+ * permanent derived addresses. There is no `CurrentDropKey` pointer or edition
+ * replacement in the current ABI.
  */
 export async function getDiscoverShelf(
   client: MisoClient,
 ): Promise<DiscoverItem[]> {
-  const configuredIds = [...client.config.discoverReleaseIds];
-  const drops = await getCurrentDrops(
-    client.protocol,
-    configuredIds,
-    client.config.protocol.drop,
+  const configuredSales = [...client.config.discoverSales];
+  const settled = await Promise.all(
+    configuredSales.map(async (configured) => ({
+      configured,
+      result: await getSale(client.protocol, {
+        ...configured,
+        misoPressingPackageId: client.config.protocol.pressing,
+      }),
+    })),
   );
-  const releaseIds = configuredIds.filter((releaseId) => drops[releaseId]);
+  const available = settled.filter(
+    (item): item is typeof item & {
+      result: { pressing: ContractPressingView; listing: ContractListingView };
+    } => item.result.pressing !== null && item.result.listing !== null,
+  );
+  const releaseIds = [...new Set(available.map((item) => item.result.pressing.releaseId))];
   if (releaseIds.length === 0) return [];
 
   const [releases, coverViews, credits] = await Promise.all([
@@ -434,17 +489,17 @@ export async function getDiscoverShelf(
     ).catch(() => ({}) as Partial<Record<string, CreditView[]>>),
   ]);
 
-  return releaseIds.flatMap((releaseId) => {
-    const drop = drops[releaseId];
+  return available.flatMap(({ result }) => {
+    const releaseId = result.pressing.releaseId;
     const release = releases[releaseId];
-    if (!drop || !release) return [];
+    if (!release) return [];
     const cover = toCover(
       client.config.walrusAggregatorUrl,
       coverViews[releaseId] ?? null,
     );
     return [
       {
-        pressing: toPressingView(drop),
+        sale: toSaleView(result.pressing, result.listing),
         releaseId,
         title: release.title,
         artist: primaryArtistNames(toCredits(credits[releaseId] ?? null)).join(

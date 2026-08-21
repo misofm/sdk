@@ -23,7 +23,7 @@ describe("currencyInfo", () => {
     expect(currencyInfo("0xabc::usdc::USDC")).toEqual({ type: "0xabc::usdc::USDC", symbol: "USDC", decimals: 9 });
   });
 
-  test("a drop with an unreadable type tag still renders", () => {
+  test("a listing with an unreadable type tag still renders", () => {
     expect(currencyInfo(null)).toEqual({ type: null, symbol: "COIN", decimals: 9 });
   });
 });
