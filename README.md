@@ -43,9 +43,10 @@ bun add @misofm/sdk@^0.10.0 @misonetwork/sdk@^0.8.0
 ```
 
 For SDK development, the frozen lockfile pins the protocol dev source to the
-exact `0.8.0` release commit. Bun trusts that development-only dependency to run
-the protocol package's own `prepare` build during install; the platform package
-does not run a custom script that modifies a consumer's `node_modules`.
+exact `0.8.0` release commit. Source-Git installs use `prepare` only to emit
+`dist` before Bun links peer dependencies; strict typechecking remains in the
+frozen CI, `build`, and `prepack` commands. The platform package does not run a
+custom script that modifies a consumer's `node_modules`.
 
 ## The model
 
@@ -448,7 +449,7 @@ silently nesting an older protocol ABI alongside the application's copy.
 `@misonetwork/sdk`.
 
 For this coordinated pre-publish release, the development lock resolves the
-exact `@misonetwork/sdk` `0.8.0` release-graph commit (`3cf70d1`). The published
+exact `@misonetwork/sdk` `0.8.0` release-graph commit (`5a5ef3d`). The published
 tarball intentionally contains no copy of it: consumers satisfy the peer with
 their verified `@misonetwork/sdk@^0.8.0` installation.
 
