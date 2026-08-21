@@ -14,7 +14,6 @@ export interface MisoPlatformDeployment {
     readonly pressing: string;
     readonly record: string;
     readonly minato: string;
-    readonly drop: string;
     readonly credit: string;
     readonly compositionCredits: string;
     readonly recordingCredits: string;
@@ -84,8 +83,8 @@ export interface MisoPlatformDeployment {
  *
  * This release deliberately contains no bundled network deployment. The core
  * protocol is being republished as an immutable stack, so every old package ID
- * is an incompatible ABI and must not be selected by accident. The Ledger-backed
- * admin deployment flow injects verified IDs in a follow-up change.
+ * is an incompatible ABI and must not be selected by accident. The admin-cli
+ * deployment flow injects verified IDs in a follow-up change.
  */
 export const MISO_PLATFORM_DEPLOYMENTS = {} as const satisfies Partial<
   Record<MisoNetwork, MisoPlatformDeployment>

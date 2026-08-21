@@ -5,8 +5,8 @@
 //
 // ONE RULE GOVERNS THIS FILE: these shapes must survive `JSON.stringify`.
 //
-// The protocol SDK hands back `bigint` for every u64/u128 (`DropView.price.amount`,
-// `quantitySold`, timestamps, balances). `JSON.stringify` THROWS on a bigint, so a
+// The protocol SDK hands back `bigint` for every u64/u128 (pressing supply, listing
+// prices, timestamps, balances). `JSON.stringify` THROWS on a bigint, so a
 // view type that carries one cannot cross an HTTP boundary — it would work in the
 // browser-direct world these shapes came from and fail the moment an API serves
 // them. Every such field is therefore a DECIMAL STRING here, converted once at the
@@ -104,28 +104,40 @@ export interface Price {
 
 /** Symbol + decimals for a pressing's currency, resolved from its coin type. */
 export interface Currency {
-  /** Full Move coin type, or null when the drop's type tag was unreadable. */
+  /** Full Move coin type, or null when the Listing type tag was unreadable. */
   type: string | null;
   symbol: string;
   decimals: number;
 }
 
-/** A pressing (a record sale) as the buy page and shelf tiles read it. */
+/** A permanent record-production run derived from a release. */
 export interface PressingView {
   id: string;
   releaseId: string;
-  edition: number;
+  /** The one run-wide sale switch. Scheduled carries its opening time. */
+  state:
+    | { kind: "scheduled"; startTimestampMs: number }
+    | { kind: "active" }
+    | { kind: "paused" };
+  /** Records pressed so far, decimal string. The run is intentionally uncapped. */
+  supply: string;
+}
+
+/** One permanent currency offer derived from a Pressing. */
+export interface ListingView {
+  id: string;
+  pressingId: string;
+  releaseId: string;
   price: Price;
   currency: Currency;
-  /** Copies sold so far, decimal string. */
-  quantitySold: string;
-  /** Null = uncapped (an open edition). Decimal string otherwise. */
-  maxSupply: string | null;
-  startTimestampMs: number;
-  /** Null = evergreen. */
-  endTimestampMs: number | null;
-  /** Derived: `quantitySold >= maxSupply`. Always false for an open edition. */
-  soldOut: boolean;
+  /** The per-currency switch; the Pressing state still governs every purchase. */
+  state: "enabled" | "disabled";
+}
+
+/** A Pressing plus the requested currency's Listing. */
+export interface SaleView {
+  pressing: PressingView;
+  listing: ListingView;
 }
 
 /** Everything the pressing buy page renders. */
@@ -134,9 +146,15 @@ export interface PressingDetail {
   release: ReleaseDetail;
 }
 
+/** Everything a currency-specific buy page renders. */
+export interface SaleDetail {
+  sale: SaleView;
+  release: ReleaseDetail;
+}
+
 /** One tile on the Discover shelf. */
 export interface DiscoverItem {
-  pressing: PressingView;
+  sale: SaleView;
   releaseId: string;
   title: string;
   /** Primary artists, joined for display. Empty when no credits are set. */
@@ -153,14 +171,14 @@ export interface RecordAlbum {
   release?: ReleaseDetail | null;
 }
 
-/** The confirmation preview shown when an owner pastes a pressing id to pin. */
-export interface DropPreview {
+/** The confirmation preview shown when an owner pastes a Pressing id to pin. */
+export interface PressingPreview {
   pressingId: string;
-  currency: Currency;
   title: string;
   subtitle: string | null;
   coverUrl: string | null;
-  price: Price;
+  state: PressingView["state"];
+  supply: string;
   trackCount: number;
 }
 
@@ -249,7 +267,7 @@ export interface ArtistProfile {
   avatarUrl: string;
 }
 
-/** A party's pinned pressing, fully resolved. Null when nothing is pinned. */
+/** A party's pinned Pressing, fully resolved. Null when nothing is pinned. */
 export interface FeaturedRelease {
   pressingId: string;
   releaseId: string;
@@ -345,15 +363,17 @@ export interface Ownership {
 
 /** The sale itself, as the chain recorded it. */
 export interface RecordSale {
-  dropId: string;
+  listingId: string;
+  pressingId: string;
   releaseId: string;
-  edition: number;
   /** The `Record` object minted to the buyer. */
   recordId: string;
-  /** This copy's number in the edition's run (1-based), decimal string. */
+  /** This copy's number in the Pressing run (1-based), decimal string. */
   number: string;
   /** What the buyer actually paid, in the currency's base units. */
   paid: string;
+  /** The fixed or floor price that the Listing accepted at this sale. */
+  price: Price;
   buyer: string;
 }
 
@@ -378,10 +398,7 @@ export interface PurchaseReceipt {
   sale: RecordSale;
   /** The pressing/release the copy came from — cover, title, tracklist. */
   detail: PressingDetail;
-  /**
-   * The drop's list price. Differs from `sale.paid` when the buyer paid over a
-   * floor price, or when the price changed in a later edition.
-   */
+  /** The Listing price captured at sale time, not its mutable current value. */
   price: string;
   tracks: TrackRoyalty[];
 }

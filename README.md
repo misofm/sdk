@@ -28,12 +28,24 @@ object in the same PTB. The SDK supports both vault authorities and legacy
 address-owned admin caps explicitly; it never silently treats a legacy cap as a
 vaulted one.
 
-This package depends on `@misonetwork/sdk` and imports its bare
+This package requires `@misonetwork/sdk` as a peer and imports its bare
 `createComposition`/`createRecording` primitives, composing them with its own
 minato-dispersal and share-currency logic in the same PTB — the
 transaction-thunk composition pattern from the
 [Sui SDK building guide](https://sdk.mystenlabs.com/sui/sdk-building), just
 crossing a package boundary.
+
+Install both SDKs at the application boundary; the platform package intentionally
+does not carry its own protocol SDK copy:
+
+```sh
+bun add @misofm/sdk@^0.10.0 @misonetwork/sdk@^0.8.0
+```
+
+For SDK development, the frozen lockfile pins the protocol dev source to the
+exact `0.8.0` release commit. Bun trusts that development-only dependency to run
+the protocol package's own `prepare` build during install; the platform package
+does not run a custom script that modifies a consumer's `node_modules`.
 
 ## The model
 
@@ -47,7 +59,8 @@ place rather than replaced. A sale needs both switches open: the run active and 
 currency's listing enabled.
 
 **Everything is address math.** The pressing's UID derives off its release's, each
-listing's off the pressing's. There is no registry and no pointer to follow, so
+listing's off the pressing's. The protocol's canonical `ReleaseRegistry` creates the
+release; there is no *pressing* registry or `CurrentDropKey` pointer to follow, so
 "where is it" is answered offline — which is why the builders take a RELEASE id and
 compute the rest. A caller cannot pair a listing with the wrong pressing, because it
 never picks one.
@@ -94,7 +107,7 @@ Holding the ids yourself? Every builder and reader is exported bare, taking
 import { buyRecord, getSale } from "@misofm/sdk/pressing";
 ```
 
-No package IDs are bundled until the Ledger-admin deployment records the new
+No package IDs are bundled until the admin-cli deployment records the new
 immutable stack. `miso()` therefore fails closed; pass one complete verified
 deployment through `miso({ deployment })`. The post-publish update is confined
 to `src/deployments.ts`.
@@ -188,7 +201,7 @@ supplies the opinionated finish on top:
 import { miso } from "@misofm/sdk";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
-  miso(),
+  miso({ deployment: verifiedDeployment }),
 );
 
 // Mints the composition's share supply, disperses it to shareRecipients via
@@ -390,7 +403,6 @@ src/
   share-template.ts      embedded `share` package bytecode
   credits.ts             EXTENSION: contributor credits + the three role vocabularies
   cover.ts               EXTENSION: release cover art (Walrus blob via ori)
-  drop.ts                existing launch-drop compatibility surface
   read/                  high-level catalog, artist, wallet, and receipt views
   vault.ts               Vault authority, plugin, event, and receiving-coin builders
   execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult
@@ -421,27 +433,29 @@ Paths resolve against sibling checkouts, so regenerating requires
 `~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
 royalty-pool, routed-stake, share}`.
 
+For an isolated checkout, copy those source trees and set
+`MISO_SDK_CODEGEN_SOURCE_ROOT` to their common parent. The codegen config reads
+only from that copy, avoiding writes to a developer's live source tree.
+
 ## Dependency on `@misonetwork/sdk`
 
-`@misonetwork/sdk` is a `dependencies` entry (not a peer). This package imports
-its primitives, deployment configuration, and protocol client directly, then
-wraps that client at `client.miso.protocol`; applications do not install or
-register a second protocol extension.
+`@misonetwork/sdk` is a required peer (`^0.8.0`), not a runtime dependency.
+This package imports its primitives, deployment configuration, and protocol
+client directly, then wraps that client at `client.miso.protocol`. The consuming
+application installs one protocol SDK, preventing a platform tarball from
+silently nesting an older protocol ABI alongside the application's copy.
 `@mysten/sui` itself stays a peer dependency here, same as in
 `@misonetwork/sdk`.
 
-`@misonetwork/sdk` is installed from npm like any other dependency — no local
-linking, no workspace, no build step on the consumer side. It ships compiled
-output plus declarations, so this package resolves it the same way a third
-party would.
+For this coordinated pre-publish release, the development lock resolves the
+exact merged `@misonetwork/sdk` `0.8.0` source commit (`399aff5`). The published
+tarball intentionally contains no copy of it: consumers satisfy the peer with
+their verified `@misonetwork/sdk@^0.8.0` installation.
 
 ```bash
 bun install
 ```
 
-If you are changing both packages at once, `bun link` still works for a local
-loop — register the protocol SDK with `bun link` in its checkout, then run `bun
-link @misonetwork/sdk` here. Keep `@misonetwork/sdk` at its released semver
-range (`^0.7.0`) when committing. Note that `file:` does NOT work for this: Bun copies a `file:`
-dependency while honouring `.gitignore`, and `@misonetwork/sdk` builds to a
-gitignored `dist/`, so the copy arrives empty and nothing resolves.
+For a tarball integration check, pack both SDKs and install both tarballs into a
+fresh consumer. The consumer must resolve exactly one `@misonetwork/sdk`, at the
+application root; `@misofm/sdk` must not contain a nested copy.

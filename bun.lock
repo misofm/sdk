@@ -6,21 +6,25 @@
       "name": "@misofm/sdk",
       "dependencies": {
         "@misonetwork/miso-party": "^0.2.0",
-        "@misonetwork/sdk": "^0.7.0",
       },
       "devDependencies": {
+        "@misonetwork/sdk": "github:misonetwork/sdk#9193ec807b49bf8c7c0e84936ce2e1ae3fdec215",
         "@mysten/codegen": "^0.11.14",
         "@mysten/move-bytecode-template": "^0.4.0",
         "@mysten/sui": "^2.24.0",
         "@types/bun": "^1.3.14",
       },
       "peerDependencies": {
+        "@misonetwork/sdk": "^0.8.0",
         "@mysten/move-bytecode-template": "^0.4.0",
         "@mysten/sui": "^2.4.0",
         "typescript": "^5",
       },
     },
   },
+  "trustedDependencies": [
+    "@misonetwork/sdk",
+  ],
   "packages": {
     "@0no-co/graphql.web": ["@0no-co/graphql.web@1.3.3", "", { "peerDependencies": { "graphql": "^14.0.0 || ^15.0.0 || ^16.0.0" }, "optionalPeers": ["graphql"] }, "sha512-4gFGBdyaFmQ6n9euhp5JtIGS4ZeivwDr1tCPENUxTvy5wyv532yOtFCr9zzYAJh1s6uibgC+TRXUcay+mxzCoQ=="],
 
@@ -38,7 +42,7 @@
 
     "@misonetwork/miso-party": ["@misonetwork/miso-party@0.2.0", "", { "peerDependencies": { "@mysten/move-bytecode-template": "^0.4.0", "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "sha512-sU/F8jjKRXFNBNboYIbbyEjCPed+WzoDkO5FikQlWgRJtDCyxFQcIlb/uQzJ1+KoxuMkLkLvXct3Xwb3fmq5CA=="],
 
-    "@misonetwork/sdk": ["@misonetwork/sdk@0.7.0", "", { "peerDependencies": { "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "sha512-ezFHoG/+8h8NGx9ZsuCMMTFPkJthaRJHrbdm4z9oAn/IVtC+ic/KlN4zpUhtnXVO1Rol24h2lRdf07rlK5n5Rg=="],
+    "@misonetwork/sdk": ["@misonetwork/sdk@github:misonetwork/sdk#9193ec8", { "peerDependencies": { "@mysten/sui": "^2.4.0", "typescript": "^5" } }, "misonetwork-sdk-9193ec8", "sha512-Qu9k/1NTE9v/bnPgNU+M2ieJ7Rcv5vIaD3BWv52TclvVzGLObwFS4Z3nlygjnwkjAPznXui1kkHEvdXiuGyFvg=="],
 
     "@mysten/bcs": ["@mysten/bcs@2.1.0", "", { "dependencies": { "@mysten/utils": "^0.4.0", "@scure/base": "^2.2.0" } }, "sha512-rIR/cDAqDfBDxmYEZXppN/on8gmh1OW0dYi/Bk2kMBZcYMTaBaEtEX1VR6g7HicVxuMbFAIP0/SQkdH7J9Y5dQ=="],
 

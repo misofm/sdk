@@ -9,7 +9,8 @@
 // permanent, edited in place rather than replaced. A sale needs both switches open.
 //
 // EVERYTHING IS ADDRESS MATH. The pressing's UID derives off its release's, each
-// listing's off the pressing's. So there is no registry and no pointer to follow:
+// listing's off the pressing's. The core `ReleaseRegistry` owns release creation,
+// but there is no pressing registry or pointer to follow:
 // `derivePressingId`/`deriveListingId` answer "where is it" offline, which is why the
 // builders here take a RELEASE id and compute the rest. A caller cannot pass a
 // listing that belongs to some other pressing, because it never picks one.
@@ -592,6 +593,12 @@ export async function getSale(
   });
   const pressingObject = objects[0];
   const listingObject = objects[1];
+  if (pressingObject instanceof Error && !isNotFound(pressingObject)) {
+    throw pressingObject;
+  }
+  if (listingObject instanceof Error && !isNotFound(listingObject)) {
+    throw listingObject;
+  }
   return {
     pressing:
       !pressingObject ||
