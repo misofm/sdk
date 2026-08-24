@@ -14,6 +14,7 @@ describe("misoConfig", () => {
     expect(config.protocol).toEqual({
       pressing: deployment.packages.pressing,
       record: deployment.packages.record,
+      vault: deployment.packages.vault,
       releaseCoverArt: deployment.packages.releaseCoverArt,
       compositionCredits: deployment.packages.compositionCredits,
       recordingCredits: deployment.packages.recordingCredits,

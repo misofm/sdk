@@ -29,6 +29,8 @@ export interface ProtocolIds {
   pressing: string;
   /** `miso_record` package — the exact owner/type namespace for `record::Record`. */
   record: string;
+  /** `vault` — shared custody for protocol admin capabilities. */
+  vault: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
@@ -92,6 +94,7 @@ export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}
     protocol: {
       pressing: platform.packages.pressing,
       record: platform.packages.record,
+      vault: platform.packages.vault,
       releaseCoverArt: platform.packages.releaseCoverArt,
       compositionCredits: platform.packages.compositionCredits,
       recordingCredits: platform.packages.recordingCredits,

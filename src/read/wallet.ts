@@ -10,7 +10,7 @@
 // gRPC) is exactly the sort of thing that should exist once in the SDK rather
 // than be reimplemented by every browser, Worker, server, or native client.
 
-import { normalizeSuiAddress } from "@mysten/sui/utils";
+import { normalizeStructTag, normalizeSuiAddress, parseStructTag } from "@mysten/sui/utils";
 import {
   contracts as networkContracts,
   getCompositionByShareType,
@@ -21,6 +21,7 @@ import {
 } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
 import { int, u64 } from "./internal/scalars.ts";
+import * as vaultContract from "../contracts/vault/vault.ts";
 import type {
   Balance,
   OwnedParty,
@@ -38,6 +39,89 @@ import { getRecordingTitles, getWorkAddressesByShareTypes, getWorksByIds } from 
  * library.
  */
 const MAX_PAGES = 20;
+
+type WorkAdminCapType =
+  | { kind: "composition"; shareType: string }
+  | { kind: "recording"; shareType: string }
+  | { kind: "release" };
+
+type VaultedGenericCap = {
+  id: string;
+  shareType: string;
+  vaultId: string;
+};
+
+type VaultedReleaseCap = {
+  id: string;
+  vaultId: string;
+};
+
+function classifyWorkAdminCapType(type: string, misoPackageId: string): WorkAdminCapType | null {
+  let tag: ReturnType<typeof parseStructTag>;
+  try {
+    tag = parseStructTag(type);
+  } catch {
+    return null;
+  }
+  if (tag.address !== misoPackageId) return null;
+
+  if (
+    tag.module === "composition" &&
+    tag.name === "CompositionAdminCap" &&
+    tag.typeParams.length === 1
+  ) {
+    const share = tag.typeParams[0]!;
+    return {
+      kind: "composition",
+      shareType: typeof share === "string" ? share : normalizeStructTag(share),
+    };
+  }
+  if (
+    tag.module === "recording" &&
+    tag.name === "RecordingAdminCap" &&
+    tag.typeParams.length === 1
+  ) {
+    const share = tag.typeParams[0]!;
+    return {
+      kind: "recording",
+      shareType: typeof share === "string" ? share : normalizeStructTag(share),
+    };
+  }
+  if (
+    tag.module === "release" &&
+    tag.name === "ReleaseAdminCap" &&
+    tag.typeParams.length === 0
+  ) {
+    return { kind: "release" };
+  }
+  return null;
+}
+
+/** @internal Exact nested-type classifier used by the vault-aware catalog read. */
+export function classifyVaultedWorkAdminCapType(
+  type: string,
+  vaultPackageId: string,
+  misoPackageId: string,
+): WorkAdminCapType | null {
+  let tag: ReturnType<typeof parseStructTag>;
+  try {
+    tag = parseStructTag(type);
+  } catch {
+    return null;
+  }
+  if (
+    tag.address !== vaultPackageId ||
+    tag.module !== "vault" ||
+    tag.name !== "VaultAdminCap" ||
+    tag.typeParams.length !== 1
+  ) {
+    return null;
+  }
+  const wrapped = tag.typeParams[0];
+  return wrapped && typeof wrapped !== "string"
+    ? classifyWorkAdminCapType(normalizeStructTag(wrapped), misoPackageId)
+    : null;
+}
 
 // ── Records ──────────────────────────────────────────────────────────────────
 
@@ -183,20 +267,116 @@ export async function getPendingMemberships(
  * not store the work's id — only its share type.
  */
 async function ownedGenericCaps(client: MisoClient, owner: string, capType: string) {
-  const { objects } = await client.protocol.core.listOwnedObjects({ owner, type: capType, limit: 50 });
   const caps: { id: string; shareType: string }[] = [];
-  for (const obj of objects) {
-    const match = /<(.+)>$/.exec(obj.type);
-    if (match?.[1]) caps.push({ id: obj.objectId, shareType: match[1] });
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res: Awaited<ReturnType<typeof client.protocol.core.listOwnedObjects>> =
+      await client.protocol.core.listOwnedObjects({ owner, type: capType, cursor, limit: 50 });
+    for (const obj of res.objects) {
+      const match = /<(.+)>$/.exec(obj.type);
+      if (match?.[1]) caps.push({ id: obj.objectId, shareType: match[1] });
+    }
+    if (!res.hasNextPage) break;
+    cursor = res.cursor;
+    if (!cursor) break;
   }
   return caps;
+}
+
+/**
+ * Discover owner-held VaultAdminCaps whose wrapped capability administers a
+ * catalog work. PressingAdminCap is deliberately ignored: Catalog is a work
+ * surface (composition / recording / release), not a sale-management surface.
+ */
+async function ownedVaultedWorkCaps(client: MisoClient, owner: string) {
+  const out: {
+    compositions: VaultedGenericCap[];
+    recordings: VaultedGenericCap[];
+    releases: VaultedReleaseCap[];
+  } = { compositions: [], recordings: [], releases: [] };
+  const vaultPackageId = client.config.protocol.vault;
+  const misoPackageId = client.config.deployment.miso;
+  const capType = `${vaultPackageId}::vault::VaultAdminCap`;
+  let cursor: string | null = null;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res: Awaited<ReturnType<typeof client.protocol.core.listOwnedObjects>> =
+      await client.protocol.core.listOwnedObjects({
+        owner,
+        type: capType,
+        cursor,
+        limit: 50,
+        include: { content: true },
+      });
+    for (const object of res.objects) {
+      if (!object.content) continue;
+      const work = classifyVaultedWorkAdminCapType(
+        object.type,
+        vaultPackageId,
+        misoPackageId,
+      );
+      if (!work) continue;
+      try {
+        const { vault_id: vaultId } = vaultContract.VaultAdminCap.parse(object.content);
+        if (work.kind === "composition") {
+          out.compositions.push({ id: object.objectId, shareType: work.shareType, vaultId });
+        } else if (work.kind === "recording") {
+          out.recordings.push({ id: object.objectId, shareType: work.shareType, vaultId });
+        } else {
+          out.releases.push({ id: object.objectId, vaultId });
+        }
+      } catch {
+        // A malformed object under the configured vault namespace is not usable
+        // authority and should not hide otherwise valid catalog entries.
+      }
+    }
+    if (!res.hasNextPage) break;
+    cursor = res.cursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+/** Read the ReleaseAdminCap wrapped by each shared release vault. */
+async function resolveVaultedReleaseCaps(
+  client: MisoClient,
+  caps: readonly VaultedReleaseCap[],
+): Promise<{ id: string; releaseId: string }[]> {
+  if (caps.length === 0) return [];
+  const releaseCapType = `${client.config.deployment.miso}::release::ReleaseAdminCap`;
+  const vaultType = normalizeStructTag(
+    `${client.config.protocol.vault}::vault::Vault<${releaseCapType}>`,
+  );
+  const { objects } = await client.protocol.core.getObjects({
+    objectIds: caps.map((cap) => cap.vaultId),
+    include: { content: true },
+  });
+  const releasesByVault = new Map<string, string>();
+  for (const object of objects) {
+    if (object instanceof Error || !object.content) continue;
+    try {
+      if (normalizeStructTag(object.type) !== vaultType) continue;
+      const vault = vaultContract.Vault(networkContracts.release.ReleaseAdminCap).parse(
+        object.content,
+      );
+      const releaseId = vault.cap.value?.release_id;
+      if (releaseId) releasesByVault.set(object.objectId, releaseId);
+    } catch {
+      // Batch catalog discovery is best-effort per authority, matching the
+      // existing direct-cap path's treatment of unreadable work objects.
+    }
+  }
+  return caps.flatMap((cap) => {
+    const releaseId = releasesByVault.get(cap.vaultId);
+    return releaseId ? [{ id: cap.id, releaseId }] : [];
+  });
 }
 
 /**
  * Every work the wallet administers, keyed by its ADMIN CAP id (the studio
  * catalog's routing unit — caps are what control means here).
  *
- * Three transports, one answer: cap discovery is gRPC; one aliased GraphQL
+ * Three transports, one answer: direct or vaulted cap discovery is gRPC; one aliased GraphQL
  * request maps every share type to its work address (gRPC cannot ask "which
  * object has type X"); one gRPC batch loads all the work contents. Releases skip
  * the GraphQL hop entirely — `ReleaseAdminCap` is not generic and carries
@@ -205,11 +385,16 @@ async function ownedGenericCaps(client: MisoClient, owner: string, capType: stri
 export async function getOwnedWorks(client: MisoClient, owner: string): Promise<OwnedWork[]> {
   const miso = client.config.deployment.miso;
 
-  const [compCaps, recCaps, relCaps] = await Promise.all([
+  const [directCompCaps, directRecCaps, directRelCaps, vaulted] = await Promise.all([
     ownedGenericCaps(client, owner, `${miso}::composition::CompositionAdminCap`),
     ownedGenericCaps(client, owner, `${miso}::recording::RecordingAdminCap`),
     getOwnedReleaseAdminCaps(client.protocol, owner, miso),
+    ownedVaultedWorkCaps(client, owner),
   ]);
+  const vaultedRelCaps = await resolveVaultedReleaseCaps(client, vaulted.releases);
+  const compCaps = [...directCompCaps, ...vaulted.compositions];
+  const recCaps = [...directRecCaps, ...vaulted.recordings];
+  const relCaps = [...directRelCaps, ...vaultedRelCaps];
 
   const addresses = await getWorkAddressesByShareTypes(
     client.graphql,
@@ -255,23 +440,29 @@ export async function getOwnedWorks(client: MisoClient, owner: string): Promise<
   return [...comps, ...recs, ...rels];
 }
 
-/** Classify a cap by its on-chain type, then resolve the work behind it. */
+/** Classify a direct or vaulted cap by its on-chain type, then resolve its work. */
 export async function getWorkByCap(client: MisoClient, capId: string): Promise<WorkDetail | null> {
   const miso = client.config.deployment.miso;
 
   let type: string;
   let json: Record<string, unknown> | null;
+  let content: Uint8Array | undefined;
   try {
-    const { object } = await client.protocol.core.getObject({ objectId: capId, include: { json: true } });
+    const { object } = await client.protocol.core.getObject({
+      objectId: capId,
+      include: { json: true, content: true },
+    });
     type = object.type;
     json = (object.json ?? null) as Record<string, unknown> | null;
+    content = object.content;
   } catch (e) {
     if (isNotFound(e)) return null;
     throw e;
   }
 
-  if (type.startsWith(`${miso}::composition::CompositionAdminCap<`)) {
-    const shareType = type.slice(type.indexOf("<") + 1, -1);
+  const direct = classifyWorkAdminCapType(type, miso);
+  if (direct?.kind === "composition") {
+    const { shareType } = direct;
     const c = await getCompositionByShareType(client.protocol, client.graphql, shareType, miso);
     return {
       capId,
@@ -284,8 +475,8 @@ export async function getWorkByCap(client: MisoClient, capId: string): Promise<W
     };
   }
 
-  if (type.startsWith(`${miso}::recording::RecordingAdminCap<`)) {
-    const shareType = type.slice(type.indexOf("<") + 1, -1);
+  if (direct?.kind === "recording") {
+    const { shareType } = direct;
     const r = await getRecordingByShareType(client.protocol, client.graphql, shareType, miso);
     const titles = await getRecordingTitles(client.protocol, client.graphql, [r.id], miso);
     return {
@@ -298,7 +489,7 @@ export async function getWorkByCap(client: MisoClient, capId: string): Promise<W
     };
   }
 
-  if (type.startsWith(`${miso}::release::ReleaseAdminCap`)) {
+  if (direct?.kind === "release") {
     const releaseId = typeof json?.release_id === "string" ? json.release_id : null;
     if (!releaseId) throw new Error(`Release cap ${capId} carries no release id`);
     const r = await getReleaseById(client.protocol, releaseId);
@@ -313,8 +504,66 @@ export async function getWorkByCap(client: MisoClient, capId: string): Promise<W
     };
   }
 
-  // A real object, but not a work admin cap — "no such work", not an error.
-  return null;
+  const vaulted = classifyVaultedWorkAdminCapType(
+    type,
+    client.config.protocol.vault,
+    miso,
+  );
+  if (!vaulted || !content) {
+    // A real object, but not a supported work authority — "no such work",
+    // not a transport failure. PressingAdminCap intentionally lands here.
+    return null;
+  }
+  const { vault_id: vaultId } = vaultContract.VaultAdminCap.parse(content);
+
+  if (vaulted.kind === "composition") {
+    const c = await getCompositionByShareType(
+      client.protocol,
+      client.graphql,
+      vaulted.shareType,
+      miso,
+    );
+    return {
+      capId,
+      kind: "composition",
+      workId: c.id,
+      title: c.title,
+      state: c.state.type,
+      royaltyRateBps: int(c.royaltyRate.value),
+      shareType: vaulted.shareType,
+    };
+  }
+
+  if (vaulted.kind === "recording") {
+    const r = await getRecordingByShareType(
+      client.protocol,
+      client.graphql,
+      vaulted.shareType,
+      miso,
+    );
+    const titles = await getRecordingTitles(client.protocol, client.graphql, [r.id], miso);
+    return {
+      capId,
+      kind: "recording",
+      workId: r.id,
+      title: titles[r.id] ?? "Untitled",
+      state: r.state.type,
+      shareType: vaulted.shareType,
+    };
+  }
+
+  const [releaseCap] = await resolveVaultedReleaseCaps(client, [{ id: capId, vaultId }]);
+  if (!releaseCap) throw new Error(`Release vault ${vaultId} carries no release admin cap`);
+  const r = await getReleaseById(client.protocol, releaseCap.releaseId);
+  return {
+    capId,
+    kind: "release",
+    workId: r.id,
+    title: r.title,
+    state: r.state.type,
+    discCount: r.tracks.length > 0 ? 1 : 0,
+    trackCount: r.tracks.length,
+  };
 }
 
 // ── Balance ──────────────────────────────────────────────────────────────────
