@@ -82,6 +82,8 @@ export interface ReleaseDetail {
   id: string;
   title: string;
   subtitle: string | null;
+  /** Self-declared `release_kind`, or null when no extension is attached. */
+  kind: string | null;
   state: WorkState;
   /** Publish time (ms), or null while unpublished. */
   publishedAtMs: number | null;

@@ -31,6 +31,10 @@ import {
   releaseCreditsFieldId,
   type CreditView,
 } from "../credits.ts";
+import {
+  parseReleaseKindContent,
+  releaseKindFieldId,
+} from "../release-extensions.ts";
 import { getTrackCreditsByRecordingIds } from "../catalog.ts";
 import { getReleaseById, getReleasesByIds, isNotFound } from "@misonetwork/sdk";
 import type { Release } from "@misonetwork/sdk";
@@ -229,12 +233,13 @@ export async function readReleaseCover(
   return toCover(client.config.walrusAggregatorUrl, covers[releaseId] ?? null);
 }
 
-export type ReleaseResourceInclude = "cover" | "credits";
+export type ReleaseResourceInclude = "cover" | "credits" | "kind";
 
 export interface ReleaseResources {
   release: Release;
   cover?: Cover | null;
   credits?: Credit[];
+  kind?: string | null;
 }
 
 /**
@@ -249,16 +254,21 @@ export async function getReleaseResources(
 ): Promise<ReleaseResources> {
   const wantsCover = include.includes("cover");
   const wantsCredits = include.includes("credits");
+  const wantsKind = include.includes("kind");
   const coverFieldIds = wantsCover
     ? [releaseCoverFieldId(releaseId, client.config.protocol.releaseCoverArt)]
     : [];
   const creditsFieldId = wantsCredits
     ? releaseCreditsFieldId(releaseId, client.config.protocol.releaseCredits)
     : null;
+  const kindFieldId = wantsKind
+    ? releaseKindFieldId(releaseId, client.config.protocol.releaseKind)
+    : null;
   const objectIds = [
     releaseId,
     ...coverFieldIds,
     ...(creditsFieldId ? [creditsFieldId] : []),
+    ...(kindFieldId ? [kindFieldId] : []),
   ];
   const { objects } = await client.protocol.core.getObjects({
     objectIds,
@@ -303,10 +313,21 @@ export async function getReleaseResources(
     }
     credits = toCredits(view);
   }
+  let kind: string | null | undefined;
+  if (wantsKind) {
+    const object = objects[
+      1 + coverFieldIds.length + (creditsFieldId ? 1 : 0)
+    ];
+    kind =
+      object && !(object instanceof Error) && object.content
+        ? parseReleaseKindContent(object.content)
+        : null;
+  }
   return {
     release,
     ...(wantsCover ? { cover: cover ?? null } : {}),
     ...(wantsCredits ? { credits: credits ?? [] } : {}),
+    ...(wantsKind ? { kind: kind ?? null } : {}),
   };
 }
 
@@ -332,10 +353,10 @@ export async function getReleaseDetail(
   releaseId: string,
   options: GetReleaseOptions = {},
 ): Promise<ReleaseDetail> {
-  const { release, cover, credits } = await getReleaseResources(
+  const { release, cover, credits, kind } = await getReleaseResources(
     client,
     releaseId,
-    ["cover", "credits"],
+    ["cover", "credits", "kind"],
   );
 
   const recordingIds = release.tracks.map((track) => track.recordingId);
@@ -356,6 +377,7 @@ export async function getReleaseDetail(
     id: release.id,
     title: release.title,
     subtitle: null,
+    kind: kind ?? null,
     state: toWorkState(release.state),
     publishedAtMs:
       release.state.type === "Published" ? release.state.timestampMs : null,

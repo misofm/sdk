@@ -16,6 +16,7 @@ describe("misoConfig", () => {
       record: deployment.packages.record,
       vault: deployment.packages.vault,
       releaseCoverArt: deployment.packages.releaseCoverArt,
+      releaseKind: deployment.packages.releaseKind,
       compositionCredits: deployment.packages.compositionCredits,
       recordingCredits: deployment.packages.recordingCredits,
       releaseCredits: deployment.packages.releaseCredits,

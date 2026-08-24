@@ -33,6 +33,8 @@ export interface ProtocolIds {
   vault: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
+  /** `release_kind` — the Release's optional self-declared kind. */
+  releaseKind: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
   compositionCredits: string;
   recordingCredits: string;
@@ -96,6 +98,7 @@ export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}
       record: platform.packages.record,
       vault: platform.packages.vault,
       releaseCoverArt: platform.packages.releaseCoverArt,
+      releaseKind: platform.packages.releaseKind,
       compositionCredits: platform.packages.compositionCredits,
       recordingCredits: platform.packages.recordingCredits,
       releaseCredits: platform.packages.releaseCredits,

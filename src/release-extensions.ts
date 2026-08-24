@@ -5,7 +5,9 @@
 // intent aggregates these concerns, but every value is written by its own
 // independently deployed extension package.
 
-import { deriveObjectID } from "@mysten/sui/utils";
+import type { ClientWithCoreApi } from "@mysten/sui/client";
+import { bcs } from "@mysten/sui/bcs";
+import { deriveDynamicFieldID, deriveObjectID } from "@mysten/sui/utils";
 import type {
   Transaction,
   TransactionArgument,
@@ -57,6 +59,47 @@ export function setReleaseKind(p: SetReleaseKindParams): TxThunk {
       adminCapIndex: 1,
     });
   };
+}
+
+const ReleaseKindField = bcs.struct("Field", {
+  id: bcs.Address,
+  name: releaseKind.ExtensionKey,
+  value: bcs.string(),
+});
+const RELEASE_KIND_KEY_BYTES = releaseKind.ExtensionKey.serialize([
+  false,
+]).toBytes();
+
+/** Deterministic dynamic-field id for a Release's optional self-declared kind. */
+export function releaseKindFieldId(
+  releaseId: string,
+  releaseKindPackageId: string,
+): string {
+  return deriveDynamicFieldID(
+    releaseId,
+    `${releaseKindPackageId}::release_kind::ExtensionKey`,
+    RELEASE_KIND_KEY_BYTES,
+  );
+}
+
+/** Parse the dynamic field storing `Option<String>` as its present string. */
+export function parseReleaseKindContent(content: Uint8Array): string {
+  return ReleaseKindField.parse(content).value;
+}
+
+/** Read a Release's self-declared kind, or `null` when the extension is absent. */
+export async function getReleaseKind(
+  client: ClientWithCoreApi,
+  releaseId: string,
+  releaseKindPackageId: string,
+): Promise<string | null> {
+  const { objects } = await client.core.getObjects({
+    objectIds: [releaseKindFieldId(releaseId, releaseKindPackageId)],
+    include: { content: true },
+  });
+  const object = objects[0];
+  if (!object || object instanceof Error || !object.content) return null;
+  return parseReleaseKindContent(object.content);
 }
 
 export type SetReleaseDescriptionParams = ReleaseExtensionTarget & {
