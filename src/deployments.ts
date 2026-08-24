@@ -49,7 +49,6 @@ export interface MisoPlatformDeployment {
     readonly ori: string;
   };
   readonly objects: {
-    readonly recordSettings: string;
     readonly releaseRegistry: string;
     /** Shared parent used to derive canonical Genre object ids. */
     readonly genreRegistry: string;

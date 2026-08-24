@@ -28,8 +28,6 @@ export interface ProtocolIds {
   pressing: string;
   /** `miso_record` package — the exact owner/type namespace for `record::Record`. */
   record: string;
-  /** `miso_record` shared `Settings` object — the mint witness authorizer. */
-  recordSettings: string;
   /** `release_cover_art` — the release cover extension. */
   releaseCoverArt: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */

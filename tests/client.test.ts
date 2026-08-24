@@ -35,7 +35,7 @@ const DEPLOYMENT = {
     routedStake: A,
     releaseRevenueDistributorPlugin: A,
   },
-  objects: { recordSettings: A, releaseRegistry: A, genreRegistry: A },
+  objects: { releaseRegistry: A, genreRegistry: A },
 } as unknown as MisoPlatformDeployment;
 
 function client() {

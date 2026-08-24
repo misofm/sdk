@@ -216,7 +216,6 @@ test("rejects unsafe JavaScript numbers before serializing u64 price, schedule, 
     buyRecord({
       releaseId: RELEASE,
       currencyType: CURRENCY,
-      settingsId: PRESSING,
       recipient: PRESSING,
       misoPressingPackageId: "0xa",
       amount: unsafe,

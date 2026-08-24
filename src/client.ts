@@ -14,7 +14,7 @@
 // Two things this buys over calling the bare functions:
 //
 //   IDS ARE CONFIGURED ONCE. Every builder and reader below needs the pressing
-//   package id, and half of them need the record `Settings` too. Threading those
+//   package id. Threading those
 //   through 20 call sites is how an app ends up publishing against one package and
 //   reading against another.
 //
