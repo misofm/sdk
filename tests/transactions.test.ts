@@ -10,13 +10,37 @@
 
 import { test, expect } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
-import { publishCompositionAndRecording, publishRelease } from "../src/transactions.ts";
+import { publishCompositionAndRecording, publishRelease, publishShareCurrency } from "../src/transactions.ts";
 
 const PKG = "0x" + "cd".repeat(32);
 const A = "0x" + "ab".repeat(32);
 const REGISTRY = "0x" + "01".repeat(32);
 const RECORDING = "0x" + "02".repeat(32);
 const RECORDING_CAP = "0x" + "03".repeat(32);
+
+test("share publication consumes its UpgradeCap with make_immutable in the same PTB", () => {
+  const tx = new Transaction();
+  publishShareCurrency({ modules: ["AA=="], dependencies: [], digest: [] })(tx);
+  const commands = (tx.getData() as {
+    commands: Array<{
+      $kind: string;
+      MoveCall?: {
+        package: string;
+        module: string;
+        function: string;
+        arguments: Array<{ $kind: string; Result?: number }>;
+      };
+    }>;
+  }).commands;
+
+  expect(commands.map((command) => command.$kind)).toEqual(["Publish", "MoveCall"]);
+  expect(commands[1]!.MoveCall).toMatchObject({
+    package: "0x" + "0".repeat(63) + "2",
+    module: "package",
+    function: "make_immutable",
+    arguments: [{ $kind: "Result", Result: 0 }],
+  });
+});
 
 test("publishCompositionAndRecording orders new→new→publish→publish and borrows the composition in-PTB", () => {
   const tx = new Transaction();

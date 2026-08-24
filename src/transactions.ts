@@ -130,6 +130,7 @@ export interface PackageBytecode {
   digest: number[];
 }
 
+/** Publish a share package and permanently destroy its UpgradeCap in the same PTB. */
 export function publishShareCurrency(bytecode: PackageBytecode): TxThunk {
   return (tx) => {
     const upgradeCap = tx.publish(bytecode);

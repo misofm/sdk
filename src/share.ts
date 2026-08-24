@@ -14,7 +14,9 @@
 // matters, and it is the same signer for all), so publishes are fungible: a whole
 // batch can be published — up to 5 `tx.publish` per PTB (the protocol's
 // `max_publish_or_upgrade_per_ptb` cap) — and run concurrently through a
-// `ParallelTransactionExecutor`. Initialization is likewise batched. The caller
+// `ParallelTransactionExecutor`. Every Publish result is consumed immediately by
+// `package::make_immutable` in that same PTB, so no share-package UpgradeCap is
+// ever left with the publisher. Initialization is likewise batched. The caller
 // assigns packages to work slots and supplies per-package metadata, so each
 // currency still gets a descriptive, work-specific name.
 
@@ -104,7 +106,7 @@ export interface CreateShareCurrencyParams {
   treasuryCapRecipient?: string;
 }
 
-/** Publishes + initializes a fresh share currency in two sequential txs. */
+/** Publishes an immutable package, then initializes a fresh share currency in a second tx. */
 export async function createShareCurrency(
   client: ClientWithCoreApi,
   signer: Signer,
@@ -151,8 +153,9 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Publishes `count` fresh share-currency packages, batched at ≤5 publishes per PTB
- * and run concurrently through the executor. Returns the published package ids
+ * Publishes `count` fresh, permanently immutable share-currency packages, batched
+ * at ≤5 publishes per PTB and run concurrently through the executor. Each publish
+ * consumes its UpgradeCap in the same PTB. Returns the published package ids
  * (fungible — order is not meaningful; the caller assigns them to work slots).
  */
 export async function publishShareCurrencies(
