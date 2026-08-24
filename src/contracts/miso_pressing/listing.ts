@@ -46,9 +46,9 @@
  * pressing's own `Scheduled → Active → Paused` governs every currency at once
  * (`pressing::mint_next`). A sale needs both open.
  * 
- * The **when** lives on the Pressing, not here: its opening time is a fact about
- * the release going on sale, not about one payment rail, and a run that opened in
- * SUI at Friday 8pm and in USDC at some other time would have two starts and one
+ * The **when** lives on the pressing, not here: a drop moment is a fact about the
+ * release going on sale, not about one payment rail, and a run that opened in SUI
+ * at Friday 8pm and in USDC at some other time would have two drop moments and one
  * number sequence. So a listing carries no schedule — only whether its currency is
  * taken.
  * 
@@ -548,8 +548,8 @@ export interface IsLiveOptions {
 }
 /**
  * Whether `buy` would be accepted right now: the right pressing, this currency
- * enabled, and the run selling at this moment (open, and past its scheduled start
- * if it has one).
+ * enabled, and the run selling at this moment (open, and past its drop time if it
+ * has one).
  */
 export function isLive(options: IsLiveOptions) {
     const packageAddress = options.package ?? '@local-pkg/miso_pressing';

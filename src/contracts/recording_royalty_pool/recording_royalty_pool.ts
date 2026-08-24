@@ -157,19 +157,19 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface RedeemAndDepositArguments {
+export interface SweepAndDepositArguments {
     vault: RawTransactionArgument<string>;
     recording: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
-    value: RawTransactionArgument<number | bigint>;
+    root: RawTransactionArgument<string>;
 }
-export interface RedeemAndDepositOptions {
+export interface SweepAndDepositOptions {
     package?: string;
-    arguments: RedeemAndDepositArguments | [
+    arguments: SweepAndDepositArguments | [
         vault: RawTransactionArgument<string>,
         recording: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
-        value: RawTransactionArgument<number | bigint>
+        root: RawTransactionArgument<string>
     ];
     typeArguments: [
         string,
@@ -178,22 +178,27 @@ export interface RedeemAndDepositOptions {
     ];
 }
 /**
- * Redeem funds accumulated at the Recording address and deposit them into its
- * canonical pool. Anyone may crank this after installation.
+ * Redeem the settled `Currency` amount reported for the Recording address and
+ * deposit it into the canonical pool. Anyone may crank this after installation.
+ *
+ * Funds sent during the current consensus commit are not yet settled and remain
+ * available for a later sweep. Aborts with `ENoSettledFunds` when the settled
+ * amount is zero. The framework caps the reported amount at `u64::MAX`; any excess
+ * remains for a later sweep.
  */
-export function redeemAndDeposit(options: RedeemAndDepositOptions) {
+export function sweepAndDeposit(options: SweepAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/recording_royalty_pool';
     const argumentsTypes = [
         null,
         null,
         null,
-        'u64'
+        null
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "recording", "pool", "value"];
+    const parameterNames = ["vault", "recording", "pool", "root"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'recording_royalty_pool',
-        function: 'redeem_and_deposit',
+        function: 'sweep_and_deposit',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

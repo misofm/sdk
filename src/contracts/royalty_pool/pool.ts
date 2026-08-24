@@ -29,7 +29,7 @@
  *   track's split there). The address is a pure function of
  *   `(parent_id, Share, Currency)`, so senders need the pool neither shared nor
  *   even created yet; a later `new` claims exactly that ID — and can only be the
- *   correctly-typed, shared pool. `receive_and_deposit` and `redeem_and_deposit`
+ *   correctly-typed, shared pool. `receive_and_deposit` and `sweep_and_deposit`
  *   fold such funds into the accumulator, permissionlessly: anyone can complete
  *   the delivery. Both run through `deposit`, which aborts while no shares are
  *   staked — and the pool has no other withdrawal path — so funds at the pool's
@@ -236,15 +236,15 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface RedeemAndDepositArguments {
+export interface SweepAndDepositArguments {
     self: RawTransactionArgument<string>;
-    value: RawTransactionArgument<number | bigint>;
+    root: RawTransactionArgument<string>;
 }
-export interface RedeemAndDepositOptions {
+export interface SweepAndDepositOptions {
     package?: string;
-    arguments: RedeemAndDepositArguments | [
+    arguments: SweepAndDepositArguments | [
         self: RawTransactionArgument<string>,
-        value: RawTransactionArgument<number | bigint>
+        root: RawTransactionArgument<string>
     ];
     typeArguments: [
         string,
@@ -252,21 +252,25 @@ export interface RedeemAndDepositOptions {
     ];
 }
 /**
- * Redeem `value` base units from the pool's funds-accumulator and fold them into
- * the accumulator. Recovery path for funds delivered via Sui's `send_funds`
- * mechanism rather than via the canonical extension path.
+ * Redeem the pool's funds settled at the start of the current consensus commit and
+ * fold them into the royalty accumulator. Recovery path for funds delivered via
+ * Sui's `send_funds` mechanism rather than via the canonical extension path.
+ *
+ * The framework returns at most `u64::MAX` per call. Any excess, along with funds
+ * sent later in the current commit, remains for a subsequent sweep. Aborts with
+ * `ENoSettledFunds` when no positive amount is currently eligible.
  */
-export function redeemAndDeposit(options: RedeemAndDepositOptions) {
+export function sweepAndDeposit(options: SweepAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/royalty_pool';
     const argumentsTypes = [
         null,
-        'u64'
+        null
     ] satisfies (string | null)[];
-    const parameterNames = ["self", "value"];
+    const parameterNames = ["self", "root"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'pool',
-        function: 'redeem_and_deposit',
+        function: 'sweep_and_deposit',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

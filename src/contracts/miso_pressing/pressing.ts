@@ -38,9 +38,9 @@
  * Nothing here is ever destroyed, sealed, or wound down — deleting a pressing
  * would strand its whole derived subtree, so there is no destructor at all. The
  * run's lifecycle is `Scheduled → Active → Paused → Active`: it opens itself at
- * its scheduled start (no artist transaction, and nobody can buy early), then the
- * artist stops and starts it at will. The first transition is real, not computed —
- * the first sale past the start rewrites `Scheduled` to `Active` inside
+ * its drop moment (no artist transaction, and nobody can buy early), and after
+ * that the artist stops and starts it at will. The first transition is real, not
+ * computed — the first sale past the start rewrites `Scheduled` to `Active` inside
  * `mint_next`, which is why `Scheduled` only ever describes a run still waiting.
  * Below it, each listing's `Enabled | Disabled` governs one currency. A run that
  * is paused or not yet open sells in no currency, whatever the listings say.
@@ -73,8 +73,8 @@ export const PressingKey = new MoveTuple({ name: `${$moduleName}::PressingKey`, 
 export const PressingAdminCapKey = new MoveTuple({ name: `${$moduleName}::PressingAdminCapKey`, fields: [bcs.bool()] });
 /**
  * Whether the run sells, over every currency at once. The lifecycle runs
- * `Scheduled → Active → Paused → Active`: a pressing opens itself at its scheduled
- * start, then the artist stops and starts it at will.
+ * `Scheduled → Active → Paused → Active`: a pressing opens itself at its drop
+ * moment, then the artist stops and starts it at will.
  */
 export const PressingState = new MoveEnum({ name: `${$moduleName}::PressingState`, fields: {
         /**
@@ -85,7 +85,7 @@ export const PressingState = new MoveEnum({ name: `${$moduleName}::PressingState
           * `Active` (in `mint_next`, before any sales logic), so a run reads `Scheduled`
           * only while it is still waiting. Between the start and that first sale the run
           * already sells — `is_selling` answers against the clock — so nobody has to go
-          * first for the Pressing to be open.
+          * first for the drop to be open.
           *
           * Consequence worth knowing: once the transition fires the start time is gone from
           * the object. `PressingOpenedEvent` and `PressingStateChangedEvent` carry it, so
@@ -190,7 +190,7 @@ export interface NewOptions {
     ];
 }
 /**
- * Open a release's pressing in `state` — `Scheduled` for a future start, `Active`
+ * Open a release's pressing in `state` — `Scheduled` for a drop moment, `Active`
  * to sell immediately, `Paused` to set it up quietly. Returns it unshared, so the
  * same transaction can list it (`listing::new`) before `share` puts it on chain,
  * plus the cap that governs it from here on. Neither value has `drop`, so neither

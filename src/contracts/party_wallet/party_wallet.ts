@@ -8,11 +8,12 @@
  *
  * Anyone may address objects or funds to a Party ID. This plugin is the bounded
  * withdrawal door: it temporarily leases the matching `PartyAdminCap`, uses it
- * only to reach that Party's UID, returns it to the Vault, and then transfers the
- * withdrawn object or coin to the recipient selected by the Vault administrator.
+ * only to reach that Party's UID, and returns it to the Vault. Object withdrawals
+ * transfer to the recipient selected by the Vault administrator; monetary
+ * withdrawals return a composable `Balance` for the caller's PTB to consume.
  *
  * Installation alone never makes withdrawals permissionless. Every production
- * withdrawal is an `entry fun` requiring the matching `VaultAdminCap`, and no
+ * withdrawal is a `public fun` requiring the matching `VaultAdminCap`, and no
  * endpoint returns the leased capability, its borrow receipt, or a privileged
  * reference. The Party itself stores no plugin data.
  */
@@ -182,7 +183,6 @@ export interface ReceiveCoinsArguments {
     party: RawTransactionArgument<string>;
     vaultAdminCap: RawTransactionArgument<string>;
     coins: TransactionArgument;
-    recipient: RawTransactionArgument<string>;
 }
 export interface ReceiveCoinsOptions {
     package?: string;
@@ -190,16 +190,15 @@ export interface ReceiveCoinsOptions {
         vault: RawTransactionArgument<string>,
         party: RawTransactionArgument<string>,
         vaultAdminCap: RawTransactionArgument<string>,
-        coins: TransactionArgument,
-        recipient: RawTransactionArgument<string>
+        coins: TransactionArgument
     ];
     typeArguments: [
         string
     ];
 }
 /**
- * Receive coin objects of one currency, merge them, and transfer the resulting
- * Coin to `recipient`.
+ * Receive coin objects of one currency, merge them, and return their combined
+ * Balance for the caller's PTB to consume.
  *
  * Aborts with `ENothingToReceive` if `coins` is empty. It also aborts if the Vault
  * administrator, plugin installation, Party capability, or a receiving ticket is
@@ -211,10 +210,9 @@ export function receiveCoins(options: ReceiveCoinsOptions) {
         null,
         null,
         null,
-        'vector<null>',
-        'address'
+        'vector<null>'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "party", "vaultAdminCap", "coins", "recipient"];
+    const parameterNames = ["vault", "party", "vaultAdminCap", "coins"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'party_wallet',
@@ -223,48 +221,89 @@ export function receiveCoins(options: ReceiveCoinsOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface RedeemCoinArguments {
+export interface RedeemBalanceArguments {
     vault: RawTransactionArgument<string>;
     party: RawTransactionArgument<string>;
     vaultAdminCap: RawTransactionArgument<string>;
     value: RawTransactionArgument<number | bigint>;
-    recipient: RawTransactionArgument<string>;
 }
-export interface RedeemCoinOptions {
+export interface RedeemBalanceOptions {
     package?: string;
-    arguments: RedeemCoinArguments | [
+    arguments: RedeemBalanceArguments | [
         vault: RawTransactionArgument<string>,
         party: RawTransactionArgument<string>,
         vaultAdminCap: RawTransactionArgument<string>,
-        value: RawTransactionArgument<number | bigint>,
-        recipient: RawTransactionArgument<string>
+        value: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
         string
     ];
 }
 /**
- * Redeem `value` from the Party's accumulator balance, create a Coin, and transfer
- * it to `recipient`.
+ * Redeem `value` from the Party's accumulator and return a Balance for the
+ * caller's PTB to consume.
  *
  * Aborts if the Vault administrator is wrong, the plugin is not installed, the
  * Vault contains another Party's cap, `value` is zero, or the accumulator cannot
  * cover the requested amount.
  */
-export function redeemCoin(options: RedeemCoinOptions) {
+export function redeemBalance(options: RedeemBalanceOptions) {
     const packageAddress = options.package ?? '@local-pkg/party_wallet';
     const argumentsTypes = [
         null,
         null,
         null,
-        'u64',
-        'address'
+        'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "party", "vaultAdminCap", "value", "recipient"];
+    const parameterNames = ["vault", "party", "vaultAdminCap", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'party_wallet',
-        function: 'redeem_coin',
+        function: 'redeem_balance',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface SweepBalanceArguments {
+    vault: RawTransactionArgument<string>;
+    party: RawTransactionArgument<string>;
+    root: RawTransactionArgument<string>;
+    vaultAdminCap: RawTransactionArgument<string>;
+}
+export interface SweepBalanceOptions {
+    package?: string;
+    arguments: SweepBalanceArguments | [
+        vault: RawTransactionArgument<string>,
+        party: RawTransactionArgument<string>,
+        root: RawTransactionArgument<string>,
+        vaultAdminCap: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string
+    ];
+}
+/**
+ * Redeem the settled `Currency` amount reported for the Party address and return a
+ * Balance for the caller's PTB to consume.
+ *
+ * Funds sent during the current consensus commit are not yet settled and remain
+ * available for a later sweep. Aborts with `ENoSettledFunds` when the settled
+ * amount is zero. The framework caps the reported amount at `u64::MAX`; any excess
+ * remains for a later sweep.
+ */
+export function sweepBalance(options: SweepBalanceOptions) {
+    const packageAddress = options.package ?? '@local-pkg/party_wallet';
+    const argumentsTypes = [
+        null,
+        null,
+        null,
+        null
+    ] satisfies (string | null)[];
+    const parameterNames = ["vault", "party", "root", "vaultAdminCap"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'party_wallet',
+        function: 'sweep_balance',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

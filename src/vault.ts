@@ -284,6 +284,7 @@ export interface CompositionRoyaltyPoolCrankParams {
   readonly vault: TransactionObjectArgument;
   readonly composition: TransactionObjectArgument;
   readonly pool: TransactionObjectArgument;
+  readonly accumulatorRoot: TransactionObjectArgument;
   readonly compositionShareType: string;
   readonly currencyType: string;
   readonly pluginPackageId: string;
@@ -307,16 +308,16 @@ export function asU64(name: string, value: U64Input): bigint {
   return parsed;
 }
 
-/** Permissionless crank: redeem address funds into the canonical pool. */
-export function redeemCompositionRoyaltyPool(
+/** Permissionless crank: sweep settled address funds into the canonical pool. */
+export function sweepCompositionRoyaltyPool(
   tx: Transaction,
-  params: CompositionRoyaltyPoolCrankParams & { readonly value: U64Input },
+  params: CompositionRoyaltyPoolCrankParams,
 ): void {
   tx.add(
-    compositionRoyaltyPool.redeemAndDeposit({
+    compositionRoyaltyPool.sweepAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [params.compositionShareType, params.currencyType],
-      arguments: [params.vault, params.composition, params.pool, asU64("value", params.value)],
+      arguments: [params.vault, params.composition, params.pool, params.accumulatorRoot],
     }),
   );
 }
@@ -361,19 +362,97 @@ export function installRecordingRoyaltyPoolPlugin(
   );
 }
 
+export interface PartyWalletPluginParams {
+  readonly vault: TransactionObjectArgument;
+  readonly vaultAdminCap: TransactionObjectArgument;
+  readonly pluginPackageId: string;
+}
+
 /** Install the Party wallet plugin; its canonical witness stays internal. */
 export function installPartyWalletPlugin(
   tx: Transaction,
-  params: {
-    readonly vault: TransactionObjectArgument;
-    readonly vaultAdminCap: TransactionObjectArgument;
-    readonly pluginPackageId: string;
-  },
+  params: PartyWalletPluginParams,
 ): void {
   tx.add(
     partyWallet.install({
       package: params.pluginPackageId,
       arguments: [params.vault, params.vaultAdminCap],
+    }),
+  );
+}
+
+export function uninstallPartyWalletPlugin(
+  tx: Transaction,
+  params: PartyWalletPluginParams,
+): void {
+  tx.add(
+    partyWallet.uninstall({
+      package: params.pluginPackageId,
+      arguments: [params.vault, params.vaultAdminCap],
+    }),
+  );
+}
+
+export interface PartyWalletFundsParams extends PartyWalletPluginParams {
+  readonly party: TransactionObjectArgument;
+  readonly currencyType: string;
+}
+
+/** Receive selected Party-owned coins and return their merged Balance. */
+export function receivePartyWalletBalance(
+  tx: Transaction,
+  params: PartyWalletFundsParams & { readonly coins: readonly ReceivingObjectRef[] },
+): TransactionArgument {
+  return tx.add(
+    partyWallet.receiveCoins({
+      package: params.pluginPackageId,
+      typeArguments: [params.currencyType],
+      arguments: [
+        params.vault,
+        params.party,
+        params.vaultAdminCap,
+        receivingCoins(tx, params.currencyType, params.coins),
+      ],
+    }),
+  );
+}
+
+/** Redeem an exact Party accumulator amount and return its Balance. */
+export function redeemPartyWalletBalance(
+  tx: Transaction,
+  params: PartyWalletFundsParams & { readonly value: U64Input },
+): TransactionArgument {
+  return tx.add(
+    partyWallet.redeemBalance({
+      package: params.pluginPackageId,
+      typeArguments: [params.currencyType],
+      arguments: [
+        params.vault,
+        params.party,
+        params.vaultAdminCap,
+        asU64("value", params.value),
+      ],
+    }),
+  );
+}
+
+/** Sweep the Party's currently settled accumulator funds and return its Balance. */
+export function sweepPartyWalletBalance(
+  tx: Transaction,
+  params: PartyWalletFundsParams & {
+    readonly accumulatorRoot: TransactionObjectArgument;
+  },
+): TransactionArgument {
+  return tx.add(
+    partyWallet.sweepBalance({
+      package: params.pluginPackageId,
+      typeArguments: [params.currencyType],
+      arguments: [
+        params.vault,
+        params.party,
+        params.accumulatorRoot,
+        params.vaultAdminCap,
+      ],
     }),
   );
 }
@@ -412,25 +491,27 @@ export interface RecordingRoyaltyPoolCrankParams {
   readonly vault: TransactionObjectArgument;
   readonly recording: TransactionObjectArgument;
   readonly pool: TransactionObjectArgument;
+  readonly accumulatorRoot: TransactionObjectArgument;
   readonly recordingShareType: string;
   readonly compositionShareType: string;
   readonly currencyType: string;
   readonly pluginPackageId: string;
 }
 
-export function redeemRecordingRoyaltyPool(
+/** Permissionless crank: sweep settled address funds into the canonical pool. */
+export function sweepRecordingRoyaltyPool(
   tx: Transaction,
-  params: RecordingRoyaltyPoolCrankParams & { readonly value: U64Input },
+  params: RecordingRoyaltyPoolCrankParams,
 ): void {
   tx.add(
-    recordingRoyaltyPool.redeemAndDeposit({
+    recordingRoyaltyPool.sweepAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [
         params.recordingShareType,
         params.compositionShareType,
         params.currencyType,
       ],
-      arguments: [params.vault, params.recording, params.pool, asU64("value", params.value)],
+      arguments: [params.vault, params.recording, params.pool, params.accumulatorRoot],
     }),
   );
 }

@@ -190,6 +190,17 @@ Purchases through Miso are sponsored, so `useGasCoin` defaults to `false`: the g
 belongs to the sponsor, and drawing a SUI payment out of it would spend the wrong
 wallet's money.
 
+### Vault fund sweeping
+
+`sweepCompositionRoyaltyPool` and `sweepRecordingRoyaltyPool` take the shared
+`AccumulatorRoot` and let Move determine the commit-settled amount; callers no
+longer provide a `u64`. Party-wallet monetary builders are similarly composable:
+`receivePartyWalletBalance`, `redeemPartyWalletBalance`, and
+`sweepPartyWalletBalance` return the PTB `Balance<Currency>` result. Pass that
+result directly to another Move call, or convert it with `coin::from_balance`
+only when an owned Coin is required. Every returned Balance must be consumed in
+the same PTB.
+
 ## Publishing (`transactions.ts`, `share.ts`, `release-graph.ts`)
 
 `@misonetwork/sdk`'s `createComposition`/`createRecording` mint a work and hand

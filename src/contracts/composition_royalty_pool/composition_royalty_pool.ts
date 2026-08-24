@@ -155,19 +155,19 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface RedeemAndDepositArguments {
+export interface SweepAndDepositArguments {
     vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
-    value: RawTransactionArgument<number | bigint>;
+    root: RawTransactionArgument<string>;
 }
-export interface RedeemAndDepositOptions {
+export interface SweepAndDepositOptions {
     package?: string;
-    arguments: RedeemAndDepositArguments | [
+    arguments: SweepAndDepositArguments | [
         vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
-        value: RawTransactionArgument<number | bigint>
+        root: RawTransactionArgument<string>
     ];
     typeArguments: [
         string,
@@ -175,22 +175,25 @@ export interface RedeemAndDepositOptions {
     ];
 }
 /**
- * Redeem funds accumulated at the Composition address and deposit them into its
- * canonical pool. Anyone may crank this after installation.
+ * Redeem the Currency funds settled at the Composition address at the start of
+ * this consensus commit and deposit the balance into its canonical pool. Each call
+ * sweeps at most `u64::MAX`; a larger settled balance requires repeated calls.
+ * Anyone may crank this after installation. Aborts with `ENoSettledFunds` if no
+ * positive balance is currently eligible to sweep.
  */
-export function redeemAndDeposit(options: RedeemAndDepositOptions) {
+export function sweepAndDeposit(options: SweepAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
     const argumentsTypes = [
         null,
         null,
         null,
-        'u64'
+        null
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "pool", "value"];
+    const parameterNames = ["vault", "composition", "pool", "root"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_royalty_pool',
-        function: 'redeem_and_deposit',
+        function: 'sweep_and_deposit',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

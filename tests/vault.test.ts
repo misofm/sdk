@@ -9,8 +9,13 @@ import {
   initializeCompositionRoyaltyPool,
   installCompositionRoyaltyPoolPlugin,
   installReleaseRevenueDistributorPlugin,
+  receivePartyWalletBalance,
+  redeemPartyWalletBalance,
   registerCompositionRoutedStake,
   receivingCoins,
+  sweepCompositionRoyaltyPool,
+  sweepPartyWalletBalance,
+  sweepRecordingRoyaltyPool,
   invokeWithAdminCap,
 } from "../src/vault.ts";
 
@@ -18,6 +23,7 @@ const VAULT = "0x" + "10".repeat(32);
 const COMP_POOL_PLUGIN = "0x" + "20".repeat(32);
 const ROUTED_PLUGIN = "0x" + "30".repeat(32);
 const REVENUE_PLUGIN = "0x" + "40".repeat(32);
+const PARTY_WALLET_PLUGIN = "0x" + "50".repeat(32);
 const A = "0x" + "ab".repeat(32);
 const CAP = "0x" + "cd".repeat(32) + "::composition::CompositionAdminCap<" + "0x" + "ef".repeat(32) + "::share::Share>";
 const COMPOSITION_SHARE = "0x" + "ef".repeat(32) + "::share::Share";
@@ -128,6 +134,75 @@ test("plugins build their own witnesses and expose no client-side witness input"
     "initialize_pool",
   ]);
   expect(pluginCalls.every((call) => call.module !== "witness")).toBe(true);
+});
+
+test("royalty-pool cranks sweep the settled accumulator snapshot without an amount", () => {
+  const tx = new Transaction();
+  sweepCompositionRoyaltyPool(tx, {
+    vault: tx.object(A),
+    composition: tx.object(A),
+    pool: tx.object(A),
+    accumulatorRoot: tx.object(A),
+    compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI,
+    pluginPackageId: COMP_POOL_PLUGIN,
+  });
+  sweepRecordingRoyaltyPool(tx, {
+    vault: tx.object(A),
+    recording: tx.object(A),
+    pool: tx.object(A),
+    accumulatorRoot: tx.object(A),
+    recordingShareType: RECORDING_SHARE,
+    compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI,
+    pluginPackageId: COMP_POOL_PLUGIN,
+  });
+
+  const cranks = calls(tx).filter((call) => call.function === "sweep_and_deposit");
+  expect(cranks.map((call) => call.module)).toEqual([
+    "composition_royalty_pool",
+    "recording_royalty_pool",
+  ]);
+});
+
+test("party-wallet monetary builders return composable Balance results", () => {
+  const tx = new Transaction();
+  const common = {
+    vault: tx.object(A),
+    party: tx.object(A),
+    vaultAdminCap: tx.object(A),
+    currencyType: SUI,
+    pluginPackageId: PARTY_WALLET_PLUGIN,
+  };
+  const received = receivePartyWalletBalance(tx, {
+    ...common,
+    coins: [{ objectId: A, version: "7", digest: "11111111111111111111111111111111" }],
+  });
+  const redeemed = redeemPartyWalletBalance(tx, { ...common, value: 7n });
+  const swept = sweepPartyWalletBalance(tx, {
+    ...common,
+    accumulatorRoot: tx.object(A),
+  });
+
+  for (const balance of [received, redeemed, swept]) {
+    const coin = tx.moveCall({
+      target: "0x2::coin::from_balance",
+      typeArguments: [SUI],
+      arguments: [balance],
+    });
+    tx.transferObjects([coin], tx.pure.address(A));
+  }
+
+  expect([received.$kind, redeemed.$kind, swept.$kind]).toEqual([
+    "Result",
+    "Result",
+    "Result",
+  ]);
+  expect(
+    calls(tx)
+      .filter((call) => call.module === "party_wallet")
+      .map((call) => call.function),
+  ).toEqual(["receive_coins", "redeem_balance", "sweep_balance"]);
 });
 
 test("routed-stake registration pins the vault, composition, recording, and canonical pool", () => {

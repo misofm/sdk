@@ -592,21 +592,21 @@ export class MisoPlatformClient {
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
             this.#config.compositionRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
+            ["install", "uninstall", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
       recordingRoyaltyPool: this.#config.recordingRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
             this.#config.recordingRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
+            ["install", "uninstall", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
       partyWallet: this.#config.partyWalletPluginPackageId
         ? bindModulePackage(
             partyWalletContract,
             this.#config.partyWalletPluginPackageId,
-            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemCoin", "isInstalled", "inboxAddress", "settledFunds"] as const,
+            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemBalance", "sweepBalance", "isInstalled", "inboxAddress", "settledFunds"] as const,
           )
         : undefined,
       compositionRoutedStake: this.#config.compositionRoutedStakePluginPackageId
@@ -620,7 +620,7 @@ export class MisoPlatformClient {
         ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId, ["share", "register", "unregister", "sweep", "unstake", "restake", "derivedAddress"] as const)
         : undefined,
       royaltyPool: this.#config.royaltyPoolPackageId
-        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "redeemAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
+        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "sweepAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
         : undefined,
       recordingAdvisory: this.#config.recordingAdvisoryPackageId
         ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId, ["explicit", "notExplicit", "cleaned", "setRating", "unsetRating", "hasRating", "isExplicit", "isNotExplicit", "isCleaned"] as const)
