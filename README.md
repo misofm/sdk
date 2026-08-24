@@ -39,7 +39,7 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.12.1 @misonetwork/sdk@^0.9.1
+bun add @misofm/sdk@^0.13.0 @misonetwork/sdk@^0.9.1
 ```
 
 Both SDKs are consumed from npm. The platform package keeps
@@ -249,6 +249,53 @@ const thunk = publishReleaseGraph({
   minatoPackageId: "0x...",
 });
 ```
+
+### Atomic catalog publication (`publication.ts`)
+
+`publishAtomicCatalog` owns the semantic publication transaction. Given
+pre-initialized share currencies, it creates every new Party, Composition,
+Recording, Track, and Release; applies all declared data extensions; installs
+and initializes Vault plugins; opens the Pressing and Listings; shares the new
+objects; and delivers only the selected direct admin cap or VaultAdminCap. The
+entire catalog stage is one PTB, so none of it can land partially.
+
+```ts
+import {
+  assertAtomicPublicationBounds,
+  parseAtomicPublicationResult,
+  publishAtomicCatalog,
+} from "@misofm/sdk/publication";
+
+const publication = {
+  deployment,
+  parties,
+  compositions, // includes initialized share Currency + TreasuryCap ids
+  recordings,
+  release,
+  pressing,
+};
+
+// Pure local assembly: fail before publishing any share package if the final
+// PTB exceeds the SDK's command/input safety limits or has an invalid graph.
+assertAtomicPublicationBounds(publication);
+
+const executed = await executeViaExecutor(
+  executor,
+  publishAtomicCatalog(publication),
+);
+const result = parseAtomicPublicationResult(publication, executed);
+```
+
+Fresh raw PartyAdminCap, CompositionAdminCap, RecordingAdminCap, and
+ReleaseAdminCap values never leave the PTB when Vault custody is selected.
+Party Vaults install the Party Wallet plugin by default; royalty-pool,
+routed-stake, and release-revenue plugins are installed while each new Vault is
+still owned. Plugin witness construction remains inside the SDK bindings.
+
+Share packages necessarily precede this stage: publish at most five per PTB,
+then initialize their currencies, then submit the atomic catalog PTB. The two
+share helpers below accept a parallel-compatible executor, allowing package
+batches to queue concurrently while a hardware signer serializes approvals.
 
 ### Share Currency Provisioning (`share.ts`)
 

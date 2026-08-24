@@ -21,6 +21,7 @@ import { normalizeStructTag } from "@mysten/sui/utils";
 import * as vault from "./contracts/vault/vault.ts";
 import * as compositionRoyaltyPool from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
 import * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
+import * as partyWallet from "./contracts/party_wallet/party_wallet.ts";
 import * as compositionRoutedStake from "./contracts/composition_routed_stake/composition_routed_stake.ts";
 import * as releaseRevenueDistributor from "./contracts/release_revenue_distributor/release_revenue_distributor.ts";
 import * as routedStake from "./contracts/routed_stake/routed_stake.ts";
@@ -150,8 +151,8 @@ export interface CustodyNewAdminCapParams {
   readonly owner: string | TransactionArgument;
   /** Optional installation/configuration while the new Vault is still owned. */
   readonly configure?: (
-    vaultObject: TransactionArgument,
-    vaultAdminCapObject: TransactionArgument,
+    vaultObject: TransactionObjectArgument,
+    vaultAdminCapObject: TransactionObjectArgument,
   ) => void;
 }
 
@@ -355,6 +356,23 @@ export function installRecordingRoyaltyPoolPlugin(
     recordingRoyaltyPool.install({
       package: params.pluginPackageId,
       typeArguments: [params.recordingShareType],
+      arguments: [params.vault, params.vaultAdminCap],
+    }),
+  );
+}
+
+/** Install the Party wallet plugin; its canonical witness stays internal. */
+export function installPartyWalletPlugin(
+  tx: Transaction,
+  params: {
+    readonly vault: TransactionObjectArgument;
+    readonly vaultAdminCap: TransactionObjectArgument;
+    readonly pluginPackageId: string;
+  },
+): void {
+  tx.add(
+    partyWallet.install({
+      package: params.pluginPackageId,
       arguments: [params.vault, params.vaultAdminCap],
     }),
   );

@@ -9,6 +9,7 @@ import { deriveObjectID } from "@mysten/sui/utils";
 import type {
   Transaction,
   TransactionArgument,
+  TransactionObjectArgument,
 } from "@mysten/sui/transactions";
 import type { TxThunk } from "./transactions.ts";
 import * as genre from "./contracts/genre/genre.ts";
@@ -16,13 +17,17 @@ import * as releaseDescription from "./contracts/release_description/release_des
 import * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.ts";
 import * as releaseGenre from "./contracts/release_genre/release_genre.ts";
 import * as releaseKind from "./contracts/release_kind/release_kind.ts";
-import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
+import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type ObjectInput, type U64Input } from "./vault.ts";
+
+function object(tx: Transaction, value: ObjectInput): TransactionObjectArgument {
+  return typeof value === "string" ? tx.object(value) : value;
+}
 
 type ReleaseAuthorityInput =
   | { readonly authority: AdminCapAuthority; readonly releaseAdminCapId?: never }
   | { readonly authority?: never; readonly releaseAdminCapId: string };
 interface ReleaseExtensionTargetBase {
-  releaseId: string;
+  releaseId: ObjectInput;
 }
 export type ReleaseExtensionTarget = ReleaseExtensionTargetBase & ReleaseAuthorityInput;
 function authority(p: ReleaseExtensionTarget): AdminCapAuthority {
@@ -48,7 +53,7 @@ export function setReleaseKind(p: SetReleaseKindParams): TxThunk {
   return (tx) => {
     invokeWithAdminCap(tx, authority(p), {
       target: `${p.releaseKindPackageId}::release_kind::set_kind`,
-      arguments: [tx.object(p.releaseId), tx.pure.string(p.kind)],
+      arguments: [object(tx, p.releaseId), tx.pure.string(p.kind)],
       adminCapIndex: 1,
     });
   };
@@ -73,7 +78,7 @@ export function setReleaseDescription(p: SetReleaseDescriptionParams): TxThunk {
   return (tx) => {
     invokeWithAdminCap(tx, authority(p), {
       target: `${p.releaseDescriptionPackageId}::release_description::set_description`,
-      arguments: [tx.object(p.releaseId), tx.pure.string(p.description)],
+      arguments: [object(tx, p.releaseId), tx.pure.string(p.description)],
       adminCapIndex: 1,
     });
   };
@@ -124,13 +129,13 @@ export function setReleaseGenres(p: SetReleaseGenresParams): TxThunk {
   return (tx) => {
     invokeWithAdminCap(tx, authority(p), {
       target: `${p.releaseGenrePackageId}::release_genre::set_primary_genre`,
-      arguments: [tx.object(p.releaseId), tx.object(p.primaryGenreId)],
+      arguments: [object(tx, p.releaseId), tx.object(p.primaryGenreId)],
       adminCapIndex: 1,
     });
     for (const genreId of p.secondaryGenreIds ?? []) {
       invokeWithAdminCap(tx, authority(p), {
         target: `${p.releaseGenrePackageId}::release_genre::add_secondary_genre`,
-        arguments: [tx.object(p.releaseId), tx.object(genreId)],
+        arguments: [object(tx, p.releaseId), tx.object(genreId)],
         adminCapIndex: 1,
       });
     }
@@ -138,7 +143,7 @@ export function setReleaseGenres(p: SetReleaseGenresParams): TxThunk {
       invokeWithAdminCap(tx, authority(p), {
         target: `${p.releaseGenrePackageId}::release_genre::set_track_primary_genre`,
         arguments: [
-          tx.object(p.releaseId),
+          object(tx, p.releaseId),
           tx.pure.u64(asU64("trackIndex", assignment.trackIndex)),
           tx.object(assignment.genreId),
         ],
@@ -247,7 +252,7 @@ export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
       const value = buildDspLink(tx, p.releaseDspLinkPackageId, link);
       invokeWithAdminCap(tx, authority(p), {
         target: `${p.releaseDspLinkPackageId}::release_dsp_link::set_release_link`,
-        arguments: [tx.object(p.releaseId), value],
+        arguments: [object(tx, p.releaseId), value],
         adminCapIndex: 1,
       });
     }
@@ -255,7 +260,7 @@ export function setReleaseDspLinks(p: SetReleaseDspLinksParams): TxThunk {
       const value = buildDspLink(tx, p.releaseDspLinkPackageId, item.link);
       invokeWithAdminCap(tx, authority(p), {
         target: `${p.releaseDspLinkPackageId}::release_dsp_link::set_track_link`,
-        arguments: [tx.object(p.releaseId), tx.pure.u64(asU64("trackIndex", item.trackIndex)), value],
+        arguments: [object(tx, p.releaseId), tx.pure.u64(asU64("trackIndex", item.trackIndex)), value],
         adminCapIndex: 1,
       });
     }

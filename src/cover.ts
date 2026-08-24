@@ -17,8 +17,9 @@
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
+import type { Transaction, TransactionObjectArgument } from "@mysten/sui/transactions";
 import type { TxThunk } from "./transactions.ts";
-import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type U64Input } from "./vault.ts";
+import { asU64, directAdminCap, invokeWithAdminCap, type AdminCapAuthority, type ObjectInput, type U64Input } from "./vault.ts";
 import { OPTION_NONE, OPTION_SOME } from "./internal.ts";
 import * as coverArt from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
@@ -34,7 +35,7 @@ function releaseAuthorityOf(input: ReleaseAuthorityInput): AdminCapAuthority {
 
 interface SetReleaseCoverParamsBase {
   /** The `Release` object to attach the cover to. */
-  releaseId: string;
+  releaseId: ObjectInput;
   /** Walrus blob id of the still cover image, as `u256` (decimal string or bigint). */
   stillBlobId: bigint | string;
   /** Optional animated-cover Walrus blob id (`u256`); omit for a still-only cover. */
@@ -45,6 +46,10 @@ interface SetReleaseCoverParamsBase {
   releaseCoverArtPackageId: string;
   /** `ori` package (home of `walrus_data::new_blob` / the `WalrusData` type). */
   oriPackageId: string;
+}
+
+function object(tx: Transaction, value: ObjectInput): TransactionObjectArgument {
+  return typeof value === "string" ? tx.object(value) : value;
 }
 export type SetReleaseCoverParams = SetReleaseCoverParamsBase & ReleaseAuthorityInput;
 
@@ -85,7 +90,7 @@ export function setReleaseCover(p: SetReleaseCoverParams): TxThunk {
     const cover = buildCover(tx, p);
     invokeWithAdminCap(tx, releaseAuthorityOf(p), {
       target: `${p.releaseCoverArtPackageId}::release_cover_art::set_cover`,
-      arguments: [tx.object(p.releaseId), cover],
+      arguments: [object(tx, p.releaseId), cover],
       adminCapIndex: 1,
     });
   };
@@ -97,7 +102,7 @@ export function setReleaseTrackCover(p: SetReleaseTrackCoverParams): TxThunk {
     const cover = buildCover(tx, p);
     invokeWithAdminCap(tx, releaseAuthorityOf(p), {
       target: `${p.releaseCoverArtPackageId}::release_cover_art::set_track_cover`,
-      arguments: [tx.object(p.releaseId), tx.pure.u64(asU64("trackIndex", p.trackIndex)), cover],
+      arguments: [object(tx, p.releaseId), tx.pure.u64(asU64("trackIndex", p.trackIndex)), cover],
       adminCapIndex: 1,
     });
   };

@@ -3,19 +3,23 @@
 
 /** Cap-authorized builders for data-only Recording metadata extensions. */
 
-import type { TransactionArgument } from "@mysten/sui/transactions";
+import type { Transaction, TransactionArgument, TransactionObjectArgument } from "@mysten/sui/transactions";
 import type { TxThunk } from "./transactions.ts";
-import { invokeWithAdminCap, type AdminCapAuthority } from "./vault.ts";
+import { invokeWithAdminCap, type AdminCapAuthority, type ObjectInput } from "./vault.ts";
 import * as advisory from "./contracts/recording_advisory/recording_advisory.ts";
 import * as language from "./contracts/recording_language/recording_language.ts";
 import * as masterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
 import * as preview from "./contracts/recording_preview/recording_preview.ts";
 
 export interface RecordingExtensionTarget {
-  readonly recordingId: string;
+  readonly recordingId: ObjectInput;
   readonly authority: AdminCapAuthority;
   readonly recordingShareType: string;
   readonly compositionShareType: string;
+}
+
+function object(tx: Transaction, value: ObjectInput): TransactionObjectArgument {
+  return typeof value === "string" ? tx.object(value) : value;
 }
 
 type Rating = "Explicit" | "NotExplicit" | "Cleaned";
@@ -34,7 +38,7 @@ export function setRecordingAdvisory(p: SetRecordingAdvisoryParams): TxThunk {
     invokeWithAdminCap(tx, p.authority, {
       target: `${p.recordingAdvisoryPackageId}::recording_advisory::set_rating`,
       typeArguments: [p.recordingShareType, p.compositionShareType],
-      arguments: [tx.object(p.recordingId), rating],
+      arguments: [object(tx, p.recordingId), rating],
       adminCapIndex: 1,
     });
   };
@@ -51,7 +55,7 @@ export function setRecordingLanguages(p: SetRecordingLanguagesParams): TxThunk {
     invokeWithAdminCap(tx, p.authority, {
       target: `${p.recordingLanguagePackageId}::recording_language::set_languages`,
       typeArguments: [p.recordingShareType, p.compositionShareType],
-      arguments: [tx.object(p.recordingId), p.languages],
+      arguments: [object(tx, p.recordingId), p.languages],
       adminCapIndex: 1,
     });
   };
@@ -62,7 +66,7 @@ export function setRecordingInstrumental(p: Omit<SetRecordingLanguagesParams, "l
     invokeWithAdminCap(tx, p.authority, {
       target: `${p.recordingLanguagePackageId}::recording_language::set_instrumental`,
       typeArguments: [p.recordingShareType, p.compositionShareType],
-      arguments: [tx.object(p.recordingId)],
+      arguments: [object(tx, p.recordingId)],
       adminCapIndex: 1,
     });
   };
@@ -81,7 +85,7 @@ export function setRecordingMasterReference(p: SetRecordingMasterReferenceParams
     invokeWithAdminCap(tx, p.authority, {
       target: `${p.recordingMasterReferencePackageId}::recording_master_reference::set_master_reference`,
       typeArguments: [p.recordingShareType, p.compositionShareType],
-      arguments: [tx.object(p.recordingId), p.reference],
+      arguments: [object(tx, p.recordingId), p.reference],
       adminCapIndex: 1,
     });
   };
@@ -95,7 +99,7 @@ export function setRecordingPreview(p: SetRecordingPreviewParams): TxThunk {
     invokeWithAdminCap(tx, p.authority, {
       target: `${p.recordingPreviewPackageId}::recording_preview::set_preview`,
       typeArguments: [p.recordingShareType, p.compositionShareType],
-      arguments: [tx.object(p.recordingId), p.reference],
+      arguments: [object(tx, p.recordingId), p.reference],
       adminCapIndex: 1,
     });
   };

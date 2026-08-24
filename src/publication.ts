@@ -1,0 +1,949 @@
+// Copyright (c) Miso Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Opinionated, atomic Miso catalog publication.
+ *
+ * Share packages and their registered Currency objects must already exist. This
+ * builder then creates every declared Party, Composition, Recording, Track,
+ * Release, extension, Vault plugin, Pressing, and Listing in one PTB. Fresh raw
+ * protocol capabilities never leave the transaction: data extensions use them
+ * directly, Vault-only plugins are configured while each new Vault is still
+ * owned, and only the selected direct cap or VaultAdminCap is delivered.
+ */
+
+import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
+import {
+  contracts as protocolContracts,
+  deriveCompositionAdminCapId,
+  deriveRecordingAdminCapId,
+  deriveReleaseAdminCapId,
+} from "@misonetwork/sdk";
+import { derivePartyAdminCapId } from "@misonetwork/sdk/party";
+import type { MisoPlatformDeployment } from "./deployments.ts";
+import type { TxThunk } from "./transactions.ts";
+import { disperseShares, requiredCommandResult, type ShareRecipient } from "./transactions.ts";
+import {
+  addRecordingPrimaryArtist,
+  addReleaseCredit,
+  attachCompositionCredit,
+  attachRecordingCredit,
+  type CompositionRole,
+  type RecordingRole,
+  type ReleaseRole,
+} from "./credits.ts";
+import {
+  setRecordingAdvisory,
+  setRecordingInstrumental,
+  setRecordingLanguages,
+  setRecordingMasterReference,
+  setRecordingPreview,
+} from "./recording-extensions.ts";
+import {
+  setReleaseDescription,
+  setReleaseDspLinks,
+  setReleaseGenres,
+  setReleaseKind,
+  type DspLink,
+} from "./release-extensions.ts";
+import { setReleaseCover, setReleaseTrackCover } from "./cover.ts";
+import {
+  custodyNewAdminCap,
+  directAdminCap,
+  disposeNewAdminCap,
+  initializeCompositionRoyaltyPool,
+  initializeRecordingRoyaltyPool,
+  installCompositionRoutedStakePlugin,
+  installCompositionRoyaltyPoolPlugin,
+  installPartyWalletPlugin,
+  installRecordingRoyaltyPoolPlugin,
+  installReleaseRevenueDistributorPlugin,
+  invokeWithAdminCap,
+  parseVaultCreatedEvent,
+  type AdminCapAuthority,
+  type AdminCapCustody,
+} from "./vault.ts";
+import {
+  derivePressingAdminCapId,
+  derivePressingId,
+  type ListingPrice,
+  type PressingRunState,
+} from "./pressing.ts";
+import { allCreatedByType, createdByExactType, type PlatformExecResult } from "./execute.ts";
+import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
+import * as listingContract from "./contracts/miso_pressing/listing.ts";
+
+const { composition, recording, release, track, party } = protocolContracts;
+
+export const MAX_ATOMIC_PUBLICATION_COMMANDS = 900;
+export const MAX_ATOMIC_PUBLICATION_INPUTS = 2048;
+
+export interface PublicationCustody {
+  readonly kind: "direct" | "vault";
+  readonly owner: string;
+}
+
+export type PublicationParty =
+  | { readonly ref: string; readonly id: string }
+  | {
+      readonly ref: string;
+      readonly create: "individual" | "group";
+      readonly name: string;
+      readonly custody: PublicationCustody;
+      /** Defaults to true with Vault custody. */
+      readonly installWallet?: boolean;
+    };
+
+export interface PublicationCompositionCredit {
+  readonly party: string;
+  readonly displayName: string;
+  readonly roles: CompositionRole[];
+}
+
+export interface PublicationRecordingCredit {
+  readonly party: string;
+  readonly displayName: string;
+  readonly roles: RecordingRole[];
+  readonly primaryArtist?: boolean;
+}
+
+export interface PublicationReleaseCredit {
+  readonly party: string;
+  readonly displayName: string;
+  readonly role: ReleaseRole;
+}
+
+export interface PublicationComposition {
+  readonly ref: string;
+  readonly shareType: string;
+  readonly shareCurrencyId: string;
+  readonly shareTreasuryCapId: string;
+  readonly title: string;
+  readonly royaltyRateBps: number;
+  readonly shareRecipients: ShareRecipient[];
+  readonly custody: PublicationCustody;
+  readonly credits?: PublicationCompositionCredit[];
+  readonly royaltyPool?: { readonly currencyType: string };
+  readonly routedStake?: boolean;
+}
+
+type PublicationRecordingParent =
+  | { readonly parentCompositionIndex: number; readonly parentCompositionId?: never }
+  | { readonly parentCompositionIndex?: never; readonly parentCompositionId: string };
+
+export type PublicationRecordingLanguages =
+  | { readonly kind: "instrumental" }
+  | { readonly kind: "languages"; readonly codes: string[] };
+
+export type PublicationRecording = PublicationRecordingParent & {
+  readonly ref: string;
+  readonly shareType: string;
+  readonly shareCurrencyId: string;
+  readonly shareTreasuryCapId: string;
+  readonly compositionShareType: string;
+  readonly shareRecipients: ShareRecipient[];
+  readonly custody: PublicationCustody;
+  readonly credits?: PublicationRecordingCredit[];
+  readonly royaltyPool?: { readonly currencyType: string };
+  readonly advisory?: "Explicit" | "NotExplicit" | "Cleaned";
+  readonly languages?: PublicationRecordingLanguages;
+  readonly masterReferenceBlobId?: bigint | string;
+  readonly previewBlobId?: bigint | string;
+};
+
+export interface PublicationFreshTrack {
+  readonly recordingIndex: number;
+  readonly splitBps: number;
+}
+
+export interface PublicationExistingTrack {
+  readonly recordingId: string;
+  readonly recordingShareType: string;
+  readonly compositionShareType: string;
+  readonly splitBps: number;
+  readonly authority: AdminCapAuthority;
+}
+
+export type PublicationTrack = PublicationFreshTrack | PublicationExistingTrack;
+
+export interface PublicationRelease {
+  readonly title: string;
+  readonly nonce: string;
+  readonly tracks: PublicationTrack[];
+  readonly custody: PublicationCustody;
+  readonly credits?: PublicationReleaseCredit[];
+  readonly kind?: string;
+  readonly description?: string;
+  readonly genres?: {
+    readonly primaryGenreId: string;
+    readonly secondaryGenreIds?: string[];
+    readonly tracks?: { readonly trackIndex: number; readonly genreId: string }[];
+  };
+  readonly dspLinks?: {
+    readonly release?: DspLink[];
+    readonly tracks?: { readonly trackIndex: number; readonly link: DspLink }[];
+  };
+  readonly cover?: {
+    readonly stillBlobId?: bigint | string;
+    readonly animatedBlobId?: bigint | string;
+    readonly tracks?: {
+      readonly trackIndex: number;
+      readonly stillBlobId: bigint | string;
+      readonly animatedBlobId?: bigint | string;
+    }[];
+  };
+  readonly revenueDistribution?: boolean;
+}
+
+export interface PublicationPressing {
+  readonly state?: PressingRunState;
+  readonly listings: {
+    readonly currencyType: string;
+    readonly price: ListingPrice;
+    readonly enabled?: boolean;
+  }[];
+  readonly custody: PublicationCustody;
+}
+
+export interface AtomicPublicationParams {
+  readonly deployment: MisoPlatformDeployment;
+  readonly parties: PublicationParty[];
+  readonly compositions: PublicationComposition[];
+  readonly recordings: PublicationRecording[];
+  readonly release?: PublicationRelease;
+  readonly pressing?: PublicationPressing;
+}
+
+interface WorkParts {
+  work: TransactionObjectArgument;
+  adminCap: TransactionObjectArgument;
+  balance: TransactionObjectArgument;
+}
+
+interface PartyParts {
+  party: TransactionObjectArgument;
+  adminCap: TransactionObjectArgument;
+}
+
+function requiredAt<T>(items: readonly T[], index: number, description: string): T {
+  const value = items[index];
+  if (value === undefined) throw new Error(`${description} index ${index} is out of range`);
+  return value;
+}
+
+function partyCapType(p: AtomicPublicationParams): string {
+  return `${p.deployment.protocol.misoParty}::party::PartyAdminCap`;
+}
+
+function compositionCapType(p: AtomicPublicationParams, shareType: string): string {
+  return `${p.deployment.protocol.miso}::composition::CompositionAdminCap<${shareType}>`;
+}
+
+function recordingCapType(p: AtomicPublicationParams, shareType: string): string {
+  return `${p.deployment.protocol.miso}::recording::RecordingAdminCap<${shareType}>`;
+}
+
+function releaseCapType(p: AtomicPublicationParams): string {
+  return `${p.deployment.protocol.miso}::release::ReleaseAdminCap`;
+}
+
+function pressingCapType(p: AtomicPublicationParams): string {
+  return `${p.deployment.packages.pressing}::pressing::PressingAdminCap`;
+}
+
+function custody(
+  p: AtomicPublicationParams,
+  selected: PublicationCustody,
+  capType: string,
+  configure?: Exclude<AdminCapCustody, { kind: "direct" }>["configure"],
+): AdminCapCustody {
+  if (selected.kind === "direct") return { kind: "direct", owner: selected.owner };
+  return {
+    kind: "vault",
+    owner: selected.owner,
+    capType,
+    vaultPackageId: p.deployment.packages.vault,
+    configure,
+  };
+}
+
+function partyByRef(
+  parties: Map<string, TransactionObjectArgument>,
+  ref: string,
+): TransactionObjectArgument {
+  const value = parties.get(ref);
+  if (!value) throw new Error(`Unknown publication party ref ${JSON.stringify(ref)}`);
+  return value;
+}
+
+function languageVector(tx: Transaction, p: AtomicPublicationParams, codes: string[]) {
+  const values = codes.map((code) => tx.moveCall({
+    target: `${p.deployment.protocol.languageCode}::language_code::new`,
+    arguments: [tx.pure.string(code)],
+  }));
+  return tx.makeMoveVec({
+    type: `${p.deployment.protocol.languageCode}::language_code::LanguageCode`,
+    elements: values,
+  });
+}
+
+function walrusBlob(tx: Transaction, p: AtomicPublicationParams, blobId: bigint | string) {
+  return tx.moveCall({
+    target: `${p.deployment.packages.ori}::walrus_data::new_blob`,
+    arguments: [tx.pure.u256(blobId)],
+  });
+}
+
+function pressingState(tx: Transaction, p: AtomicPublicationParams, state: PressingRunState) {
+  const pkg = p.deployment.packages.pressing;
+  if (state.kind === "scheduled") {
+    return tx.add(pressingContract.newScheduledState({
+      package: pkg,
+      arguments: [BigInt(state.startTimestampMs)],
+    }));
+  }
+  if (state.kind === "paused") return tx.add(pressingContract.newPausedState({ package: pkg }));
+  return tx.add(pressingContract.newActiveState({ package: pkg }));
+}
+
+function listingPrice(tx: Transaction, p: AtomicPublicationParams, price: ListingPrice) {
+  const pkg = p.deployment.packages.pressing;
+  const args = { package: pkg, arguments: [BigInt(price.amount)] as [bigint] };
+  return tx.add(price.kind === "fixed"
+    ? listingContract.newFixedPrice(args)
+    : listingContract.newFloorPrice(args));
+}
+
+function publishComposition(
+  tx: Transaction,
+  p: AtomicPublicationParams,
+  node: PublicationComposition,
+  parts: WorkParts,
+): void {
+  disperseShares(tx, p.deployment.packages.minato, node.shareType, parts.balance, node.shareRecipients);
+  const typeArguments: [string] = [node.shareType];
+  if (node.custody.kind === "direct") {
+    tx.add(composition.publish({
+      package: p.deployment.protocol.miso,
+      typeArguments,
+      arguments: [parts.work, parts.adminCap],
+    }));
+    disposeNewAdminCap(tx, parts.adminCap, custody(p, node.custody, compositionCapType(p, node.shareType)));
+    return;
+  }
+  custodyNewAdminCap(tx, {
+    adminCap: parts.adminCap,
+    capType: compositionCapType(p, node.shareType),
+    vaultPackageId: p.deployment.packages.vault,
+    owner: node.custody.owner,
+    configure: (vault, vaultAdminCap) => {
+      if (node.royaltyPool) {
+        installCompositionRoyaltyPoolPlugin(tx, {
+          vault, vaultAdminCap, compositionShareType: node.shareType,
+          pluginPackageId: p.deployment.packages.compositionRoyaltyPoolPlugin,
+        });
+        initializeCompositionRoyaltyPool(tx, {
+          vault, vaultAdminCap, composition: parts.work,
+          compositionShareType: node.shareType,
+          currencyType: node.royaltyPool.currencyType,
+          pluginPackageId: p.deployment.packages.compositionRoyaltyPoolPlugin,
+        });
+      }
+      if (node.routedStake) {
+        installCompositionRoutedStakePlugin(tx, {
+          vault, vaultAdminCap, compositionShareType: node.shareType,
+          pluginPackageId: p.deployment.packages.compositionRoutedStakePlugin,
+        });
+      }
+      invokeWithAdminCap(tx, {
+        kind: "vault", vault, vaultAdminCap,
+        capType: compositionCapType(p, node.shareType),
+        vaultPackageId: p.deployment.packages.vault,
+      }, {
+        target: `${p.deployment.protocol.miso}::composition::publish`,
+        typeArguments,
+        arguments: [parts.work, tx.object.clock()],
+        adminCapIndex: 1,
+      });
+    },
+  });
+}
+
+function publishRecording(
+  tx: Transaction,
+  p: AtomicPublicationParams,
+  node: PublicationRecording,
+  parts: WorkParts,
+): void {
+  const typeArguments: [string, string] = [node.shareType, node.compositionShareType];
+  disperseShares(tx, p.deployment.packages.minato, node.shareType, parts.balance, node.shareRecipients);
+  if (node.custody.kind === "direct") {
+    tx.add(recording.publish({
+      package: p.deployment.protocol.miso,
+      typeArguments,
+      arguments: [parts.work, parts.adminCap],
+    }));
+    disposeNewAdminCap(tx, parts.adminCap, custody(p, node.custody, recordingCapType(p, node.shareType)));
+    return;
+  }
+  custodyNewAdminCap(tx, {
+    adminCap: parts.adminCap,
+    capType: recordingCapType(p, node.shareType),
+    vaultPackageId: p.deployment.packages.vault,
+    owner: node.custody.owner,
+    configure: (vault, vaultAdminCap) => {
+      if (node.royaltyPool) {
+        installRecordingRoyaltyPoolPlugin(tx, {
+          vault, vaultAdminCap,
+          recordingShareType: node.shareType,
+          compositionShareType: node.compositionShareType,
+          pluginPackageId: p.deployment.packages.recordingRoyaltyPoolPlugin,
+        });
+        initializeRecordingRoyaltyPool(tx, {
+          vault, vaultAdminCap, recording: parts.work,
+          recordingShareType: node.shareType,
+          compositionShareType: node.compositionShareType,
+          currencyType: node.royaltyPool.currencyType,
+          pluginPackageId: p.deployment.packages.recordingRoyaltyPoolPlugin,
+        });
+      }
+      invokeWithAdminCap(tx, {
+        kind: "vault", vault, vaultAdminCap,
+        capType: recordingCapType(p, node.shareType),
+        vaultPackageId: p.deployment.packages.vault,
+      }, {
+        target: `${p.deployment.protocol.miso}::recording::publish`,
+        typeArguments,
+        arguments: [parts.work, tx.object.clock()],
+        adminCapIndex: 1,
+      });
+    },
+  });
+}
+
+function publishReleaseObject(
+  tx: Transaction,
+  p: AtomicPublicationParams,
+  node: PublicationRelease,
+  releaseObject: TransactionObjectArgument,
+  adminCap: TransactionObjectArgument,
+): void {
+  if (node.custody.kind === "direct") {
+    tx.add(release.publish({
+      package: p.deployment.protocol.miso,
+      arguments: [releaseObject, adminCap],
+    }));
+    disposeNewAdminCap(tx, adminCap, custody(p, node.custody, releaseCapType(p)));
+    return;
+  }
+  custodyNewAdminCap(tx, {
+    adminCap,
+    capType: releaseCapType(p),
+    vaultPackageId: p.deployment.packages.vault,
+    owner: node.custody.owner,
+    configure: (vault, vaultAdminCap) => {
+      if (node.revenueDistribution) {
+        installReleaseRevenueDistributorPlugin(tx, {
+          vault, vaultAdminCap,
+          pluginPackageId: p.deployment.packages.releaseRevenueDistributorPlugin,
+        });
+      }
+      invokeWithAdminCap(tx, {
+        kind: "vault", vault, vaultAdminCap,
+        capType: releaseCapType(p),
+        vaultPackageId: p.deployment.packages.vault,
+      }, {
+        target: `${p.deployment.protocol.miso}::release::publish`,
+        arguments: [releaseObject, tx.object.clock()],
+        adminCapIndex: 1,
+      });
+    },
+  });
+}
+
+/** Build the complete post-share catalog graph as one atomic PTB. */
+export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
+  if (p.pressing && !p.release) throw new Error("A pressing requires a release");
+  for (const node of [...p.compositions, ...p.recordings]) {
+    if ((node.royaltyPool || ("routedStake" in node && node.routedStake)) && node.custody.kind !== "vault") {
+      throw new Error(`${node.ref}: Vault-only plugins require Vault custody`);
+    }
+  }
+  if (p.release?.revenueDistribution && p.release.custody.kind !== "vault") {
+    throw new Error("Release revenue distribution requires Vault custody");
+  }
+
+  return (tx) => {
+    const createdParties = new Map<string, PartyParts>();
+    const parties = new Map<string, TransactionObjectArgument>();
+    for (const node of p.parties) {
+      if ("id" in node) {
+        parties.set(node.ref, tx.object(node.id));
+        continue;
+      }
+      const kind = tx.add(node.create === "group"
+        ? party.newGroupKind({ package: p.deployment.protocol.misoParty })
+        : party.newIndividualKind({ package: p.deployment.protocol.misoParty }));
+      const created = tx.add(party._new({
+        package: p.deployment.protocol.misoParty,
+        arguments: [kind, node.name],
+      }));
+      const parts = {
+        party: requiredCommandResult(created, 0, "party::new"),
+        adminCap: requiredCommandResult(created, 1, "party::new"),
+      };
+      createdParties.set(node.ref, parts);
+      parties.set(node.ref, parts.party);
+    }
+
+    const compositions: WorkParts[] = p.compositions.map((node) => {
+      const created = tx.add(composition._new({
+        package: p.deployment.protocol.miso,
+        typeArguments: [node.shareType],
+        arguments: [node.title, node.royaltyRateBps, node.shareCurrencyId, node.shareTreasuryCapId],
+      }));
+      return {
+        work: requiredCommandResult(created, 0, "composition::new"),
+        adminCap: requiredCommandResult(created, 1, "composition::new"),
+        balance: requiredCommandResult(created, 2, "composition::new"),
+      };
+    });
+
+    const recordings: WorkParts[] = p.recordings.map((node) => {
+      const parent = node.parentCompositionIndex !== undefined
+        ? requiredAt(compositions, node.parentCompositionIndex, "parent composition").work
+        : tx.object(node.parentCompositionId);
+      const created = tx.add(recording._new({
+        package: p.deployment.protocol.miso,
+        typeArguments: [node.shareType, node.compositionShareType],
+        arguments: [parent, node.shareCurrencyId, node.shareTreasuryCapId],
+      }));
+      return {
+        work: requiredCommandResult(created, 0, "recording::new"),
+        adminCap: requiredCommandResult(created, 1, "recording::new"),
+        balance: requiredCommandResult(created, 2, "recording::new"),
+      };
+    });
+
+    let releaseObject: TransactionObjectArgument | undefined;
+    let releaseAdminCap: TransactionObjectArgument | undefined;
+    if (p.release) {
+      const ids = p.release.tracks.map((node) => "recordingIndex" in node
+        ? tx.moveCall({
+            target: "0x2::object::id",
+            typeArguments: [`${p.deployment.protocol.miso}::recording::Recording<${p.recordings[node.recordingIndex]!.shareType},${p.recordings[node.recordingIndex]!.compositionShareType}>`],
+            arguments: [requiredAt(recordings, node.recordingIndex, "fresh recording").work],
+          })
+        : tx.pure.id(node.recordingId));
+      const targetReleaseId = tx.moveCall({
+        target: `${p.deployment.protocol.miso}::release::derive_target_release_id`,
+        arguments: [
+          tx.object(p.deployment.objects.releaseRegistry),
+          tx.makeMoveVec({ type: "0x2::object::ID", elements: ids }),
+          tx.makeMoveVec({ type: "u64", elements: p.release.tracks.map((node) => tx.pure.u64(node.splitBps)) }),
+          tx.pure.u256(BigInt(p.release.nonce)),
+        ],
+      });
+      const tracks = p.release.tracks.map((node) => {
+        if ("recordingIndex" in node) {
+          const recNode = requiredAt(p.recordings, node.recordingIndex, "fresh recording");
+          const rec = requiredAt(recordings, node.recordingIndex, "fresh recording");
+          return tx.add(track._new({
+            package: p.deployment.protocol.miso,
+            typeArguments: [recNode.shareType, recNode.compositionShareType],
+            arguments: [rec.adminCap, rec.work, targetReleaseId, node.splitBps],
+          }));
+        }
+        return invokeWithAdminCap(tx, node.authority, {
+          target: `${p.deployment.protocol.miso}::track::new`,
+          typeArguments: [node.recordingShareType, node.compositionShareType],
+          arguments: [tx.object(node.recordingId), targetReleaseId, tx.pure.u16(node.splitBps)],
+          adminCapIndex: 0,
+        });
+      });
+      const created = tx.moveCall({
+        target: `${p.deployment.protocol.miso}::release::new`,
+        arguments: [
+          tx.object(p.deployment.objects.releaseRegistry),
+          tx.pure.string(p.release.title),
+          tx.makeMoveVec({ type: `${p.deployment.protocol.miso}::track::Track`, elements: tracks }),
+          tx.pure.u256(BigInt(p.release.nonce)),
+        ],
+      });
+      releaseObject = requiredCommandResult(created, 0, "release::new");
+      releaseAdminCap = requiredCommandResult(created, 1, "release::new");
+    }
+
+    p.compositions.forEach((node, index) => {
+      const parts = requiredAt(compositions, index, "composition");
+      for (const credit of node.credits ?? []) {
+        attachCompositionCredit({
+          compositionId: parts.work,
+          authority: directAdminCap(parts.adminCap),
+          partyId: partyByRef(parties, credit.party),
+          displayName: credit.displayName,
+          roles: credit.roles,
+          compositionShareType: node.shareType,
+          compositionCreditsPackageId: p.deployment.packages.compositionCredits,
+          misoCreditPackageId: p.deployment.packages.credit,
+        })(tx);
+      }
+    });
+
+    p.recordings.forEach((node, index) => {
+      const parts = requiredAt(recordings, index, "recording");
+      const authority = directAdminCap(parts.adminCap);
+      for (const credit of node.credits ?? []) {
+        const target = partyByRef(parties, credit.party);
+        attachRecordingCredit({
+          recordingId: parts.work, authority, partyId: target,
+          displayName: credit.displayName, roles: credit.roles,
+          recordingShareType: node.shareType,
+          compositionShareType: node.compositionShareType,
+          recordingCreditsPackageId: p.deployment.packages.recordingCredits,
+          misoCreditPackageId: p.deployment.packages.credit,
+        })(tx);
+        if (credit.primaryArtist) {
+          addRecordingPrimaryArtist({
+            recordingId: parts.work, authority, partyId: target,
+            recordingShareType: node.shareType,
+            compositionShareType: node.compositionShareType,
+            recordingCreditsPackageId: p.deployment.packages.recordingCredits,
+          })(tx);
+        }
+      }
+      if (node.advisory) setRecordingAdvisory({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingAdvisoryPackageId: p.deployment.packages.recordingAdvisory,
+        rating: node.advisory,
+      })(tx);
+      if (node.languages?.kind === "instrumental") setRecordingInstrumental({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingLanguagePackageId: p.deployment.packages.recordingLanguage,
+      })(tx);
+      if (node.languages?.kind === "languages") setRecordingLanguages({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingLanguagePackageId: p.deployment.packages.recordingLanguage,
+        languages: languageVector(tx, p, node.languages.codes),
+      })(tx);
+      if (node.masterReferenceBlobId !== undefined) setRecordingMasterReference({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingMasterReferencePackageId: p.deployment.packages.recordingMasterReference,
+        reference: walrusBlob(tx, p, node.masterReferenceBlobId),
+      })(tx);
+      if (node.previewBlobId !== undefined) setRecordingPreview({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingPreviewPackageId: p.deployment.packages.recordingPreview,
+        reference: walrusBlob(tx, p, node.previewBlobId),
+      })(tx);
+    });
+
+    if (p.release && releaseObject && releaseAdminCap) {
+      const authority = directAdminCap(releaseAdminCap);
+      for (const credit of p.release.credits ?? []) addReleaseCredit({
+        releaseId: releaseObject, authority,
+        partyId: partyByRef(parties, credit.party),
+        displayName: credit.displayName, role: credit.role,
+        releaseCreditsPackageId: p.deployment.packages.releaseCredits,
+        misoCreditPackageId: p.deployment.packages.credit,
+      })(tx);
+      if (p.release.kind) setReleaseKind({
+        releaseId: releaseObject, authority, kind: p.release.kind,
+        releaseKindPackageId: p.deployment.packages.releaseKind,
+      })(tx);
+      if (p.release.description) setReleaseDescription({
+        releaseId: releaseObject, authority, description: p.release.description,
+        releaseDescriptionPackageId: p.deployment.packages.releaseDescription,
+      })(tx);
+      if (p.release.genres) setReleaseGenres({
+        releaseId: releaseObject, authority,
+        primaryGenreId: p.release.genres.primaryGenreId,
+        secondaryGenreIds: p.release.genres.secondaryGenreIds ?? [],
+        trackPrimaryGenres: p.release.genres.tracks ?? [],
+        releaseGenrePackageId: p.deployment.packages.releaseGenre,
+      })(tx);
+      if (p.release.dspLinks) setReleaseDspLinks({
+        releaseId: releaseObject, authority,
+        releaseLinks: p.release.dspLinks.release ?? [],
+        trackLinks: p.release.dspLinks.tracks ?? [],
+        releaseDspLinkPackageId: p.deployment.packages.releaseDspLink,
+      })(tx);
+      if (p.release.cover?.stillBlobId !== undefined) setReleaseCover({
+        releaseId: releaseObject, authority,
+        stillBlobId: p.release.cover.stillBlobId,
+        animatedBlobId: p.release.cover.animatedBlobId,
+        coverArtPackageId: p.deployment.packages.coverArt,
+        releaseCoverArtPackageId: p.deployment.packages.releaseCoverArt,
+        oriPackageId: p.deployment.packages.ori,
+      })(tx);
+      for (const cover of p.release.cover?.tracks ?? []) setReleaseTrackCover({
+        releaseId: releaseObject, authority,
+        trackIndex: cover.trackIndex,
+        stillBlobId: cover.stillBlobId,
+        animatedBlobId: cover.animatedBlobId,
+        coverArtPackageId: p.deployment.packages.coverArt,
+        releaseCoverArtPackageId: p.deployment.packages.releaseCoverArt,
+        oriPackageId: p.deployment.packages.ori,
+      })(tx);
+    }
+
+    let pressingParts: { pressing: TransactionObjectArgument; adminCap: TransactionObjectArgument } | undefined;
+    if (p.pressing && releaseObject && releaseAdminCap) {
+      const created = tx.add(pressingContract._new({
+        package: p.deployment.packages.pressing,
+        arguments: [
+          releaseObject,
+          releaseAdminCap,
+          pressingState(tx, p, p.pressing.state ?? { kind: "active" }),
+        ],
+      }));
+      pressingParts = {
+        pressing: requiredCommandResult(created, 0, "pressing::new"),
+        adminCap: requiredCommandResult(created, 1, "pressing::new"),
+      };
+      for (const listing of p.pressing.listings) {
+        tx.add(listingContract._new({
+          package: p.deployment.packages.pressing,
+          typeArguments: [listing.currencyType],
+          arguments: [
+            pressingParts.pressing,
+            pressingParts.adminCap,
+            listingPrice(tx, p, listing.price),
+            tx.add(listing.enabled === false
+              ? listingContract.newDisabledState({ package: p.deployment.packages.pressing })
+              : listingContract.newEnabledState({ package: p.deployment.packages.pressing })),
+          ],
+        }));
+      }
+    }
+
+    p.compositions.forEach((node, index) => publishComposition(tx, p, node, requiredAt(compositions, index, "composition")));
+    p.recordings.forEach((node, index) => publishRecording(tx, p, node, requiredAt(recordings, index, "recording")));
+    if (p.release && releaseObject && releaseAdminCap) {
+      publishReleaseObject(tx, p, p.release, releaseObject, releaseAdminCap);
+    }
+
+    for (const node of p.parties) {
+      if ("id" in node) continue;
+      const parts = createdParties.get(node.ref)!;
+      tx.add(party.share({
+        package: p.deployment.protocol.misoParty,
+        arguments: [parts.party, parts.adminCap],
+      }));
+      disposeNewAdminCap(tx, parts.adminCap, custody(
+        p,
+        node.custody,
+        partyCapType(p),
+        node.custody.kind === "vault" && node.installWallet !== false
+          ? (vault, vaultAdminCap) => installPartyWalletPlugin(tx, {
+              vault, vaultAdminCap,
+              pluginPackageId: p.deployment.packages.partyWalletPlugin,
+            })
+          : undefined,
+      ));
+    }
+
+    if (p.pressing && pressingParts) {
+      tx.add(pressingContract.share({
+        package: p.deployment.packages.pressing,
+        arguments: [pressingParts.pressing],
+      }));
+      disposeNewAdminCap(tx, pressingParts.adminCap, custody(
+        p, p.pressing.custody, pressingCapType(p),
+      ));
+    }
+  };
+}
+
+export interface AtomicPublicationInspection {
+  commands: number;
+  inputs: number;
+}
+
+/** Assemble without RPC access so callers can fail before publishing share packages. */
+export function inspectAtomicPublication(p: AtomicPublicationParams): AtomicPublicationInspection {
+  const tx = new Transaction();
+  publishAtomicCatalog(p)(tx);
+  const data = tx.getData();
+  return { commands: data.commands.length, inputs: data.inputs.length };
+}
+
+export function assertAtomicPublicationBounds(p: AtomicPublicationParams): AtomicPublicationInspection {
+  const inspection = inspectAtomicPublication(p);
+  if (inspection.commands > MAX_ATOMIC_PUBLICATION_COMMANDS) {
+    throw new Error(
+      `Atomic publication requires ${inspection.commands} commands; the SDK safety cap is ` +
+      `${MAX_ATOMIC_PUBLICATION_COMMANDS} (Sui permits at most 1024).`,
+    );
+  }
+  if (inspection.inputs > MAX_ATOMIC_PUBLICATION_INPUTS) {
+    throw new Error(
+      `Atomic publication requires ${inspection.inputs} inputs; Sui permits at most ` +
+      `${MAX_ATOMIC_PUBLICATION_INPUTS}.`,
+    );
+  }
+  return inspection;
+}
+
+export type PublicationAuthorityOut =
+  | { kind: "direct"; adminCapId: string }
+  | { kind: "vault"; vaultId: string; vaultAdminCapId: string; capType: string; vaultPackageId: string };
+
+export interface AtomicPublicationResult {
+  digest: string;
+  gasUsed: number;
+  parties: Record<string, { id: string; adminCapId: string; created: boolean; authority?: PublicationAuthorityOut }>;
+  compositions: Record<string, { id: string; adminCapId: string; shareType: string; authority: PublicationAuthorityOut; royaltyPoolId?: string }>;
+  recordings: Record<string, { id: string; adminCapId: string; shareType: string; compositionShareType: string; authority: PublicationAuthorityOut; royaltyPoolId?: string }>;
+  release?: { id: string; adminCapId: string; authority: PublicationAuthorityOut };
+  pressing?: { id: string; adminCapId: string; authority: PublicationAuthorityOut };
+}
+
+function compactType(type: string): string {
+  return type.replace(/\s+/g, "");
+}
+
+function findByShareType(
+  created: { objectId: string; objectType: string }[],
+  shareType: string,
+  description: string,
+): string {
+  const wanted = compactType(shareType);
+  const matches = created.filter((item) => compactType(item.objectType).includes(wanted));
+  if (matches.length !== 1) throw new Error(`Expected one ${description} for ${shareType}; found ${matches.length}`);
+  return matches[0]!.objectId;
+}
+
+function vaultsByWrappedCap(result: PlatformExecResult) {
+  const out = new Map<string, { vaultId: string; vaultAdminCapId: string }>();
+  for (const event of result.events) {
+    if (!event.eventType.includes("::vault::VaultCreatedEvent<")) continue;
+    const parsed = parseVaultCreatedEvent(event.bcs);
+    out.set(parsed.wrapped_cap_id, {
+      vaultId: parsed.vault_id,
+      vaultAdminCapId: parsed.vault_admin_cap_id,
+    });
+  }
+  return out;
+}
+
+function authorityOut(
+  result: PlatformExecResult,
+  vaults: ReturnType<typeof vaultsByWrappedCap>,
+  selected: PublicationCustody,
+  adminCapId: string,
+  capType: string,
+  vaultPackageId: string,
+): PublicationAuthorityOut {
+  if (selected.kind === "direct") return { kind: "direct", adminCapId };
+  const found = vaults.get(adminCapId);
+  if (!found) throw new Error(`No VaultCreatedEvent wrapped admin cap ${adminCapId} in ${result.digest}`);
+  return { kind: "vault", ...found, capType, vaultPackageId };
+}
+
+/** Parse one atomic publication using type identity plus lifecycle event payloads. */
+export function parseAtomicPublicationResult(
+  p: AtomicPublicationParams,
+  result: PlatformExecResult,
+): AtomicPublicationResult {
+  const vaults = vaultsByWrappedCap(result);
+  const createdCompositions = allCreatedByType(result, "::composition::Composition<");
+  const createdRecordings = allCreatedByType(result, "::recording::Recording<");
+  const createdPools = allCreatedByType(result, "::pool::RoyaltyPool<");
+
+  const createdPartyNodes = p.parties.filter((node): node is Extract<PublicationParty, { create: string }> => "create" in node);
+  const partyEvents = result.events.filter((event) => event.eventType.endsWith("::party::PartyCreatedEvent"));
+  if (partyEvents.length !== createdPartyNodes.length) {
+    throw new Error(`Expected ${createdPartyNodes.length} PartyCreatedEvent values; found ${partyEvents.length}`);
+  }
+  const parties: AtomicPublicationResult["parties"] = {};
+  for (const node of p.parties) {
+    if ("id" in node) {
+      parties[node.ref] = {
+        id: node.id,
+        adminCapId: derivePartyAdminCapId(node.id, p.deployment.protocol.misoParty),
+        created: false,
+      };
+    }
+  }
+  createdPartyNodes.forEach((node, index) => {
+    const event = partyEvents[index]!;
+    const parsed = protocolContracts.party.PartyCreatedEvent.parse(event.bcs);
+    const adminCapId = derivePartyAdminCapId(parsed.party_id, p.deployment.protocol.misoParty);
+    parties[node.ref] = {
+      id: parsed.party_id,
+      adminCapId,
+      created: true,
+      authority: authorityOut(result, vaults, node.custody, adminCapId, partyCapType(p), p.deployment.packages.vault),
+    };
+  });
+
+  const compositions: AtomicPublicationResult["compositions"] = {};
+  p.compositions.forEach((node) => {
+    const id = findByShareType(createdCompositions, node.shareType, "Composition");
+    const adminCapId = deriveCompositionAdminCapId(id, p.deployment.protocol.miso);
+    compositions[node.ref] = {
+      id,
+      adminCapId,
+      shareType: node.shareType,
+      authority: authorityOut(result, vaults, node.custody, adminCapId, compositionCapType(p, node.shareType), p.deployment.packages.vault),
+      royaltyPoolId: node.royaltyPool ? findByShareType(createdPools, node.shareType, "Composition RoyaltyPool") : undefined,
+    };
+  });
+
+  const recordings: AtomicPublicationResult["recordings"] = {};
+  p.recordings.forEach((node) => {
+    const id = findByShareType(createdRecordings, node.shareType, "Recording");
+    const adminCapId = deriveRecordingAdminCapId(id, p.deployment.protocol.miso);
+    recordings[node.ref] = {
+      id,
+      adminCapId,
+      shareType: node.shareType,
+      compositionShareType: node.compositionShareType,
+      authority: authorityOut(result, vaults, node.custody, adminCapId, recordingCapType(p, node.shareType), p.deployment.packages.vault),
+      royaltyPoolId: node.royaltyPool ? findByShareType(createdPools, node.shareType, "Recording RoyaltyPool") : undefined,
+    };
+  });
+
+  let releaseOut: AtomicPublicationResult["release"];
+  if (p.release) {
+    const id = createdByExactType(result, `${p.deployment.protocol.miso}::release::Release`);
+    const adminCapId = deriveReleaseAdminCapId(id, p.deployment.protocol.miso);
+    releaseOut = {
+      id,
+      adminCapId,
+      authority: authorityOut(result, vaults, p.release.custody, adminCapId, releaseCapType(p), p.deployment.packages.vault),
+    };
+  }
+
+  let pressingOut: AtomicPublicationResult["pressing"];
+  if (p.pressing && releaseOut) {
+    const id = derivePressingId(releaseOut.id, p.deployment.packages.pressing);
+    const adminCapId = derivePressingAdminCapId(id, p.deployment.packages.pressing);
+    pressingOut = {
+      id,
+      adminCapId,
+      authority: authorityOut(result, vaults, p.pressing.custody, adminCapId, pressingCapType(p), p.deployment.packages.vault),
+    };
+  }
+
+  return {
+    digest: result.digest,
+    gasUsed: result.gasUsed,
+    parties,
+    compositions,
+    recordings,
+    release: releaseOut,
+    pressing: pressingOut,
+  };
+}

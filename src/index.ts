@@ -44,6 +44,7 @@ export * from "./execute.ts";
 export * from "./share.ts";
 export * from "./share-template.ts";
 export * from "./release-graph.ts";
+export * from "./publication.ts";
 export * from "./catalog.ts";
 
 // High-level, JSON-safe platform projections used directly by clients and by

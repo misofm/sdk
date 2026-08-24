@@ -18,7 +18,14 @@ import type { TxThunk } from "./transactions.ts";
 // surface available through this platform-layer entry point as well.
 export * from "@misonetwork/sdk/execute";
 
-type FullInclude = typeof FULL_INCLUDE;
+/** Publication execution also needs lifecycle events to associate same-typed
+ * objects (notably several new Parties and Vaults) with their manifest refs. */
+export const PLATFORM_FULL_INCLUDE = { ...FULL_INCLUDE, events: true } as const;
+type PlatformFullInclude = typeof PLATFORM_FULL_INCLUDE;
+
+export interface PlatformExecResult extends ExecResult {
+  events: SuiClientTypes.Event[];
+}
 
 /**
  * Builds a transaction from thunks and executes it through the parallel executor,
@@ -32,8 +39,14 @@ type FullInclude = typeof FULL_INCLUDE;
  * job (e.g. a resumable checkpoint that reconciles against on-chain state). A Move
  * abort RESOLVES as a `FailedTransaction`, so `toExecResult` surfaces it too.
  */
-export async function executeViaExecutor(executor: ParallelTransactionExecutor, ...thunks: TxThunk[]): Promise<ExecResult> {
+export async function executeViaExecutor(
+  executor: ParallelTransactionExecutor,
+  ...thunks: TxThunk[]
+): Promise<PlatformExecResult> {
   const tx = await buildTx(...thunks);
-  const res: SuiClientTypes.TransactionResult<FullInclude> = await executor.executeTransaction(tx, FULL_INCLUDE);
-  return toExecResult(res);
+  const res: SuiClientTypes.TransactionResult<PlatformFullInclude> =
+    await executor.executeTransaction(tx, PLATFORM_FULL_INCLUDE);
+  const base = toExecResult(res);
+  if (res.$kind !== "Transaction") throw new Error("unreachable: toExecResult accepted a failed transaction");
+  return { ...base, events: res.Transaction.events ?? [] };
 }
