@@ -59,7 +59,7 @@ currency's listing enabled.
 
 **Everything is address math.** The pressing's UID derives off its release's, each
 listing's off the pressing's. The protocol's canonical `ReleaseRegistry` creates the
-release; there is no *pressing* registry or `CurrentDropKey` pointer to follow, so
+release; there is no *pressing* registry or mutable lookup pointer to follow, so
 "where is it" is answered offline — which is why the builders take a RELEASE id and
 compute the rest. A caller cannot pair a listing with the wrong pressing, because it
 never picks one.

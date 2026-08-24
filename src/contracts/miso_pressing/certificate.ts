@@ -27,7 +27,7 @@ export const Certificate = new MoveStruct({ name: `${$moduleName}::Certificate`,
         purchase_currency: type_name.TypeName,
         /** The exact amount paid. Under a floor price this includes any tip above it. */
         purchase_price: bcs.u64(),
-        /** The timestamp stamped from the shared Clock on the pressing path. */
+        /** The timestamp stamped from the shared Clock on the Listing purchase path. */
         created_at_ms: bcs.u64()
     } });
 export interface ParentIdArguments {

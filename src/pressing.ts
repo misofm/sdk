@@ -181,8 +181,8 @@ export interface OpenPressingParams {
   /** Currencies to open the run in. May be empty — listings can be added later with
    *  {@link openListing} — but a run with no listings sells nothing. */
   listings: ListingTerms[];
-  /** Run state at open. Defaults to `active` (sell immediately); `scheduled` is the
-   *  trustless drop moment, and needs no later transaction to open. */
+  /** Run state at open. Defaults to `active` (sell immediately); `scheduled` sets a
+   *  trustless opening time and needs no later transaction to open. */
   state?: PressingRunState;
   /** Where to send the minted `PressingAdminCap` (usually the artist or their vault). */
   adminCapRecipient: string;
@@ -518,10 +518,10 @@ function variant<T extends string>(
 /**
  * Fetches and parses a `Pressing`, or `null` if the release has never opened one.
  *
- * NOTE: like the old drop reader, this deliberately deviates from the core-getter
- * convention in `./queries.ts` (throw on missing object). A pressing's address is
- * computable for ANY release, so probing one that was never opened is a normal state,
- * not a broken reference — absence is `null` and only transport failures throw.
+ * This deliberately deviates from the core-getter convention in `./queries.ts`
+ * (throw on missing object). A Pressing's address is computable for any release, so
+ * probing one that was never opened is a normal state, not a broken reference —
+ * absence is `null` and only transport failures throw.
  */
 export async function getPressing(
   client: ClientWithCoreApi,

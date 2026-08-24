@@ -325,8 +325,8 @@ export function breakdown(
 
 /**
  * The receipt for `txDigest`. The event identifies the exact immutable Pressing
- * and Listing; callers cannot accidentally reinterpret a Pressing id as a
- * retired drop id.
+ * and Listing; callers cannot accidentally reinterpret a Pressing id as an
+ * obsolete sale-object id.
  *
  * The sale identifies the Pressing before its detail is fetched. `null` only when
  * that immutable Pressing cannot be read; it is never superseded or destroyed.

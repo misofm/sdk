@@ -16,10 +16,6 @@ import { fileURLToPath } from "node:url";
 // packages and bindings. Core `miso::release::ReleaseRegistry` is the canonical
 // shared derivation parent, and core `release::new` is PTB-callable.
 //
-// `miso_drop` is deliberately absent: its retired ABI had editions and a
-// CurrentDropKey pointer. This release binds only the current Pressing/Listing
-// source and removes the obsolete generated directory separately.
-//
 // Paths resolve against sibling checkouts. For an isolated SDK worktree, set
 // MISO_SDK_CODEGEN_SOURCE_ROOT to a copied checkout root containing both
 // `misofm/` and `misonetwork/`; codegen then never writes summaries or locks into
@@ -37,7 +33,7 @@ const config: SuiCodegenConfig = {
   packages: [
     // The record production line: one uncapped run per release, plus a
     // `Listing<Currency>` per payment rail.
-    { package: "@local-pkg/miso_pressing", path: source("misofm/pressing/move") },
+    { package: "@local-pkg/miso_pressing", path: source("misofm/pressing") },
 
     // Royalty pools — accumulator-based distribution bound to a work.
     {

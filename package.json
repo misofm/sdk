@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "packageManager": "bun@1.4.0",
   "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
@@ -112,7 +112,7 @@
   ],
   "scripts": {
     "codegen": "sui-ts-codegen generate",
-    "codegen:check": "bun run codegen && perl -pi -e 's/[ \\t]+$//' src/contracts/royalty_pool/pool.ts src/contracts/royalty_pool/stake.ts src/contracts/party_wallet/party_wallet.ts && git diff --exit-code -- src/contracts",
+    "codegen:check": "bun run codegen && perl -pi -e 's/[ \\t]+$//' src/contracts/royalty_pool/pool.ts src/contracts/royalty_pool/stake.ts src/contracts/routed_stake/deps/royalty_pool/stake.ts src/contracts/party_wallet/party_wallet.ts && git diff --exit-code -- src/contracts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

@@ -456,8 +456,8 @@ export async function getPressingPreview(
 
 /**
  * Everything a currency-specific buy page renders. The Listing is derived from
- * the release's Pressing and the requested currency, never found through an old
- * drop pointer.
+ * the release's Pressing and the requested currency, never found through mutable
+ * lookup state.
  */
 export async function getSaleDetail(
   client: MisoClient,
@@ -481,7 +481,7 @@ export async function getSaleDetail(
  * The records currently on sale.
  *
  * Configured by release + currency: Pressing and Listing ids are deterministic,
- * permanent derived addresses. There is no `CurrentDropKey` pointer or edition
+ * permanent derived addresses. There is no mutable Pressing pointer or edition
  * replacement in the current ABI.
  */
 export async function getDiscoverShelf(
