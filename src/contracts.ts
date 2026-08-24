@@ -20,6 +20,7 @@ export * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
 export * as vault from "./contracts/vault/vault.ts";
 export * as compositionRoyaltyPool from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
 export * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
+export * as partyWallet from "./contracts/party_wallet/party_wallet.ts";
 export * as routedStake from "./contracts/routed_stake/routed_stake.ts";
 export * as compositionRoutedStake from "./contracts/composition_routed_stake/composition_routed_stake.ts";
 

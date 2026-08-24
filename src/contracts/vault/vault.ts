@@ -229,7 +229,8 @@ export interface BorrowAsPluginOptions<Witness extends BcsType<any>> {
  * Temporarily lend the full custodied capability to an authorized plugin.
  *
  * `Borrow` has no abilities, so the exact capability must be returned through
- * `put_back` in this transaction.
+ * `put_back` in this transaction. Aborts if the supplied type is not the exact
+ * non-generic `0xpkg::witness::Witness` shape or is not authorized on this Vault.
  */
 export function borrowAsPlugin<Witness extends BcsType<any>>(options: BorrowAsPluginOptions<Witness>) {
     const packageAddress = options.package ?? '@local-pkg/vault';

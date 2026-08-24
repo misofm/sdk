@@ -39,31 +39,12 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.11.0 @misonetwork/sdk@^0.8.0
+bun add @misofm/sdk@^0.12.1 @misonetwork/sdk@^0.9.1
 ```
 
-For SDK development, the frozen lockfile pins the protocol dev source to the
-exact `0.8.0` release commit. Source-Git installs use `prepare` only to emit
-`dist` before Bun links peer dependencies; strict typechecking remains in the
-frozen CI, `build`, and `prepack` commands. The platform package does not run a
-custom script that modifies a consumer's `node_modules`.
-
-### Pre-publish Git-head workflow
-
-Before these versions are published, install both immutable Git heads at the
-application root. Bun must be allowed to run both source-package `prepare`
-scripts, so the root `package.json` must include exactly these SDK entries:
-
-```json
-{
-  "trustedDependencies": ["@misonetwork/sdk", "@misofm/sdk"]
-}
-```
-
-Without them, Bun blocks `prepare` and the Git packages have no `dist` artifact
-to import. This is only for the pre-publish source-Git workflow. Published npm
-packages and packed tarballs already include `dist`; install those normally,
-with one `@misonetwork/sdk@^0.8.0` peer at the application root.
+Both SDKs are consumed from npm. The platform package keeps
+`@misonetwork/sdk` as a peer so applications resolve exactly one protocol SDK
+and one compatible deployment map.
 
 ## The model
 
@@ -126,10 +107,10 @@ Holding the ids yourself? Every builder and reader is exported bare, taking
 import { buyRecord, getSale } from "@misofm/sdk/pressing";
 ```
 
-No package IDs are bundled until the admin-cli deployment records the new
-immutable stack. `miso()` therefore fails closed; pass one complete verified
-deployment through `miso({ deployment })`. The post-publish update is confined
-to `src/deployments.ts`.
+Testnet package and singleton IDs are bundled in
+`MISO_PLATFORM_DEPLOYMENTS.testnet`. Calling `miso()` selects that verified map
+from the Sui client's network. Unbundled and custom networks still fail closed
+unless the caller passes one complete deployment through `miso({ deployment })`.
 
 ### High-level platform reads
 
@@ -458,7 +439,7 @@ only from that copy, avoiding writes to a developer's live source tree.
 
 ## Dependency on `@misonetwork/sdk`
 
-`@misonetwork/sdk` is a required peer (`^0.8.0`), not a runtime dependency.
+`@misonetwork/sdk` is a required peer (`^0.9.1`), not a runtime dependency.
 This package imports its primitives, deployment configuration, protocol client,
 and Party client directly, then exposes them at `client.miso.protocol` and
 `client.miso.party`. The consuming
@@ -467,10 +448,8 @@ silently nesting an older protocol ABI alongside the application's copy.
 `@mysten/sui` itself stays a peer dependency here, same as in
 `@misonetwork/sdk`.
 
-For this coordinated pre-publish release, the development lock resolves the
-exact integrated `@misonetwork/sdk` commit (`4b14270`). The published
-tarball intentionally contains no copy of it: consumers satisfy the peer with
-their verified `@misonetwork/sdk@^0.8.0` installation.
+The published tarball intentionally contains no protocol SDK copy: consumers
+satisfy the peer with their verified `@misonetwork/sdk@^0.9.1` installation.
 
 ```bash
 bun install

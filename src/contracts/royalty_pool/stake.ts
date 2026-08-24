@@ -5,16 +5,22 @@
 
 /**
  * A position holding share tokens registered against a `RoyaltyPool`.
- * 
+ *
  * Stakes are owned objects with an immutable balance — to increase a holder's
  * total staked amount, mint additional Stake objects rather than modify an
  * existing one. This mirrors Sui's native staking model.
- * 
+ *
  * Each stake tracks the royalty pools it is currently registered with via an
  * inline `VecMap<TypeName, Registration>`, keyed by the pool's `Currency`
  * `TypeName`. The stake cannot be destroyed while any registrations remain. Pool
  * registrations are mutated by `royalty_pool::pool` through the package-private
  * accessors below.
+ *
+ * Custody warning: `pool::claim_rewards` pays accrued rewards to the _caller_, and
+ * `Stake` is `key + store` — a bare shared stake (or one wrapped in a shared
+ * object that hands out `&mut`) is drainable by anyone. Stakes must stay
+ * address-owned, or wrapped by a contract that pins the reward route (e.g.
+ * `routed_stake`); the pool cannot enforce this itself.
  */
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';

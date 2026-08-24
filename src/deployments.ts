@@ -5,9 +5,14 @@ import type {
   MisoDeployment,
   MisoNetwork,
 } from "@misonetwork/sdk/deployments";
+import { MISO_DEPLOYMENTS } from "@misonetwork/sdk/deployments";
 
 /** Complete on-chain identity used by the Miso platform SDK on one network. */
 export interface MisoPlatformDeployment {
+  /** Network name this immutable deployment set belongs to. */
+  readonly network: MisoNetwork;
+  /** Full ledger genesis digest used to reject a mislabeled RPC endpoint. */
+  readonly chainIdentifier: string;
   /** The complete protocol and Party deployment this platform build targets. */
   readonly protocol: MisoDeployment;
   readonly packages: {
@@ -26,6 +31,8 @@ export interface MisoPlatformDeployment {
     readonly compositionRoyaltyPoolPlugin: string;
     /** Vault plugin that creates and cranks Recording royalty pools. */
     readonly recordingRoyaltyPoolPlugin: string;
+    /** Vault plugin that manages a Party's royalty-bearing wallet. */
+    readonly partyWalletPlugin: string;
     /** Generic stake wrapper used by the composition routed-stake plugin. */
     readonly routedStake: string;
     /** Vault plugin for Composition-owned Recording-share staking. */
@@ -61,12 +68,52 @@ export interface MisoPlatformDeployment {
 /**
  * Platform deployments bundled with this SDK release.
  *
- * This release deliberately contains no bundled network deployment. The core
- * protocol is being republished as an immutable stack, so every old package ID
- * is an incompatible ABI and must not be selected by accident. The admin-cli
- * deployment flow injects verified IDs in a follow-up change.
+ * IDs come only from the verified output of the Ledger-backed deployment run.
+ * Consumers may still pass an explicit complete deployment for custom networks.
  */
-export const MISO_PLATFORM_DEPLOYMENTS = {} as const satisfies Partial<
+export const MISO_PLATFORM_DEPLOYMENTS = {
+  testnet: {
+    network: "testnet",
+    chainIdentifier: "69WiPg3DAQiwdxfncX6wYQ2siKwAe6L9BZthQea3JNMD",
+    protocol: MISO_DEPLOYMENTS.testnet,
+    packages: {
+      pressing: "0x95fba53c968978f75d6ca8a5e6f0f3ba83fdc3af301bc8419be354a3990af5b9",
+      record: "0x6150c474200f63bf73072642564886e5ecb1a4c0498ede31acd7908d94dbc83b",
+      minato: "0x8466e9864c1d947888e73b0e349b035bc22805579eef18f132966f56c8efe1d2",
+      credit: "0x20d8e38f49445cbae45fd66c262c2cbc4bf4cccab487b3fb443a491dc24071cd",
+      compositionCredits: "0x8b376967e9c32169727ec5341890f28c66d8577d7bfcecb83aa78aec3e84dce5",
+      recordingCredits: "0x7096a47b0ba12063c037d6d417bffade758665a3f313574c8ba218823cfb159a",
+      releaseCredits: "0xbe293700ef758c95b69838df6cfa8377b9cad1dd59cbf933974f68b1766d87b5",
+      royaltyPool: "0xbeddbcfc2c42ed1bcaa74dc241957621b48241451e10af136c20cdc7df8266b8",
+      vault: "0x7075ce4bfc2c738e774c94f1eeb7dc532a5f11ead9b4e3815d90dc16053eae9c",
+      compositionRoyaltyPoolPlugin: "0x8d61aecceb597441a0d675b44291706742859c8ff7755b3ed143823daa430c50",
+      recordingRoyaltyPoolPlugin: "0x6de70d4e87a328259f00f354227fb329c63fbf50efb87f057c5da26d6908e1d1",
+      partyWalletPlugin: "0xccf17215193d1ae64a47480c83df9af2881ffdb75e5ac842ab3898cadd9eeca0",
+      routedStake: "0x7a55b1841043efea865d65a6601e057400a79a0aa7bb11e781a25dbe622cbe5f",
+      compositionRoutedStakePlugin: "0x54fb4befa1be03f7457abfddcfb9334c20a8df3e01c44aa257f1c3d718cd57ee",
+      coverArt: "0x2dae28058b89df93224bacfb9af42fd3ab41f001c2c815fd57fd575024d9a50b",
+      releaseCoverArt: "0x649b18f2bb3d94f6a611a8e4ad3a29dcf8b7bba3f684056d60897a8a5e835106",
+      genre: "0x978d5f67a4fdc3eb688ed3aeb23c6c3c37ae44e358fb709001e6ab21e6f19f34",
+      releaseDescription: "0x3e26e4c4c5b3f51070d6d7bb1527eaa304f34ae5dfde078661e180e7594d6d28",
+      releaseDspLink: "0xd9f9e7240c397a82e4af1ecb9ec75b29a91ef4084127eabcf22fbf24e72cab2f",
+      releaseGenre: "0xc1012f9768f178ca908ef4a6cfd150ad33baaa3587dc2154ea9852858243cd57",
+      releaseKind: "0x3e74c960d9446ae2ebf228456ddc1b099d2090501c9cbcd284a999aa2e774e12",
+      releaseRevenueDistributorPlugin: "0x42a22b24129988a5ce8069a1f78eb31d9aa5edf360d729ae3c2c0b8ed18876e1",
+      recordingAdvisory: "0x28e0e72c5b892fc888a9007afa59ebe04ed8e47f12632ddb42cd685d09c4af2e",
+      recordingLanguage: "0x4b284a9435cf4f48e3785e4485d16be2fcbcef5beaa2b44b6556d9c1028e2c0d",
+      recordingMasterReference: "0x2b06ab58f2d5a915b42fc5879d52241fc72e804b3da782fa752b2d2f242170c0",
+      recordingPreview: "0x449aafe29707adf249df7e90355ecb19d939ea77d9e19fd3e2fdb220e73e74f0",
+      ori: "0x340057f2174fb59e4626742dd2b46c662237837b6187450cb59e4976ce7eac78",
+    },
+    objects: {
+      releaseRegistry: "0xf5941ae9640f6f24b75e921da16c95fd23d776b9e6518c275a50a5ce6337c8ba",
+      genreRegistry: "0xad34d6b717b8c59ed9ac47a520feab31324f0c04d70fd31922be45d8209fce1c",
+    },
+    legacy: {
+      releaseCoverArtPackages: [],
+    },
+  },
+} as const satisfies Partial<
   Record<MisoNetwork, MisoPlatformDeployment>
 >;
 

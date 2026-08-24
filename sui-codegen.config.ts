@@ -58,6 +58,10 @@ const config: SuiCodegenConfig = {
       path: source("misofm/vault-plugins/recording_royalty_pool"),
     },
     {
+      package: "@local-pkg/party_wallet",
+      path: source("misofm/vault-plugins/party_wallet"),
+    },
+    {
       package: "@local-pkg/composition_routed_stake",
       path: source("misofm/vault-plugins/composition_routed_stake"),
     },

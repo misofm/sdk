@@ -10,7 +10,11 @@ import { test, expect } from "bun:test";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { miso, misoPlatform } from "../src/client.ts";
-import type { MisoPlatformDeployment } from "../src/deployments.ts";
+import {
+  getMisoPlatformDeployment,
+  MISO_PLATFORM_DEPLOYMENTS,
+  type MisoPlatformDeployment,
+} from "../src/deployments.ts";
 import {
   MISO_PACKAGE_NAMES,
   type MisoDeployment,
@@ -35,6 +39,8 @@ const NETWORK_DEPLOYMENT = Object.fromEntries(
 ) as MisoDeployment;
 
 const DEPLOYMENT = {
+  network: "testnet",
+  chainIdentifier: "testnet-chain-identifier",
   protocol: NETWORK_DEPLOYMENT,
   packages: {
     pressing: PRESSING,
@@ -44,6 +50,7 @@ const DEPLOYMENT = {
     vault: VAULT,
     compositionRoyaltyPoolPlugin: A,
     recordingRoyaltyPoolPlugin: A,
+    partyWalletPlugin: A,
     compositionRoutedStakePlugin: A,
     routedStake: A,
     releaseRevenueDistributorPlugin: A,
@@ -97,13 +104,24 @@ test("miso() accepts an explicit verified deployment and exposes nested protocol
   expect(calls.find((call) => call.module === "minato")?.package).toBe(MINATO);
 });
 
-test("miso() fails closed while no deployment is bundled", () => {
-  expect(() =>
-    new SuiGrpcClient({
-      network: "testnet",
-      baseUrl: "https://fullnode.testnet.sui.io:443",
-    }).$extend(miso()),
-  ).toThrow(/no bundled Miso platform deployment/);
+test("miso() selects the bundled Testnet deployment and unbundled networks fail closed", () => {
+  const c = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(miso());
+  expect(c.miso.packageId).toBe(MISO_PLATFORM_DEPLOYMENTS.testnet.packages.pressing);
+  expect(c.miso.protocol.deployment.packageId).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.miso,
+  );
+  expect(c.miso.party.genrePackageId).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet.protocol.genre,
+  );
+  expect(getMisoPlatformDeployment("testnet")).toBe(
+    MISO_PLATFORM_DEPLOYMENTS.testnet,
+  );
+  expect(() => getMisoPlatformDeployment("mainnet")).toThrow(
+    /no bundled Miso platform deployment/,
+  );
 });
 
 test("network parsing defaults only missing values and rejects typos", () => {
@@ -147,6 +165,13 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
       (call) => call.module === "vault" && call.function === "vault_id",
     )?.package,
   ).toBe(VAULT);
+
+  c.miso.call.partyWallet.isInstalled({ arguments: [tx.object(A)] })(tx);
+  expect(
+    moveCalls(tx).find(
+      (call) => call.module === "party_wallet" && call.function === "is_installed",
+    )?.package,
+  ).toBe(A);
 
   c.miso.call.releaseCoverArt.hasCoverArt({
     arguments: [tx.object(A)],

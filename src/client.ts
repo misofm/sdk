@@ -49,6 +49,7 @@ import * as releaseRevenueDistributorContract from "./contracts/release_revenue_
 import * as vaultContract from "./contracts/vault/vault.ts";
 import * as compositionRoyaltyPoolContract from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
 import * as recordingRoyaltyPoolContract from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
+import * as partyWalletContract from "./contracts/party_wallet/party_wallet.ts";
 import * as compositionRoutedStakeContract from "./contracts/composition_routed_stake/composition_routed_stake.ts";
 import * as routedStakeContract from "./contracts/routed_stake/routed_stake.ts";
 import * as royaltyPoolContract from "./contracts/royalty_pool/pool.ts";
@@ -203,6 +204,7 @@ export interface MisoPlatformConfig {
   /** Vault plugins, deliberately separate from data-extension package ids. */
   compositionRoyaltyPoolPluginPackageId?: string;
   recordingRoyaltyPoolPluginPackageId?: string;
+  partyWalletPluginPackageId?: string;
   compositionRoutedStakePluginPackageId?: string;
   routedStakePackageId?: string;
   releaseRevenueDistributorPluginPackageId?: string;
@@ -600,6 +602,13 @@ export class MisoPlatformClient {
             ["install", "uninstall", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
+      partyWallet: this.#config.partyWalletPluginPackageId
+        ? bindModulePackage(
+            partyWalletContract,
+            this.#config.partyWalletPluginPackageId,
+            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemCoin", "isInstalled", "inboxAddress", "settledFunds"] as const,
+          )
+        : undefined,
       compositionRoutedStake: this.#config.compositionRoutedStakePluginPackageId
         ? bindModulePackage(
             compositionRoutedStakeContract,
@@ -701,6 +710,7 @@ export function miso<const Name extends string = "miso">(
             deployment.packages.compositionRoyaltyPoolPlugin,
           recordingRoyaltyPoolPluginPackageId:
             deployment.packages.recordingRoyaltyPoolPlugin,
+          partyWalletPluginPackageId: deployment.packages.partyWalletPlugin,
           compositionRoutedStakePluginPackageId:
             deployment.packages.compositionRoutedStakePlugin,
           routedStakePackageId: deployment.packages.routedStake,
