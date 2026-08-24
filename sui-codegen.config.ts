@@ -33,7 +33,7 @@ const config: SuiCodegenConfig = {
   packages: [
     // The record production line: one uncapped run per release, plus a
     // `Listing<Currency>` per payment rail.
-    { package: "@local-pkg/miso_pressing", path: source("misofm/pressing") },
+    { package: "@local-pkg/miso_pressing", path: source("misofm/pressing/move") },
 
     // Royalty pools — accumulator-based distribution bound to a work.
     {

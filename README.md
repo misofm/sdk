@@ -39,7 +39,7 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.13.0 @misonetwork/sdk@^0.9.1
+bun add @misofm/sdk@^0.14.0 @misonetwork/sdk@^0.10.0
 ```
 
 Both SDKs are consumed from npm. The platform package keeps
@@ -486,7 +486,7 @@ only from that copy, avoiding writes to a developer's live source tree.
 
 ## Dependency on `@misonetwork/sdk`
 
-`@misonetwork/sdk` is a required peer (`^0.9.1`), not a runtime dependency.
+`@misonetwork/sdk` is a required peer (`^0.10.0`), not a runtime dependency.
 This package imports its primitives, deployment configuration, protocol client,
 and Party client directly, then exposes them at `client.miso.protocol` and
 `client.miso.party`. The consuming
@@ -496,7 +496,7 @@ silently nesting an older protocol ABI alongside the application's copy.
 `@misonetwork/sdk`.
 
 The published tarball intentionally contains no protocol SDK copy: consumers
-satisfy the peer with their verified `@misonetwork/sdk@^0.9.1` installation.
+satisfy the peer with their verified `@misonetwork/sdk@^0.10.0` installation.
 
 ```bash
 bun install

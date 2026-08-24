@@ -4,12 +4,12 @@
 
 
 /**
- * Genre vocabulary for Miso — a curated, deduplicated set of `Genre` objects.
+ * Genre vocabulary for Miso — a canonical, deduplicated set of `Genre` objects.
  * 
  * Genre is a classification, not protocol-verifiable state, so it lives in an
  * extension rather than core. This module owns the **vocabulary**: `Genre` objects
- * created by a `GenreRegistryCap` holder (Miso), derived by canonical name so the
- * set stays deduplicated and canonical (no "hip-hop" vs "Hip Hop" forks).
+ * are created permissionlessly and derived by canonical name, so the set stays
+ * deduplicated and canonical (no "hip-hop" vs "Hip Hop" forks).
  * 
  * Genre _assignment_ — classifying a release and its individual tracks — lives in
  * the `release_genre` module. How a recording is presented and classified is a
@@ -21,13 +21,7 @@ import { MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgum
 import { bcs } from '@mysten/sui/bcs';
 import { type Transaction } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/genre::genre';
-export const GENRE = new MoveStruct({ name: `${$moduleName}::GENRE`, fields: {
-        dummy_field: bcs.bool()
-    } });
 export const GenreRegistry = new MoveStruct({ name: `${$moduleName}::GenreRegistry`, fields: {
-        id: bcs.Address
-    } });
-export const GenreRegistryCap = new MoveStruct({ name: `${$moduleName}::GenreRegistryCap`, fields: {
         id: bcs.Address
     } });
 export const Genre = new MoveStruct({ name: `${$moduleName}::Genre`, fields: {
@@ -41,32 +35,30 @@ export const GenreCreatedEvent = new MoveStruct({ name: `${$moduleName}::GenreCr
         name: bcs.string()
     } });
 export interface NewArguments {
-    _: RawTransactionArgument<string>;
     registry: RawTransactionArgument<string>;
     name: RawTransactionArgument<string>;
 }
 export interface NewOptions {
     package?: string;
     arguments: NewArguments | [
-        _: RawTransactionArgument<string>,
         registry: RawTransactionArgument<string>,
         name: RawTransactionArgument<string>
     ];
 }
 /**
- * Creates a new genre in the canonical vocabulary. Cap-gated: only the registry
- * curator can extend the vocabulary. Derived by canonical name, so creating the
- * same name twice aborts (dedup is automatic). The `Genre` is frozen — immutable
- * and globally readable by reference.
+ * Creates a genre in the canonical vocabulary. Creation is permissionless; the
+ * validated canonical name fully determines the derived object, so caller identity
+ * cannot change its id or contents. Creating the same name twice aborts (dedup is
+ * automatic). The `Genre` is frozen — immutable and globally readable by
+ * reference.
  */
 export function _new(options: NewOptions) {
     const packageAddress = options.package ?? '@local-pkg/genre';
     const argumentsTypes = [
         null,
-        null,
         '0x1::string::String'
     ] satisfies (string | null)[];
-    const parameterNames = ["_", "registry", "name"];
+    const parameterNames = ["registry", "name"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'genre',

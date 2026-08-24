@@ -93,10 +93,10 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
       compositionRoutedStakePlugin: "0x54fb4befa1be03f7457abfddcfb9334c20a8df3e01c44aa257f1c3d718cd57ee",
       coverArt: "0x2dae28058b89df93224bacfb9af42fd3ab41f001c2c815fd57fd575024d9a50b",
       releaseCoverArt: "0x649b18f2bb3d94f6a611a8e4ad3a29dcf8b7bba3f684056d60897a8a5e835106",
-      genre: "0x978d5f67a4fdc3eb688ed3aeb23c6c3c37ae44e358fb709001e6ab21e6f19f34",
+      genre: "0x5091d30e893105abe24adf75223f587361034e90516c6e509897bb86d18d2387",
       releaseDescription: "0x3e26e4c4c5b3f51070d6d7bb1527eaa304f34ae5dfde078661e180e7594d6d28",
-      releaseDspLink: "0xd9f9e7240c397a82e4af1ecb9ec75b29a91ef4084127eabcf22fbf24e72cab2f",
-      releaseGenre: "0xc1012f9768f178ca908ef4a6cfd150ad33baaa3587dc2154ea9852858243cd57",
+      releaseDspLink: "0x2b8e1d7be7a3cbc07e6167c5b5c6511059791b4a2116c1fa97d65cfd871d0bda",
+      releaseGenre: "0x7882367d45efff41ef0cb9e937029a3f8a3cdf5908d83beeb5cbc0cff178d290",
       releaseKind: "0x3e74c960d9446ae2ebf228456ddc1b099d2090501c9cbcd284a999aa2e774e12",
       releaseRevenueDistributorPlugin: "0x42a22b24129988a5ce8069a1f78eb31d9aa5edf360d729ae3c2c0b8ed18876e1",
       recordingAdvisory: "0x28e0e72c5b892fc888a9007afa59ebe04ed8e47f12632ddb42cd685d09c4af2e",
@@ -107,7 +107,7 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
     },
     objects: {
       releaseRegistry: "0xf5941ae9640f6f24b75e921da16c95fd23d776b9e6518c275a50a5ce6337c8ba",
-      genreRegistry: "0xad34d6b717b8c59ed9ac47a520feab31324f0c04d70fd31922be45d8209fce1c",
+      genreRegistry: "0xa83f9c7a340b5b5b6387d1d5933019b45bcedebbae85bbb89bab855a56e90816",
     },
     legacy: {
       releaseCoverArtPackages: [],
