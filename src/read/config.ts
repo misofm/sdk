@@ -7,11 +7,12 @@
 // `lib/money.ts`, `lib/pressing.ts`) lives here instead, so a redeploy is a change
 // in ONE file that every surface picks up.
 //
-// There are intentionally no baked network IDs while the immutable stack is
-// republished. A read client must receive a complete verified configuration from
-// its caller; silently retaining the old ABI would be unsafe.
+// Testnet values are derived from the same verified deployment record exported
+// by the platform SDK. Mainnet remains deliberately unavailable until a complete
+// deployment is bundled for it.
 
 import type { MisoDeployment } from "@misonetwork/sdk/deployments";
+import { getMisoPlatformDeployment } from "../deployments.ts";
 
 export type Network = "testnet" | "mainnet";
 
@@ -82,17 +83,33 @@ export type MisoConfigOverrides = Partial<
   Pick<MisoConfig, "grpcUrl" | "graphqlUrl" | "walrusAggregatorUrl" | "apiBaseUrl" | "discoverSales">
 >;
 
-/**
- * Bundled read configuration is disabled until the admin-cli publish flow has
- * recorded every new immutable package and singleton object. This is fail-closed
- * by design: old testnet types cannot be mistaken for the current ABI.
- */
+/** The config for `network`, derived from this SDK's verified deployment map. */
 export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}): MisoConfig {
-  void overrides;
-  throw new Error(
-    `@misofm/sdk/read: no bundled Miso platform deployment for network "${network}". ` +
-      "Pass a complete verified MisoConfig to createMisoClient instead.",
-  );
+  const platform = getMisoPlatformDeployment(network);
+  const config: MisoConfig = {
+    network,
+    deployment: platform.protocol,
+    protocol: {
+      pressing: platform.packages.pressing,
+      record: platform.packages.record,
+      releaseCoverArt: platform.packages.releaseCoverArt,
+      compositionCredits: platform.packages.compositionCredits,
+      recordingCredits: platform.packages.recordingCredits,
+      releaseCredits: platform.packages.releaseCredits,
+      credit: platform.packages.credit,
+    },
+    money: {
+      usdCoinType:
+        "0x77774cb7b8cb5622b4ef2658101bf5f1e965418297fe874b683df8f760b6e749::fakeusd::FakeUsd",
+      usdDecimals: 6,
+    },
+    grpcUrl: "https://fullnode.testnet.sui.io",
+    graphqlUrl: "https://graphql.testnet.sui.io/graphql",
+    walrusAggregatorUrl: "https://aggregator.walrus-testnet.walrus.space",
+    apiBaseUrl: "https://api.testnet.miso.fm",
+    discoverSales: [],
+  };
+  return { ...config, ...stripUndefined(overrides) };
 }
 
 /** `{ a: undefined }` must not clobber a real default when spread. */

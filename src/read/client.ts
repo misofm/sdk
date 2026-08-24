@@ -51,13 +51,12 @@ export interface MisoClient {
 export interface CreateMisoClientOptions extends MisoConfigOverrides {
   /** "testnet" | "mainnet". A bare string (e.g. a Worker's `NETWORK` var) is accepted. */
   network?: Network | string;
-  /** Complete verified configuration; required until a deployment is bundled. */
+  /** Complete verified configuration for a custom or unbundled deployment. */
   config?: MisoConfig;
 }
 
 /**
- * Build the client from a complete verified configuration. The network-only
- * shortcut remains for a future bundled deployment, but currently fails closed.
+ * Build the client from a bundled network or a complete verified custom config.
  */
 export function createMisoClient(options: CreateMisoClientOptions = {}): MisoClient {
   const { network, config: providedConfig, ...overrides } = options;
