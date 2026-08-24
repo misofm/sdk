@@ -31,6 +31,7 @@ export {
   currencyInfo,
   getDiscoverShelf,
   getPressingDetail,
+  getPressingSaleDetail,
   getPressingPreview,
   getRecordAlbum,
   getReleaseDetail,

@@ -72,6 +72,7 @@ describe("record sale event identity", () => {
     expect(sale).toMatchObject({
       pressingId: IDS.pressing,
       price: { kind: "floor", amount: "2500" },
+      currencyType: "0x" + "0".repeat(63) + "2::sui::SUI",
     });
   });
 

@@ -11,6 +11,8 @@
 // and every subsequent visitor is served from cache.
 
 import {
+  deriveListingId,
+  getListing,
   getPressing,
   getSale,
   type ListingView as ContractListingView,
@@ -397,6 +399,30 @@ export async function getPressingDetail(
   if (!pressing) return null;
   const release = await getReleaseDetail(client, pressing.releaseId, options);
   return { pressing: toPressingView(pressing), release };
+}
+
+/**
+ * A Pressing page plus one currency-specific Listing. Unlike `getSaleDetail`,
+ * this starts from a Pressing id, which is the durable route and Party-feature
+ * reference exposed to users.
+ */
+export async function getPressingSaleDetail(
+  client: MisoClient,
+  pressingId: string,
+  currencyType: string,
+  options: GetReleaseOptions = {},
+): Promise<SaleDetail | null> {
+  const packageId = client.config.protocol.pressing;
+  const pressing = await getPressing(client.protocol, pressingId, packageId);
+  if (!pressing) return null;
+
+  const listingId = deriveListingId(pressing.id, currencyType, packageId);
+  const [listing, release] = await Promise.all([
+    getListing(client.protocol, listingId, packageId),
+    getReleaseDetail(client, pressing.releaseId, options),
+  ]);
+  if (!listing) return null;
+  return { sale: toSaleView(pressing, listing), release };
 }
 
 /**

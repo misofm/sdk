@@ -76,7 +76,10 @@ function priceFromUnknown(value: unknown): Price | null {
  * The event's JSON projection — the fallback for transports that surface `json`
  * but no BCS. Field names are the Move ones (snake_case).
  */
-function saleFromJson(json: Record<string, unknown>): RecordSale | null {
+function saleFromJson(
+  json: Record<string, unknown>,
+  currencyType: string,
+): RecordSale | null {
   const number = coerceBigInt(json.number);
   const paid = coerceBigInt(json.paid);
   const recordId = json.record_id;
@@ -90,6 +93,7 @@ function saleFromJson(json: Record<string, unknown>): RecordSale | null {
     number: number.toString(),
     paid: paid.toString(),
     price,
+    currencyType,
     buyer: typeof json.buyer === "string" ? json.buyer : "",
   };
 }
@@ -101,33 +105,40 @@ function saleFromJson(json: Record<string, unknown>): RecordSale | null {
  * be decoded as a Miso sale. Normalize both package/type tags and require exactly
  * one (possibly nested) currency type argument.
  */
-export function isRecordSoldEventType(
+function recordSoldCurrencyType(
   eventType: string,
   misoPressingPackageId: string,
-): boolean {
+): string | null {
   let tag: string;
   try {
     tag = normalizeStructTag(eventType);
   } catch {
-    return false;
+    return null;
   }
 
   const prefix = `${normalizeSuiAddress(misoPressingPackageId)}::${RECORD_SOLD_EVENT_NAME}`;
-  if (!tag.startsWith(`${prefix}<`) || !tag.endsWith(">")) return false;
+  if (!tag.startsWith(`${prefix}<`) || !tag.endsWith(">")) return null;
 
   const typeArgument = tag.slice(prefix.length + 1, -1);
-  if (!typeArgument) return false;
+  if (!typeArgument) return null;
   let depth = 0;
   for (const char of typeArgument) {
     if (char === "<") depth += 1;
     else if (char === ">") {
       depth -= 1;
-      if (depth < 0) return false;
+      if (depth < 0) return null;
     } else if (char === "," && depth === 0) {
-      return false;
+      return null;
     }
   }
-  return depth === 0;
+  return depth === 0 ? typeArgument : null;
+}
+
+export function isRecordSoldEventType(
+  eventType: string,
+  misoPressingPackageId: string,
+): boolean {
+  return recordSoldCurrencyType(eventType, misoPressingPackageId) !== null;
 }
 
 /**
@@ -143,7 +154,11 @@ export function findRecordSale(
   misoPressingPackageId: string,
 ): RecordSale | null {
   for (const e of events) {
-    if (!isRecordSoldEventType(e.eventType, misoPressingPackageId)) continue;
+    const currencyType = recordSoldCurrencyType(
+      e.eventType,
+      misoPressingPackageId,
+    );
+    if (!currencyType) continue;
     try {
       // The generated struct decodes addresses to 0x-hex and u64s to decimal strings.
       const s = listingContract.RecordSoldEvent.parse(e.bcs);
@@ -157,12 +172,13 @@ export function findRecordSale(
         number: u64(s.number),
         paid: u64(s.paid),
         price,
+        currencyType,
         buyer: s.buyer,
       };
     } catch {
       // Unparseable BCS (or none surfaced) — fall through to the JSON view.
     }
-    const fromJson = e.json && saleFromJson(e.json);
+    const fromJson = e.json && saleFromJson(e.json, currencyType);
     if (fromJson) return fromJson;
   }
   return null;
@@ -218,18 +234,15 @@ async function saleFromIndexer(client: MisoClient, txDigest: string): Promise<Re
 
   for (const node of effects.events?.nodes ?? []) {
     const contents = node.contents;
-    if (
-      !contents ||
-      !isRecordSoldEventType(
-        contents.type.repr,
-        client.config.protocol.pressing,
-      )
-    ) {
-      continue;
-    }
+    if (!contents) continue;
+    const currencyType = recordSoldCurrencyType(
+      contents.type.repr,
+      client.config.protocol.pressing,
+    );
+    if (!currencyType) continue;
     const sale =
       typeof contents.json === "object" && contents.json !== null
-        ? saleFromJson(contents.json as Record<string, unknown>)
+        ? saleFromJson(contents.json as Record<string, unknown>, currencyType)
         : null;
     if (sale) return sale;
   }

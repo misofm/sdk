@@ -362,6 +362,8 @@ export interface RecordSale {
   paid: string;
   /** The fixed or floor price that the Listing accepted at this sale. */
   price: Price;
+  /** Currency type carried by the `RecordSoldEvent` generic argument. */
+  currencyType: string;
   buyer: string;
 }
 
