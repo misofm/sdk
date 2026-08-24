@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
 import {
-  deriveGenreId,
+  deriveGenreAddress,
   setReleaseDescription,
   setReleaseDspLinks,
   setReleaseGenres,
@@ -135,11 +135,25 @@ test("release kind and description mirror Move byte limits", () => {
 });
 
 test("genre ids are deterministic and canonical names fail closed", () => {
-  expect(deriveGenreId(A, PKG, "ELECTRONIC")).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(deriveGenreId(A, PKG, "ELECTRONIC")).toBe(
-    deriveGenreId(A, PKG, "ELECTRONIC"),
+  expect(deriveGenreAddress(A, PKG, "ELECTRONIC")).toMatch(/^0x[0-9a-f]{64}$/);
+  expect(deriveGenreAddress(A, PKG, "ELECTRONIC")).toBe(
+    deriveGenreAddress(A, PKG, "ELECTRONIC"),
   );
-  expect(() => deriveGenreId(A, PKG, "Electronic")).toThrow(
+  expect(() => deriveGenreAddress(A, PKG, "Electronic")).toThrow(
     /uppercase A-Z and underscores/,
   );
+});
+
+// Pinned against the on-chain derivation (sui::derived_object::derive_address
+// via df::hash_type_and_key with the DerivedObjectKey wrapper), computed by a
+// genre unit test on sui 1.77.2: registry 0x3440…, package 0xcbbc…, name
+// "ELECTRONIC" → 0xc381…. Guards the off-chain formula byte-for-byte.
+test("genre address derivation matches the on-chain test vector", () => {
+  expect(
+    deriveGenreAddress(
+      "0x34401905bebdf8c04f3cd5f04f442a39372c8dc321c29edfb4f9cb30b23ab96",
+      "0xcbbce10e8b0781d458e88ce99d08e0c85f1e674c5b7ec975383d74f87a1d76b1",
+      "ELECTRONIC",
+    ),
+  ).toBe("0xc381b7c03d87719d0e1b7b33a08ba8193bfa0af612b05705c4b62a54b18f5ddb");
 });

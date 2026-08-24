@@ -74,22 +74,22 @@ export function _new(options: NewOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
-export interface DeriveGenreIdArguments {
+export interface DeriveAddressArguments {
     self: RawTransactionArgument<string>;
     name: RawTransactionArgument<string>;
 }
-export interface DeriveGenreIdOptions {
+export interface DeriveAddressOptions {
     package?: string;
-    arguments: DeriveGenreIdArguments | [
+    arguments: DeriveAddressArguments | [
         self: RawTransactionArgument<string>,
         name: RawTransactionArgument<string>
     ];
 }
 /**
- * Derives the object id a `Genre` with the given name would have, without creating
- * it. Lets clients resolve/check a genre id offline.
+ * Derives the address a `Genre` with the given name would have, without creating
+ * it. Lets clients resolve/check a genre address offline.
  */
-export function deriveGenreId(options: DeriveGenreIdOptions) {
+export function deriveAddress(options: DeriveAddressOptions) {
     const packageAddress = options.package ?? '@local-pkg/genre';
     const argumentsTypes = [
         null,
@@ -99,30 +99,7 @@ export function deriveGenreId(options: DeriveGenreIdOptions) {
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'genre',
-        function: 'derive_genre_id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-}
-/** Returns the genre's object id. */
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/genre';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'genre',
-        function: 'id',
+        function: 'derive_address',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }

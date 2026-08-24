@@ -110,7 +110,7 @@ import {
   type MisoPlatformDeployment,
 } from "./deployments.ts";
 import {
-  deriveGenreId,
+  deriveGenreAddress,
   setReleaseDescription,
   setReleaseDspLinks,
   setReleaseGenres,
@@ -381,7 +381,7 @@ export class MisoPlatformClient {
     sale: (releaseId: string, currencyType: string) =>
       deriveSaleIds(releaseId, currencyType, this.packageId),
     genre: (canonicalName: string) =>
-      deriveGenreId(
+      deriveGenreAddress(
         this.#requiredConfig("genreRegistryId", "genre id derivation"),
         this.#requiredConfig("genrePackageId", "genre id derivation"),
         canonicalName,
@@ -551,7 +551,7 @@ export class MisoPlatformClient {
       listing: bindModulePackage(listingContract, this.packageId, ["newFixedPrice", "newFloorPrice", "newEnabledState", "newDisabledState", "buy", "setState", "setPrice", "deriveId", "hasListing", "id", "releaseId", "pressingId", "price", "state", "isLive", "amount"] as const),
       pressing: bindModulePackage(pressingContract, this.packageId, ["newScheduledState", "newActiveState", "newPausedState", "setState", "deriveId", "id", "releaseId", "supply", "isSelling", "pressingAdminCapPressingId", "verifyRecord"] as const),
       genre: this.#config.genrePackageId
-        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["deriveGenreId", "id"] as const)
+        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["deriveAddress"] as const)
         : undefined,
       releaseDescription: this.#config.releaseDescriptionPackageId
         ? bindModulePackage(

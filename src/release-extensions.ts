@@ -5,7 +5,7 @@
 // intent aggregates these concerns, but every value is written by its own
 // independently deployed extension package.
 
-import { deriveDynamicFieldID } from "@mysten/sui/utils";
+import { deriveObjectID } from "@mysten/sui/utils";
 import type {
   Transaction,
   TransactionArgument,
@@ -91,14 +91,16 @@ export function assertCanonicalGenreName(name: string): void {
   }
 }
 
-/** Derive the immutable Genre object id for a canonical vocabulary name. */
-export function deriveGenreId(
+/** Derive the immutable Genre object address for a canonical vocabulary name.
+ * `genrePackageId` must be the genre package's defining (original publish)
+ * address — the on-chain derivation hashes type names with defining IDs. */
+export function deriveGenreAddress(
   genreRegistryId: string,
   genrePackageId: string,
   canonicalName: string,
 ): string {
   assertCanonicalGenreName(canonicalName);
-  return deriveDynamicFieldID(
+  return deriveObjectID(
     genreRegistryId,
     `${genrePackageId}::genre::GenreKey`,
     genre.GenreKey.serialize([canonicalName]).toBytes(),
