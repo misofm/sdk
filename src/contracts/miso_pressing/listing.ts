@@ -250,15 +250,13 @@ export interface BuyArguments {
     self: RawTransactionArgument<string>;
     pressing: RawTransactionArgument<string>;
     payment: TransactionArgument;
-    settings: RawTransactionArgument<string>;
 }
 export interface BuyOptions {
     package?: string;
     arguments: BuyArguments | [
         self: RawTransactionArgument<string>,
         pressing: RawTransactionArgument<string>,
-        payment: TransactionArgument,
-        settings: RawTransactionArgument<string>
+        payment: TransactionArgument
     ];
     typeArguments: [
         string
@@ -273,8 +271,8 @@ export interface BuyOptions {
  * address — under `Floor`, anything above the floor is kept as a tip, not
  * refunded. The record's number is the pressing's next 1-based value, shared with
  * every other currency selling the same run, and its UID is derived off the
- * pressing. The sale's terms ride out on the record's `Certificate`. `settings`
- * must authorize this package's `MintWitness`.
+ * pressing. The sale's transaction sender and terms are embedded in the record's
+ * `Certificate`.
  *
  * Both switches must be open: this listing `Enabled`, checked here, and the run
  * selling at this moment, checked in `pressing::mint_next`.
@@ -285,10 +283,9 @@ export function buy(options: BuyOptions) {
         null,
         null,
         null,
-        null,
         '0x2::clock::Clock'
     ] satisfies (string | null)[];
-    const parameterNames = ["self", "pressing", "payment", "settings"];
+    const parameterNames = ["self", "pressing", "payment"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'listing',
@@ -427,32 +424,6 @@ export function hasListing(options: HasListingOptions) {
         package: packageAddress,
         module: 'listing',
         function: 'has_listing',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/miso_pressing';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'listing',
-        function: 'id',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

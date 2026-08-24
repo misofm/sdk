@@ -314,32 +314,6 @@ export function putBack<Cap extends BcsType<any>>(options: PutBackOptions<Cap>) 
         typeArguments: options.typeArguments
     });
 }
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
 export interface VaultIdArguments {
     self: RawTransactionArgument<string>;
 }

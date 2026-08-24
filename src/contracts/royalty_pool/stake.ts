@@ -108,32 +108,6 @@ export function destroy(options: DestroyOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/royalty_pool';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'stake',
-        function: 'id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
 export interface BalanceArguments {
     self: RawTransactionArgument<string>;
 }

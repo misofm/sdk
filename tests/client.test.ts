@@ -127,10 +127,10 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
       .at(-1)?.package,
   ).toBe(PRESSING);
 
-  c.miso.call.vault.id({ arguments: [tx.object(A)] })(tx);
+  c.miso.call.vault.vaultId({ arguments: [tx.object(A)] })(tx);
   expect(
     moveCalls(tx).find(
-      (call) => call.module === "vault" && call.function === "id",
+      (call) => call.module === "vault" && call.function === "vault_id",
     )?.package,
   ).toBe(VAULT);
 
@@ -153,13 +153,13 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
     )?.package,
   ).toBe(A);
 
-  c.miso.call.vault.id({
+  c.miso.call.vault.vaultId({
     typeArguments: [SHARE],
     arguments: [tx.object(A)],
   })(tx);
   expect(
     moveCalls(tx).find(
-      (call) => call.module === "vault" && call.function === "id",
+      (call) => call.module === "vault" && call.function === "vault_id",
     )?.package,
   ).toBe(VAULT);
 });

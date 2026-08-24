@@ -30,8 +30,8 @@
  * and no stored set of listings: a listing either exists at its derived address or
  * it does not (`listing::has_listing`), and `ListingOpenedEvent<Currency>`
  * enumerates them for an indexer. It also makes the number sequence gap-free for
- * free, and every record verifiable against its pressing from chain state alone
- * (`verify_record`).
+ * free, and every record verifiable against its pressing from chain state alone by
+ * comparing the certificate and derived address.
  * 
  * # Starting and stopping is state, never teardown
  * 
@@ -60,20 +60,17 @@
  * yields `release::uid_mut`, and `balance::withdraw_funds_from_object` is gated on
  * `&mut UID` alone — so the release cap can withdraw the sales revenue that `buy`
  * forwards to the release's address. Under one cap, "may reprice a listing" and
- * "may take the money" would be the same grant. The pressing cap is the routine
- * one, safe to delegate to whoever runs the shop; the release cap stays with the
- * rightsholder.
+ * "may take the money" would be the same grant. The caps may be held together. If
+ * separated, the pressing cap remains issuance authority: it controls listing
+ * creation, price, and availability, but cannot withdraw revenue.
  */
 
-import { MoveTuple, MoveStruct, MoveEnum, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
+import { MoveTuple, MoveEnum, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/miso_pressing::pressing';
 export const PressingKey = new MoveTuple({ name: `${$moduleName}::PressingKey`, fields: [bcs.bool()] });
 export const PressingAdminCapKey = new MoveTuple({ name: `${$moduleName}::PressingAdminCapKey`, fields: [bcs.bool()] });
-export const MintWitness = new MoveStruct({ name: `${$moduleName}::MintWitness`, fields: {
-        dummy_field: bcs.bool()
-    } });
 /**
  * Whether the run sells, over every currency at once. The lifecycle runs
  * `Scheduled → Active → Paused → Active`: a pressing opens itself at its drop
@@ -301,28 +298,6 @@ export function deriveId(options: DeriveIdOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-}
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/miso_pressing';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'pressing',
-        function: 'id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
 export interface ReleaseIdArguments {
     self: RawTransactionArgument<string>;
 }
@@ -419,36 +394,6 @@ export function pressingAdminCapPressingId(options: PressingAdminCapPressingIdOp
         package: packageAddress,
         module: 'pressing',
         function: 'pressing_admin_cap_pressing_id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface VerifyRecordArguments {
-    record: RawTransactionArgument<string>;
-}
-export interface VerifyRecordOptions {
-    package?: string;
-    arguments: VerifyRecordArguments | [
-        record: RawTransactionArgument<string>
-    ];
-}
-/**
- * Whether `record` is genuinely the copy its certificate claims it is, checked
- * from chain state alone and without needing the `Pressing` object.
- *
- * The record must sit at exactly the address its certificate number derives to off
- * its release's pressing. The certificate is the readable form of what the address
- * already proves.
- */
-export function verifyRecord(options: VerifyRecordOptions) {
-    const packageAddress = options.package ?? '@local-pkg/miso_pressing';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["record"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'pressing',
-        function: 'verify_record',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }

@@ -365,9 +365,6 @@ export interface BuyRecordParams {
   amount: U64Input;
   /** The listing's `Currency` type, e.g. `0x2::sui::SUI`. */
   currencyType: string;
-  /** The `miso_record` `Settings` shared object — it must authorize `miso_pressing`'s
-   *  `MintWitness`, or the mint aborts. */
-  settingsId: string;
   /** Where to send the pressed `Record` (usually the buyer). */
   recipient: string;
   misoPressingPackageId: string;
@@ -412,7 +409,7 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
     const record = tx.add(
       listing.buy({
         package: pkg,
-        arguments: [listingId, pressingId, payment, p.settingsId],
+        arguments: [listingId, pressingId, payment],
         typeArguments: [p.currencyType],
       }),
     );

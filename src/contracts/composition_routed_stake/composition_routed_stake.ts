@@ -78,7 +78,7 @@ export function uninstall(options: UninstallOptions) {
 export interface CreateStakeArguments {
     vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
-    Recording: RawTransactionArgument<string>;
+    recording: RawTransactionArgument<string>;
     vaultAdminCap: RawTransactionArgument<string>;
     value: RawTransactionArgument<number | bigint>;
 }
@@ -87,7 +87,7 @@ export interface CreateStakeOptions {
     arguments: CreateStakeArguments | [
         vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
-        Recording: RawTransactionArgument<string>,
+        recording: RawTransactionArgument<string>,
         vaultAdminCap: RawTransactionArgument<string>,
         value: RawTransactionArgument<number | bigint>
     ];
@@ -110,7 +110,7 @@ export function createStake(options: CreateStakeOptions) {
         null,
         'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "Recording", "vaultAdminCap", "value"];
+    const parameterNames = ["vault", "composition", "recording", "vaultAdminCap", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_routed_stake',
@@ -169,6 +169,7 @@ export function register(options: RegisterOptions) {
 export interface UnregisterArguments {
     vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
+    recording: RawTransactionArgument<string>;
     routed: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
     vaultAdminCap: RawTransactionArgument<string>;
@@ -178,6 +179,7 @@ export interface UnregisterOptions {
     arguments: UnregisterArguments | [
         vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
+        recording: RawTransactionArgument<string>,
         routed: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
         vaultAdminCap: RawTransactionArgument<string>
@@ -196,9 +198,10 @@ export function unregister(options: UnregisterOptions) {
         null,
         null,
         null,
+        null,
         null
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "routed", "pool", "vaultAdminCap"];
+    const parameterNames = ["vault", "composition", "recording", "routed", "pool", "vaultAdminCap"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_routed_stake',

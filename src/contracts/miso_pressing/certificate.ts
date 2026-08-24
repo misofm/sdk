@@ -4,60 +4,51 @@
 
 
 /**
- * The pressing's certificate on a record.
+ * Immutable provenance for a record pressed by `miso_pressing`.
  * 
- * One struct holds everything the sale fixed about a copy: where it sits in the
- * run, and what was paid for it. These were two dynamic fields — a certificate and
- * a receipt — and separating them bought nothing: both are written once, in the
- * same transaction, by the same call, and neither is meaningful without the other.
- * 
- * A serial is only meaningful inside the sequence that issued it — a different
- * production package counts from 1 again — so the number never travels alone. It
- * does not need to carry its pressing's id to say which sequence it means: a
- * release has exactly one pressing, at a derived address, so
- * `pressing::derive_id(  record.release_id())` recomputes it from the record
- * itself. Storing it would be storing a value that is pure arithmetic on values
- * already present.
+ * `Certificate` is embedded in `Record<Certificate>`, never attached as a dynamic
+ * field. Its private fields and package-only constructor mean an external package
+ * cannot construct this certificate or mint the trusted record specialization.
  */
 
-import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
+import { MoveStruct, normalizeMoveArguments } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as type_name from './deps/std/type_name.js';
 const $moduleName = '@local-pkg/miso_pressing::certificate';
-export const CertificateKey = new MoveTuple({ name: `${$moduleName}::CertificateKey`, fields: [bcs.bool()] });
 export const Certificate = new MoveStruct({ name: `${$moduleName}::Certificate`, fields: {
+        /** The object whose derived-UID namespace issued this record. */
+        parent_id: bcs.Address,
         /** Position in the pressing's run (1-based). */
         number: bcs.u64(),
+        /** The transaction sender that purchased the record from its listing. */
+        purchased_by: bcs.Address,
         /** The currency type the buyer paid in. */
         purchase_currency: type_name.TypeName,
         /** The exact amount paid. Under a floor price this includes any tip above it. */
-        purchase_price: bcs.u64()
+        purchase_price: bcs.u64(),
+        /** The timestamp stamped from the shared Clock on the pressing path. */
+        created_at_ms: bcs.u64()
     } });
-export interface OfArguments {
-    record: RawTransactionArgument<string>;
+export interface ParentIdArguments {
+    self: TransactionArgument;
 }
-export interface OfOptions {
+export interface ParentIdOptions {
     package?: string;
-    arguments: OfArguments | [
-        record: RawTransactionArgument<string>
+    arguments: ParentIdArguments | [
+        self: TransactionArgument
     ];
 }
-/**
- * The certificate on `record`, or `none` for a record minted by some other
- * package. The only way to read the field, since only this module can construct
- * its key.
- */
-export function _of(options: OfOptions) {
+export function parentId(options: ParentIdOptions) {
     const packageAddress = options.package ?? '@local-pkg/miso_pressing';
     const argumentsTypes = [
         null
     ] satisfies (string | null)[];
-    const parameterNames = ["record"];
+    const parameterNames = ["self"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'certificate',
-        function: 'of',
+        function: 'parent_id',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
@@ -80,6 +71,28 @@ export function number(options: NumberOptions) {
         package: packageAddress,
         module: 'certificate',
         function: 'number',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
+export interface PurchasedByArguments {
+    self: TransactionArgument;
+}
+export interface PurchasedByOptions {
+    package?: string;
+    arguments: PurchasedByArguments | [
+        self: TransactionArgument
+    ];
+}
+export function purchasedBy(options: PurchasedByOptions) {
+    const packageAddress = options.package ?? '@local-pkg/miso_pressing';
+    const argumentsTypes = [
+        null
+    ] satisfies (string | null)[];
+    const parameterNames = ["self"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'certificate',
+        function: 'purchased_by',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
@@ -124,6 +137,28 @@ export function purchasePrice(options: PurchasePriceOptions) {
         package: packageAddress,
         module: 'certificate',
         function: 'purchase_price',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
+export interface CreatedAtMsArguments {
+    self: TransactionArgument;
+}
+export interface CreatedAtMsOptions {
+    package?: string;
+    arguments: CreatedAtMsArguments | [
+        self: TransactionArgument
+    ];
+}
+export function createdAtMs(options: CreatedAtMsOptions) {
+    const packageAddress = options.package ?? '@local-pkg/miso_pressing';
+    const argumentsTypes = [
+        null
+    ] satisfies (string | null)[];
+    const parameterNames = ["self"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'certificate',
+        function: 'created_at_ms',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }

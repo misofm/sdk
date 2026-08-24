@@ -332,33 +332,6 @@ export function sweep(options: SweepOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface IdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface IdOptions {
-    package?: string;
-    arguments: IdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string,
-        string
-    ];
-}
-export function id(options: IdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/routed_stake';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'routed_stake',
-        function: 'id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
 export interface HasStakeArguments {
     self: RawTransactionArgument<string>;
 }

@@ -597,7 +597,7 @@ export function registerCompositionRoutedStake(
 /** Unregister a routed stake after pending rewards have been swept. */
 export function unregisterCompositionRoutedStake(
   tx: Transaction,
-  params: Omit<ManageCompositionRoutedStakeParams, "recording">,
+  params: ManageCompositionRoutedStakeParams,
 ): void {
   tx.add(
     compositionRoutedStake.unregister({
@@ -610,6 +610,7 @@ export function unregisterCompositionRoutedStake(
       arguments: [
         params.vault,
         params.composition,
+        params.recording,
         params.routedStake,
         params.royaltyPool,
         params.vaultAdminCap,

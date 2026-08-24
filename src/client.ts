@@ -172,11 +172,6 @@ export interface MisoPlatformConfig {
   /** The published `miso_pressing` package. */
   packageId: string;
   /**
-   * The `miso_record` shared `Settings` that authorizes `miso_pressing`'s
-   * `MintWitness`. Required to buy; optional if this client only ever reads.
-   */
-  settingsId?: string;
-  /**
    * The `@misonetwork/sdk` protocol package (miso core). Required for the
    * publish builders (`publishComposition`, `publishRecording`,
    * `publishCompositionAndRecording`) — optional if this client only ever
@@ -223,7 +218,7 @@ export interface MisoPlatformConfig {
 
 /** Params with the ids this client already knows dropped from the call site. */
 type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
-type Configured<T> = DistributiveOmit<T, "misoPressingPackageId" | "settingsId">;
+type Configured<T> = DistributiveOmit<T, "misoPressingPackageId">;
 
 /** Publish-builder params with the protocol/minato ids this client already knows dropped. */
 type ConfiguredPublish<T> = DistributiveOmit<T, "misoPackageId" | "minatoPackageId">;
@@ -292,16 +287,6 @@ export class MisoPlatformClient {
 
   get packageId(): string {
     return this.#config.packageId;
-  }
-
-  #settings(): string {
-    const { settingsId } = this.#config;
-    if (!settingsId) {
-      throw new Error(
-        "misoPlatform: `settingsId` is required to build a purchase — pass it to misoPlatform({ settingsId }).",
-      );
-    }
-    return settingsId;
   }
 
   #misoPackageId(): string {
@@ -394,7 +379,6 @@ export class MisoPlatformClient {
     buyRecord: (p: Configured<BuyRecordParams>): TxThunk =>
       buyRecord({
         ...p,
-        settingsId: this.#settings(),
         misoPressingPackageId: this.packageId,
       }),
     openPressing: (p: Configured<OpenPressingParams>): TxThunk =>
@@ -548,8 +532,8 @@ export class MisoPlatformClient {
   /** Generated Move-call bindings, for commands this facade doesn't wrap. */
   get call() {
     return {
-      listing: bindModulePackage(listingContract, this.packageId, ["newFixedPrice", "newFloorPrice", "newEnabledState", "newDisabledState", "buy", "setState", "setPrice", "deriveId", "hasListing", "id", "releaseId", "pressingId", "price", "state", "isLive", "amount"] as const),
-      pressing: bindModulePackage(pressingContract, this.packageId, ["newScheduledState", "newActiveState", "newPausedState", "setState", "deriveId", "id", "releaseId", "supply", "isSelling", "pressingAdminCapPressingId", "verifyRecord"] as const),
+      listing: bindModulePackage(listingContract, this.packageId, ["newFixedPrice", "newFloorPrice", "newEnabledState", "newDisabledState", "buy", "setState", "setPrice", "deriveId", "hasListing", "releaseId", "pressingId", "price", "state", "isLive", "amount"] as const),
+      pressing: bindModulePackage(pressingContract, this.packageId, ["newScheduledState", "newActiveState", "newPausedState", "setState", "deriveId", "releaseId", "supply", "isSelling", "pressingAdminCapPressingId"] as const),
       genre: this.#config.genrePackageId
         ? bindModulePackage(genreContract, this.#config.genrePackageId, ["deriveAddress"] as const)
         : undefined,
@@ -589,7 +573,7 @@ export class MisoPlatformClient {
           )
         : undefined,
       vault: this.#config.vaultPackageId
-        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "id", "vaultId", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
+        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "vaultId", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
         : undefined,
       compositionRoyaltyPool: this.#config.compositionRoyaltyPoolPluginPackageId
         ? bindModulePackage(
@@ -613,10 +597,10 @@ export class MisoPlatformClient {
           )
         : undefined,
       routedStake: this.#config.routedStakePackageId
-        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId, ["share", "register", "unregister", "sweep", "unstake", "restake", "id"] as const)
+        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId, ["share", "register", "unregister", "sweep", "unstake", "restake", "derivedAddress"] as const)
         : undefined,
       royaltyPool: this.#config.royaltyPoolPackageId
-        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "redeemAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "id", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
+        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "redeemAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
         : undefined,
       recordingAdvisory: this.#config.recordingAdvisoryPackageId
         ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId, ["explicit", "notExplicit", "cleaned", "setRating", "unsetRating", "hasRating", "isExplicit", "isNotExplicit", "isCleaned"] as const)
@@ -689,7 +673,6 @@ export function miso<const Name extends string = "miso">(
         client,
         {
           packageId: deployment.packages.pressing,
-          settingsId: deployment.objects.recordSettings,
           misoPackageId: deployment.protocol.packageId,
           minatoPackageId: deployment.packages.minato,
           releaseRegistryId: deployment.objects.releaseRegistry,
@@ -730,10 +713,6 @@ export function miso<const Name extends string = "miso">(
 /**
  * @deprecated Prefer zero-config `miso()`, which registers the complete facade
  * at `client.miso` and exposes the protocol layer at `client.miso.protocol`.
- *
- * `settingsId` is optional so a read-only client (an indexer, a catalog page) can
- * skip it; asking to build a purchase without it throws rather than sending a
- * transaction against the wrong `Settings`.
  */
 export function misoPlatform(config: MisoPlatformConfig) {
   return {
