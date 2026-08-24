@@ -149,6 +149,31 @@ function toSaleView(
   return { pressing: toPressingView(pressing), listing: toListingView(listing) };
 }
 
+/** One permanent pressing, projected to the JSON-safe read boundary. */
+export async function getPressingView(
+  client: MisoClient,
+  pressingId: string,
+): Promise<PressingView | null> {
+  const pressing = await getPressing(
+    client.protocol,
+    pressingId,
+    client.config.protocol.pressing,
+  );
+  return pressing ? toPressingView(pressing) : null;
+}
+
+/** One currency-specific listing derived from its permanent pressing. */
+export async function getListingView(
+  client: MisoClient,
+  pressingId: string,
+  currencyType: string,
+): Promise<ListingView | null> {
+  const packageId = client.config.protocol.pressing;
+  const listingId = deriveListingId(pressingId, currencyType, packageId);
+  const listing = await getListing(client.protocol, listingId, packageId);
+  return listing ? toListingView(listing) : null;
+}
+
 function toWorkState(state: Release["state"]): WorkState {
   return state.type === "Published"
     ? { type: "Published", timestampMs: state.timestampMs }
@@ -395,10 +420,10 @@ export async function getPressingDetail(
   pressingId: string,
   options: GetReleaseOptions = {},
 ): Promise<PressingDetail | null> {
-  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
+  const pressing = await getPressingView(client, pressingId);
   if (!pressing) return null;
   const release = await getReleaseDetail(client, pressing.releaseId, options);
-  return { pressing: toPressingView(pressing), release };
+  return { pressing, release };
 }
 
 /**
@@ -412,17 +437,15 @@ export async function getPressingSaleDetail(
   currencyType: string,
   options: GetReleaseOptions = {},
 ): Promise<SaleDetail | null> {
-  const packageId = client.config.protocol.pressing;
-  const pressing = await getPressing(client.protocol, pressingId, packageId);
+  const pressing = await getPressingView(client, pressingId);
   if (!pressing) return null;
 
-  const listingId = deriveListingId(pressing.id, currencyType, packageId);
   const [listing, release] = await Promise.all([
-    getListing(client.protocol, listingId, packageId),
+    getListingView(client, pressing.id, currencyType),
     getReleaseDetail(client, pressing.releaseId, options),
   ]);
   if (!listing) return null;
-  return { sale: toSaleView(pressing, listing), release };
+  return { sale: { pressing, listing }, release };
 }
 
 /**
@@ -434,7 +457,7 @@ export async function getPressingPreview(
   client: MisoClient,
   pressingId: string,
 ): Promise<PressingPreview | null> {
-  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
+  const pressing = await getPressingView(client, pressingId);
   if (!pressing) return null;
 
   const { release, cover } = await getReleaseResources(
@@ -448,8 +471,8 @@ export async function getPressingPreview(
     title: release.title,
     subtitle: null,
     coverUrl: cover?.still.url ?? null,
-    state: toPressingView(pressing).state,
-    supply: u64(pressing.supply),
+    state: pressing.state,
+    supply: pressing.supply,
     trackCount: release.tracks.length,
   };
 }

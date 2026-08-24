@@ -30,7 +30,9 @@ export type {
 export {
   currencyInfo,
   getDiscoverShelf,
+  getListingView,
   getPressingDetail,
+  getPressingView,
   getPressingSaleDetail,
   getPressingPreview,
   getRecordAlbum,
