@@ -1,6 +1,6 @@
 {
   "name": "@misofm/sdk",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "packageManager": "bun@1.4.0",
   "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
   "license": "Apache-2.0",
@@ -115,25 +115,22 @@
     "codegen:check": "bun run codegen && perl -pi -e 's/[ \\t]+$//' src/contracts/royalty_pool/pool.ts && git diff --exit-code -- src/contracts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build": "tsc -p tsconfig.build.json",
-    "prepack": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json --noCheck"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepare": "rm -rf dist && tsc -p tsconfig.build.json --noCheck"
   },
   "devDependencies": {
-    "@misonetwork/sdk": "github:misonetwork/sdk#4b1427043c268446ea63aefc6939e06a8fb53d61",
+    "@misonetwork/sdk": "^0.9.0",
     "@mysten/codegen": "^0.11.14",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.24.0",
     "@types/bun": "^1.3.14"
   },
   "peerDependencies": {
-    "@misonetwork/sdk": "^0.8.0",
+    "@misonetwork/sdk": "^0.9.0",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.4.0",
     "typescript": "^5"
   },
-  "trustedDependencies": [
-    "@misonetwork/sdk"
-  ],
   "main": "./dist/index.js"
 }
