@@ -120,7 +120,7 @@
     "prepare": "tsc -p tsconfig.build.json --noCheck"
   },
   "devDependencies": {
-    "@misonetwork/sdk": "github:misonetwork/sdk#5a5ef3d3cecda4d20acf1d74512d7b16e69330f7",
+    "@misonetwork/sdk": "github:misonetwork/sdk#4b1427043c268446ea63aefc6939e06a8fb53d61",
     "@mysten/codegen": "^0.11.14",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.24.0",
@@ -131,9 +131,6 @@
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/sui": "^2.4.0",
     "typescript": "^5"
-  },
-  "dependencies": {
-    "@misonetwork/miso-party": "^0.2.0"
   },
   "trustedDependencies": [
     "@misonetwork/sdk"

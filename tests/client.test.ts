@@ -11,6 +11,10 @@ import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { miso, misoPlatform } from "../src/client.ts";
 import type { MisoPlatformDeployment } from "../src/deployments.ts";
+import {
+  MISO_PACKAGE_NAMES,
+  type MisoDeployment,
+} from "@misonetwork/sdk/deployments";
 import { networkFrom } from "../src/read/config.ts";
 
 const PRESSING = "0x" + "12".repeat(32);
@@ -21,8 +25,17 @@ const A = "0x" + "11".repeat(32);
 const VAULT = "0x" + "56".repeat(32);
 
 /** Addresses are injected only after the admin-cli deployment is verified. */
+const NETWORK_DEPLOYMENT = Object.fromEntries(
+  MISO_PACKAGE_NAMES.map((name, index) => [
+    name,
+    name === "miso"
+      ? MISO
+      : `0x${(index + 1).toString(16).padStart(64, "0")}`,
+  ]),
+) as MisoDeployment;
+
 const DEPLOYMENT = {
-  protocol: { packageId: MISO },
+  protocol: NETWORK_DEPLOYMENT,
   packages: {
     pressing: PRESSING,
     minato: MINATO,
@@ -66,7 +79,8 @@ test("miso() accepts an explicit verified deployment and exposes nested protocol
   }).$extend(miso({ deployment: DEPLOYMENT }));
 
   expect(c.miso.packageId).toBe(PRESSING);
-  expect(c.miso.protocol.deployment).toEqual(DEPLOYMENT.protocol);
+  expect(c.miso.protocol.deployment).toEqual({ packageId: MISO });
+  expect(c.miso.party).toBe(c.miso.protocol.party);
 
   const tx = new Transaction();
   c.miso.tx.publishComposition({

@@ -11,6 +11,8 @@
 // republished. A read client must receive a complete verified configuration from
 // its caller; silently retaining the old ABI would be unsafe.
 
+import type { MisoDeployment } from "@misonetwork/sdk/deployments";
+
 export type Network = "testnet" | "mainnet";
 
 /** Missing defaults to Testnet for local development; invalid values fail closed. */
@@ -22,8 +24,6 @@ export function networkFrom(value: string | undefined): Network {
 
 /** Package ids for the miso protocol core and the extensions the read layer touches. */
 export interface ProtocolIds {
-  /** `miso` core — Composition / Recording / Release, and the origin of every derived admin cap. */
-  miso: string;
   /** `miso_pressing` — permanent Pressing runs and per-currency Listings. */
   pressing: string;
   /** `miso_record` package — the exact owner/type namespace for `record::Record`. */
@@ -38,25 +38,6 @@ export interface ProtocolIds {
   credit: string;
 }
 
-/** Package ids for PartyOS core and every party extension the artist page reads. */
-export interface PartyIds {
-  partyPackageId: string;
-  partyProfilePackageId: string;
-  countryCodePackageId: string;
-  languageCodePackageId: string;
-  partyMediaPackageId: string;
-  partyRolesPackageId: string;
-  partyTagsPackageId: string;
-  partyGenrePackageId: string;
-  partyCtaPackageId: string;
-  partyPlatformLinkPackageId: string;
-  partySocialPackageId: string;
-  partyMusicPackageId: string;
-  partyProLinkPackageId: string;
-  partyFeaturedDropPackageId: string;
-  genrePackageId: string;
-}
-
 /** The currency the app prices records in, and where test dollars come from. */
 export interface MoneyIds {
   /** Coin type balances, listings, and purchases are denominated in. */
@@ -66,8 +47,9 @@ export interface MoneyIds {
 
 export interface MisoConfig {
   network: Network;
+  /** Complete package set used by the integrated `client.miso` SDK. */
+  deployment: MisoDeployment;
   protocol: ProtocolIds;
-  party: PartyIds;
   money: MoneyIds;
   /** Sui gRPC-web endpoint the data plane reads through. */
   grpcUrl: string;

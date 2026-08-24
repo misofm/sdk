@@ -5,8 +5,8 @@
 //
 // One place that knows how to turn Sui objects into the things Miso talks about:
 // a pressing, a release, an artist, a library, a receipt. It composes
-// @misonetwork/miso-protocol and @misonetwork/miso-party, owns the per-network id
-// manifest, and returns view types that survive JSON.
+// @misonetwork/sdk, owns the per-network id manifest, and returns view types that
+// survive JSON.
 //
 // Browser- and server-compatible. The HTTP API is a thin cached transport over
 // this same surface; direct clients can use it without going through the API.
@@ -24,7 +24,6 @@ export type {
   DiscoverSale,
   MoneyIds,
   Network,
-  PartyIds,
   ProtocolIds,
 } from "./config.ts";
 
@@ -52,7 +51,6 @@ export type { ReleaseResources } from "./catalog.ts";
 
 export {
   getArtistProfile,
-  getFeaturedRelease,
   getPartySummaries,
   partyAvatarUrl,
 } from "./artist.ts";

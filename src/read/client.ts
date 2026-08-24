@@ -13,18 +13,12 @@
 // It also carries the resolved `MisoConfig`, so a read function takes ONE argument
 // and never has a package id threaded through its signature.
 //
-// The casts below are load-bearing and deliberate: @misonetwork/miso-protocol and
-// @misonetwork/miso-party each type against their own installed copy of
-// @mysten/sui. Those copies are structurally identical but nominally distinct
-// (private class fields), so TypeScript refuses the assignment even though the
-// runtime object is the same one. miso-app solved this with a cast at each call
-// site (`lib/pressing.ts:25`, `lib/party.ts:55`); here it happens ONCE, and
-// nothing downstream of this file casts anything.
+// Party now shares the same network SDK registration and deployment as protocol
+// core, so every read hangs off one `sui.miso` namespace.
 
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
-import type { SuiClientRegistration } from "@mysten/sui/client";
-import { party, type PartyClient } from "@misonetwork/miso-party/client";
+import { miso, type MisoProtocolClient } from "@misonetwork/sdk/client";
 import { misoConfig, networkFrom, type MisoConfig, type MisoConfigOverrides, type Network } from "./config.ts";
 
 function definedOverrides<T extends object>(value: T): Partial<T> {
@@ -44,8 +38,8 @@ export type ProtocolGraphQLClient = SuiGraphQLClient;
 
 export interface MisoClient {
   config: MisoConfig;
-  /** gRPC data plane, extended with the party read API (`sui.party.getPartyById(…)`). */
-  sui: SuiGrpcClient & { party: PartyClient };
+  /** gRPC data plane, including Party at `sui.miso.party`. */
+  sui: SuiGrpcClient & { miso: MisoProtocolClient };
   /** The same client, typed for the protocol SDK's read helpers. */
   protocol: ProtocolClient;
   /** GraphQL RPC, typed for the protocol SDK's type-discovery queries. */
@@ -82,8 +76,7 @@ export function createMisoClient(options: CreateMisoClientOptions = {}): MisoCli
   const grpc = new SuiGrpcClient({ baseUrl: config.grpcUrl, network: config.network });
   const graphqlRaw = new SuiGraphQLClient({ url: config.graphqlUrl, network: config.network });
 
-  const registration = party(config.party) as unknown as SuiClientRegistration<typeof grpc, "party", PartyClient>;
-  const sui = grpc.$extend(registration);
+  const sui = grpc.$extend(miso({ deployment: config.deployment }));
 
   return {
     config,

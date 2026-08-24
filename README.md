@@ -12,7 +12,7 @@ holding:
 
 | Scope | Layer | Owns |
 | --- | --- | --- |
-| `@misonetwork/*` | **Protocol** | Composition, Recording, Release; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
+| `@misonetwork/*` | **Protocol** | Composition, Recording, Release, Party identity; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
 | `@misofm/*` | **Platform** | Pressing, Listing, Record, and Vault plugins that apply Miso business logic to custodied protocol admin caps |
 
 A release is protocol. Pressing a record off that release and selling it is
@@ -99,6 +99,7 @@ const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
 
 // The permissionless protocol SDK is part of the same facade.
 const release = await client.miso.protocol.getReleaseById(releaseId);
+const party = await client.miso.party.getPartyById(partyId);
 
 // Read: run + one currency's offer, one round trip, no registry lookup.
 const { pressing, listing } = await client.miso.getSale({
@@ -132,7 +133,7 @@ to `src/deployments.ts`.
 
 ### High-level platform reads
 
-`@misofm/sdk/read` turns protocol, pressing, PartyOS, credits, cover, and wallet
+`@misofm/sdk/read` turns protocol, pressing, Party, credits, cover, and wallet
 objects into the JSON-safe views a client actually renders. It works in browsers,
 Workers, and servers. Miso's HTTP API is a thin validated and cached transport over
 this same surface, not a separate domain implementation.
@@ -412,7 +413,7 @@ carry an optional `RecordingRoleLevel` (`Producer`, `Vocalist`, `Engineer`,
 ```
 src/
   deployments.ts         fail-closed deployment schema and future address injection point
-  client.ts              the full client.miso facade; protocol lives at client.miso.protocol
+  client.ts              the full client.miso facade; protocol and Party live at client.miso.protocol / .party
   pressing.ts            facade: builders, readers, and the id derivations
   queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
   transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
@@ -458,15 +459,16 @@ only from that copy, avoiding writes to a developer's live source tree.
 ## Dependency on `@misonetwork/sdk`
 
 `@misonetwork/sdk` is a required peer (`^0.8.0`), not a runtime dependency.
-This package imports its primitives, deployment configuration, and protocol
-client directly, then wraps that client at `client.miso.protocol`. The consuming
+This package imports its primitives, deployment configuration, protocol client,
+and Party client directly, then exposes them at `client.miso.protocol` and
+`client.miso.party`. The consuming
 application installs one protocol SDK, preventing a platform tarball from
 silently nesting an older protocol ABI alongside the application's copy.
 `@mysten/sui` itself stays a peer dependency here, same as in
 `@misonetwork/sdk`.
 
 For this coordinated pre-publish release, the development lock resolves the
-exact `@misonetwork/sdk` `0.8.0` release-graph commit (`5a5ef3d`). The published
+exact integrated `@misonetwork/sdk` commit (`4b14270`). The published
 tarball intentionally contains no copy of it: consumers satisfy the peer with
 their verified `@misonetwork/sdk@^0.8.0` installation.
 

@@ -36,6 +36,7 @@ import {
   miso as protocolMiso,
   type MisoProtocolClient,
 } from "@misonetwork/sdk/client";
+import type { PartyProtocolClient } from "@misonetwork/sdk/party";
 
 import * as listingContract from "./contracts/miso_pressing/listing.ts";
 import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
@@ -283,6 +284,16 @@ export class MisoPlatformClient {
       ? protocolMiso({ deployment: { packageId: config.misoPackageId } }).register(client)
       : undefined);
     this.deployment = deployment;
+  }
+
+  /** Party identity and profile APIs, backed by the network SDK. */
+  get party(): PartyProtocolClient {
+    if (!this.protocol) {
+      throw new Error(
+        "misoPlatform: Party APIs require the complete platform deployment. Use miso({ deployment }).",
+      );
+    }
+    return this.protocol.party;
   }
 
   get packageId(): string {
@@ -673,7 +684,7 @@ export function miso<const Name extends string = "miso">(
         client,
         {
           packageId: deployment.packages.pressing,
-          misoPackageId: deployment.protocol.packageId,
+          misoPackageId: deployment.protocol.miso,
           minatoPackageId: deployment.packages.minato,
           releaseRegistryId: deployment.objects.releaseRegistry,
           releaseKindPackageId: deployment.packages.releaseKind,

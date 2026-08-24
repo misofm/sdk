@@ -268,7 +268,7 @@ async function compositionRatesByRecording(client: MisoClient, recordingIds: str
   const addresses = await getWorkAddressesByShareTypes(
     client.graphql,
     { compositions: shareTypes, recordings: [] },
-    client.config.protocol.miso,
+    client.config.deployment.miso,
   );
   const compositionIds = Object.values(addresses.compositions).filter((id): id is string => !!id);
   const compositions = await getCompositionsByIds(client.protocol, compositionIds);

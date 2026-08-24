@@ -261,20 +261,8 @@ export interface ArtistProfile {
   /** Present only when requested via `include` — the owner-editor fields. */
   roles?: string[];
   tags?: string[];
-  /** Present only when requested via `include`; null means nothing is pinned. */
-  featured?: FeaturedRelease | null;
   /** Public avatar URL (miso-api R2 lane; may 404 when unset). */
   avatarUrl: string;
-}
-
-/** A party's pinned Pressing, fully resolved. Null when nothing is pinned. */
-export interface FeaturedRelease {
-  pressingId: string;
-  releaseId: string;
-  title: string;
-  /** The party whose page this is — shown as the release's artist. */
-  artist: string;
-  coverUrl: string | null;
 }
 
 /** The minimal party projection used for lists (`?ids=`). */

@@ -157,7 +157,13 @@ export function publishReleaseGraph(params: PublishReleaseGraphParams): (tx: Tra
         type: "0x2::object::ID",
         elements: ordered.map((t) =>
           isFresh(t)
-            ? tx.add(recording.id({ package: pkg, typeArguments: recTypeArgs(t.recordingIndex), arguments: [requiredAt(recs, t.recordingIndex, "fresh recording").work] }))
+            ? tx.moveCall({
+                target: "0x2::object::id",
+                typeArguments: [
+                  `${pkg}::recording::Recording<${recTypeArgs(t.recordingIndex).join(",")}>`,
+                ],
+                arguments: [requiredAt(recs, t.recordingIndex, "fresh recording").work],
+              })
             : tx.pure.id(t.recordingId),
         ),
       });

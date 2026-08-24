@@ -11,8 +11,8 @@
 // than be reimplemented by every browser, Worker, server, or native client.
 
 import { normalizeSuiAddress } from "@mysten/sui/utils";
-import { contracts as partyContracts } from "@misonetwork/miso-party";
 import {
+  contracts as networkContracts,
   getCompositionByShareType,
   getOwnedReleaseAdminCaps,
   getRecordingByShareType,
@@ -110,7 +110,7 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
  * authoritative in a way that remembering created parties client-side is not.
  */
 export async function getOwnedParties(client: MisoClient, owner: string): Promise<OwnedParty[]> {
-  const capType = `${client.config.party.partyPackageId}::party::PartyAdminCap`;
+  const capType = `${client.config.deployment.misoParty}::party::PartyAdminCap`;
 
   // One page of 50 caps is plenty for launch-scale artists; paginate if labels
   // ever start hitting the cap.
@@ -123,7 +123,7 @@ export async function getOwnedParties(client: MisoClient, owner: string): Promis
 
   const caps = objects.flatMap((obj) => {
     try {
-      const cap = partyContracts.party.PartyAdminCap.parse(obj.content);
+      const cap = networkContracts.party.PartyAdminCap.parse(obj.content);
       return [{ capId: obj.objectId, partyId: cap.party_id }];
     } catch {
       return [];
@@ -131,7 +131,7 @@ export async function getOwnedParties(client: MisoClient, owner: string): Promis
   });
   if (caps.length === 0) return [];
 
-  const parties = await client.sui.party.getPartiesByIds(caps.map((c) => c.partyId));
+  const parties = await client.sui.miso.party.getPartiesByIds(caps.map((c) => c.partyId));
   return caps.flatMap(({ capId, partyId }) => {
     const p = parties[partyId];
     return p ? [{ partyId, capId, name: p.name, kind: p.kind }] : [];
@@ -157,13 +157,13 @@ export async function getPendingMemberships(
   const invitations = await Promise.all(
     individuals.map(async (member) => ({
       member,
-      groupIds: await client.sui.party.getPendingMemberships(member.partyId),
+      groupIds: await client.sui.miso.party.getPendingMemberships(member.partyId),
     })),
   );
   const groupIds = [...new Set(invitations.flatMap(({ groupIds }) => groupIds))];
   if (groupIds.length === 0) return [];
 
-  const groups = await client.sui.party.getPartiesByIds(groupIds);
+  const groups = await client.sui.miso.party.getPartiesByIds(groupIds);
   return invitations.flatMap(({ member, groupIds }) =>
     groupIds.flatMap((groupId): PendingMembership[] => {
       const group = groups[groupId];
@@ -203,7 +203,7 @@ async function ownedGenericCaps(client: MisoClient, owner: string, capType: stri
  * `release_id` directly.
  */
 export async function getOwnedWorks(client: MisoClient, owner: string): Promise<OwnedWork[]> {
-  const miso = client.config.protocol.miso;
+  const miso = client.config.deployment.miso;
 
   const [compCaps, recCaps, relCaps] = await Promise.all([
     ownedGenericCaps(client, owner, `${miso}::composition::CompositionAdminCap`),
@@ -257,7 +257,7 @@ export async function getOwnedWorks(client: MisoClient, owner: string): Promise<
 
 /** Classify a cap by its on-chain type, then resolve the work behind it. */
 export async function getWorkByCap(client: MisoClient, capId: string): Promise<WorkDetail | null> {
-  const miso = client.config.protocol.miso;
+  const miso = client.config.deployment.miso;
 
   let type: string;
   let json: Record<string, unknown> | null;
@@ -355,7 +355,7 @@ function isAddressOwner(owner: unknown, address: string): boolean {
  * stays hidden rather than being offered and then rejected on submit.
  */
 export async function ownsParty(client: MisoClient, address: string, partyId: string): Promise<Ownership> {
-  const capId = client.sui.party.derivePartyAdminCapId(partyId);
+  const capId = client.sui.miso.party.derivePartyAdminCapId(partyId);
   const isOwner = await client.protocol.core
     .getObject({ objectId: capId })
     .then(({ object }) => isAddressOwner(object?.owner, address))

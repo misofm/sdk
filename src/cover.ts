@@ -162,7 +162,7 @@ function toCoverImageRef(wd: ParsedWalrusData): CoverImageRef {
  * Reads a release's album-level cover (the `release_cover_art` extension), or
  * `null` if no cover is attached. Derives the `ExtensionKey` dynamic field on the
  * release, parses the `ReleaseCoverArt`, and returns the still (+ optional
- * animation) as normalized Walrus refs for the app's featured-pressing card.
+ * animation) as normalized Walrus refs for release displays.
  */
 export async function getReleaseCover(
   client: ClientWithCoreApi,

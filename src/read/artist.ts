@@ -4,26 +4,22 @@
 // Artist reads: a `Party` plus every extension attached to its UID.
 //
 // The artist page is the clearest case for this whole layer. Its data lives in
-// EIGHT separate dynamic fields, each its own package, each its own read — party,
-// profile, ctas, genres, links, roles, tags, featured. miso-app fanned all eight
-// out from the browser (`lib/party-queries.ts`, plus a second identical fan-out in
-// `PartyEditSheet`). Here they are one call, resolved once, cached once.
+// separate dynamic fields, each its own package and read — party, profile, ctas,
+// genres, links, roles, and tags. Here they are one call, resolved once, cached
+// once.
 //
-// `roles`, `tags`, and the resolved featured release are opt-in via `include`.
+// `roles` and `tags` are opt-in via `include`.
 
 import { resolveGenreNames } from "./genres.ts";
-import { getReleaseResources } from "./catalog.ts";
-import { getPressing } from "../pressing.ts";
 import type { MisoClient } from "./client.ts";
 import type {
   ArtistProfile,
-  FeaturedRelease,
   PartyMember,
   PartySummary,
 } from "./types.ts";
 
 /** Optional sub-resources — read only when asked for. */
-export type ArtistInclude = "roles" | "tags" | "featured";
+export type ArtistInclude = "roles" | "tags";
 
 export interface GetArtistOptions {
   include?: readonly ArtistInclude[];
@@ -45,7 +41,7 @@ export async function getArtistProfile(
   options: GetArtistOptions = {},
 ): Promise<ArtistProfile> {
   const include = new Set(options.include ?? []);
-  const { party } = client.sui;
+  const { party } = client.sui.miso;
 
   const [profile, ctas, genreIds, links, roles, tags, entity] =
     await Promise.all([
@@ -62,15 +58,12 @@ export async function getArtistProfile(
       party.getPartyById(partyId),
     ]);
 
-  const [genres, members, featured] = await Promise.all([
+  const [genres, members] = await Promise.all([
     resolveGenreNames(client, genreIds),
     resolveMembers(
       client,
       entity.kind === "group" ? (entity.members ?? []) : [],
     ),
-    include.has("featured")
-      ? resolveFeaturedRelease(client, partyId, entity.name).catch(() => null)
-      : Promise.resolve(undefined),
   ]);
 
   return {
@@ -92,7 +85,6 @@ export async function getArtistProfile(
     members,
     ...(roles !== undefined ? { roles } : {}),
     ...(tags !== undefined ? { tags } : {}),
-    ...(featured !== undefined ? { featured } : {}),
     avatarUrl: partyAvatarUrl(client.config.apiBaseUrl, entity.id),
   };
 }
@@ -103,7 +95,7 @@ async function resolveMembers(
   memberIds: readonly string[],
 ): Promise<PartyMember[]> {
   if (memberIds.length === 0) return [];
-  const parties = await client.sui.party
+  const parties = await client.sui.miso.party
     .getPartiesByIds([...memberIds])
     .catch(() => ({}) as Record<string, undefined>);
   return memberIds.flatMap((id) => {
@@ -118,58 +110,9 @@ export async function getPartySummaries(
   ids: readonly string[],
 ): Promise<PartySummary[]> {
   if (ids.length === 0) return [];
-  const parties = await client.sui.party.getPartiesByIds([...ids]);
+  const parties = await client.sui.miso.party.getPartiesByIds([...ids]);
   return ids.flatMap((id) => {
     const p = parties[id];
     return p ? [{ id, name: p.name, kind: p.kind }] : [];
   });
-}
-
-/**
- * The party's pinned pressing, resolved through to its release and cover.
- * `null` — a successful empty — when nothing is pinned or the pin is dangling
- * (the pressing id was invalid or was never opened).
- */
-async function resolveFeaturedRelease(
-  client: MisoClient,
-  partyId: string,
-  fallbackArtist?: string,
-): Promise<FeaturedRelease | null> {
-  const pressingId = await client.sui.party.getFeaturedDrop(partyId);
-  if (!pressingId) return null;
-
-  const pressing = await getPressing(client.protocol, pressingId, client.config.protocol.pressing);
-  if (!pressing) return null;
-
-  const [resources, entity] = await Promise.all([
-    getReleaseResources(client, pressing.releaseId, ["cover", "credits"]),
-    fallbackArtist === undefined
-      ? client.sui.party.getPartyById(partyId)
-      : Promise.resolve(null),
-  ]);
-  const { release, cover, credits } = resources;
-
-  // The artist line prefers the release's own PRIMARY credits and falls back to
-  // the party whose page this is — a release with no credits set still shows an
-  // artist, which is the behavior the featured card has always had.
-  const primary = (credits ?? [])
-    .filter((c) => c.roles.includes("Primary"))
-    .map((c) => c.displayName);
-
-  return {
-    pressingId,
-    releaseId: pressing.releaseId,
-    title: release.title,
-    artist: primary.length
-      ? primary.join(", ")
-      : (fallbackArtist ?? entity?.name ?? ""),
-    coverUrl: cover?.still.url ?? null,
-  };
-}
-
-export async function getFeaturedRelease(
-  client: MisoClient,
-  partyId: string,
-): Promise<FeaturedRelease | null> {
-  return resolveFeaturedRelease(client, partyId);
 }

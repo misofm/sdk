@@ -41,14 +41,14 @@ test("publishReleaseGraph: create → derive → track → registry → publish 
 
   expect(count("composition::new")).toBe(2);
   expect(count("recording::new")).toBe(2);
-  expect(count("recording::id")).toBe(2);
+  expect(count("object::id")).toBe(2);
   expect(count("release::derive_target_release_id")).toBe(1);
   expect(count("track::new")).toBe(2);
   expect(count("release::new")).toBe(1);
 
   expect(last("composition::new")).toBeLessThan(first("composition::publish"));
   expect(last("recording::new")).toBeLessThan(first("recording::publish"));
-  expect(last("recording::id")).toBeLessThan(first("release::derive_target_release_id"));
+  expect(last("object::id")).toBeLessThan(first("release::derive_target_release_id"));
   expect(first("release::derive_target_release_id")).toBeLessThan(first("track::new"));
   expect(last("track::new")).toBeLessThan(first("release::new"));
   expect(first("release::new")).toBeLessThan(first("release::publish"));

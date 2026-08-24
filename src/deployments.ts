@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
+  MisoDeployment,
   MisoNetwork,
-  MisoProtocolDeployment,
 } from "@misonetwork/sdk/deployments";
 
 /** Complete on-chain identity used by the Miso platform SDK on one network. */
 export interface MisoPlatformDeployment {
-  /** The protocol deployment this platform deployment was built against. */
-  readonly protocol: MisoProtocolDeployment;
+  /** The complete protocol and Party deployment this platform build targets. */
+  readonly protocol: MisoDeployment;
   readonly packages: {
     readonly pressing: string;
     readonly record: string;
@@ -52,24 +52,6 @@ export interface MisoPlatformDeployment {
     readonly releaseRegistry: string;
     /** Shared parent used to derive canonical Genre object ids. */
     readonly genreRegistry: string;
-  };
-  /** PartyOS packages used by the composed artist and wallet reads. */
-  readonly party: {
-    readonly partyPackageId: string;
-    readonly partyProfilePackageId: string;
-    readonly countryCodePackageId: string;
-    readonly languageCodePackageId: string;
-    readonly partyMediaPackageId: string;
-    readonly partyRolesPackageId: string;
-    readonly partyTagsPackageId: string;
-    readonly partyGenrePackageId: string;
-    readonly partyCtaPackageId: string;
-    readonly partyPlatformLinkPackageId: string;
-    readonly partySocialPackageId: string;
-    readonly partyMusicPackageId: string;
-    readonly partyProLinkPackageId: string;
-    readonly partyFeaturedDropPackageId: string;
-    readonly genrePackageId: string;
   };
   readonly legacy: {
     readonly releaseCoverArtPackages: readonly string[];

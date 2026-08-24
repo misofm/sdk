@@ -317,7 +317,7 @@ export async function getReleaseDetail(
       client.protocol,
       client.graphql,
       recordingIds,
-      client.config.protocol.miso,
+      client.config.deployment.miso,
     ),
     options.include?.includes("trackCredits")
       ? getTrackCreditsForRecordingIds(client, recordingIds)
@@ -345,13 +345,13 @@ async function getTrackCreditsForRecordingIds(
   client: MisoClient,
   recordingIds: readonly string[],
 ): Promise<Record<string, TrackCredits>> {
-  const { compositionCredits, recordingCredits, miso } = client.config.protocol;
+  const { compositionCredits, recordingCredits } = client.config.protocol;
   const tracks = await getTrackCreditsByRecordingIds(
     client.protocol,
     client.graphql,
     recordingIds,
     {
-      misoPackageId: miso,
+      misoPackageId: client.config.deployment.miso,
       compositionCreditsPackageId: compositionCredits,
       recordingCreditsPackageId: recordingCredits,
     },
