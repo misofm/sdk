@@ -13,14 +13,17 @@ type Page = { objects: Obj[]; hasNextPage: boolean; cursor: string | null };
 
 /** A client whose `listOwnedObjects` serves the given pages in order. */
 const RECORD_PACKAGE = "0x" + "ab".repeat(32);
+const PRESSING_PACKAGE = "0x" + "ef".repeat(32);
 const WRONG_RECORD_PACKAGE = "0x" + "cd".repeat(32);
-const RECORD_TYPE = `${RECORD_PACKAGE}::record::Record`;
-const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record`;
+const CERTIFICATE_TYPE = `${PRESSING_PACKAGE}::certificate::Certificate`;
+const RECORD_TYPE_FILTER = `${RECORD_PACKAGE}::record::Record`;
+const RECORD_TYPE = `${RECORD_TYPE_FILTER}<${CERTIFICATE_TYPE}>`;
+const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record<${CERTIFICATE_TYPE}>`;
 
 function fakeClient(pages: Page[]): { client: MisoClient; calls: number; types: string[] } {
   const state = { calls: 0, types: [] as string[] };
   const client = {
-    config: { protocol: { record: RECORD_PACKAGE } },
+    config: { protocol: { record: RECORD_PACKAGE, pressing: PRESSING_PACKAGE } },
     protocol: {
       core: {
         listOwnedObjects: async ({ type }: { type?: string }) => {
@@ -57,7 +60,7 @@ describe("getOwnedRecords", () => {
     ]);
     const records = await getOwnedRecords(fake.client, "0xowner");
     expect(records.map((r) => r.id)).toEqual(["0x1"]);
-    expect(fake.types).toEqual([RECORD_TYPE]);
+    expect(fake.types).toEqual([RECORD_TYPE_FILTER]);
   });
 
   test("skips objects that are not records", async () => {
@@ -76,11 +79,15 @@ describe("getOwnedRecords", () => {
     expect(records[0]!.id).toBe("0x1");
   });
 
-  test("reads the canonical copy number", async () => {
+  test("reads the canonical copy number from the embedded certificate", async () => {
     const { client } = fakeClient([
       {
         objects: [
-          { objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", number: 7 } },
+          {
+            objectId: "0x1",
+            type: RECORD_TYPE,
+            json: { release_id: "0xa", certificate: { number: "7" } },
+          },
         ],
         hasNextPage: false,
         cursor: null,
@@ -88,6 +95,48 @@ describe("getOwnedRecords", () => {
     ]);
     const records = await getOwnedRecords(client, "0xowner");
     expect(records[0]!.number).toBe(7);
+  });
+
+  test("rejects non-canonical generic Record specializations", async () => {
+    const arbitraryCertificate = `0x${"12".repeat(32)}::certificate::Certificate`;
+    const { client } = fakeClient([
+      {
+        objects: [
+          {
+            objectId: "0xtrusted",
+            type: RECORD_TYPE,
+            json: { release_id: "0xa", certificate: { number: 1 } },
+          },
+          {
+            objectId: "0xarbitrary",
+            type: `${RECORD_TYPE_FILTER}<${arbitraryCertificate}>`,
+            json: { release_id: "0xb", certificate: { number: 2 } },
+          },
+          {
+            objectId: "0xmalformed",
+            type: `${RECORD_TYPE_FILTER}<${CERTIFICATE_TYPE}, ${CERTIFICATE_TYPE}>`,
+            json: { release_id: "0xc", certificate: { number: 3 } },
+          },
+        ],
+        hasNextPage: false,
+        cursor: null,
+      },
+    ]);
+
+    const records = await getOwnedRecords(client, "0xowner");
+    expect(records.map((item) => item.id)).toEqual(["0xtrusted"]);
+  });
+
+  test("does not read the removed top-level number field", async () => {
+    const { client } = fakeClient([
+      {
+        objects: [{ objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", number: 7 } }],
+        hasNextPage: false,
+        cursor: null,
+      },
+    ]);
+    const records = await getOwnedRecords(client, "0xowner");
+    expect(records[0]!.number).toBeNull();
   });
 
   test("follows pagination until the last page", async () => {

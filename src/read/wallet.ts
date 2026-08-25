@@ -132,13 +132,57 @@ function coerceNumber(v: unknown): number | null {
   return null;
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 /**
- * This copy's number in its run. Fresh records expose the canonical
- * `{ release_id, number }` shape; pre-publish layouts are intentionally not
- * accepted by the pre-launch SDK.
+ * A wallet record is trusted only when both halves of its concrete type are the
+ * currently configured protocol packages. Checking the parsed tag (rather than
+ * a prefix/suffix) rejects retired namespaces, extra type parameters, and an
+ * arbitrary certificate that anyone can use with `record::new`.
+ */
+function isCanonicalRecordType(
+  type: string,
+  recordPackageId: string,
+  pressingPackageId: string,
+): boolean {
+  let tag: ReturnType<typeof parseStructTag>;
+  try {
+    tag = parseStructTag(type);
+  } catch {
+    return false;
+  }
+
+  if (
+    tag.address !== normalizeSuiAddress(recordPackageId) ||
+    tag.module !== "record" ||
+    tag.name !== "Record" ||
+    tag.typeParams.length !== 1
+  ) {
+    return false;
+  }
+
+  const certificate = tag.typeParams[0];
+  return (
+    certificate !== undefined &&
+    typeof certificate !== "string" &&
+    certificate.address === normalizeSuiAddress(pressingPackageId) &&
+    certificate.module === "certificate" &&
+    certificate.name === "Certificate" &&
+    certificate.typeParams.length === 0
+  );
+}
+
+/**
+ * This copy's number in its pressing run. The current Record keeps issuance
+ * details inside its embedded Certificate, so the canonical JSON shape is
+ * `{ release_id, certificate: { number } }`.
  */
 function readRecordNumber(json: Record<string, unknown>): number | null {
-  return coerceNumber(json.number);
+  return coerceNumber(record(json.certificate)?.number);
 }
 
 function readReleaseId(json: Record<string, unknown>): string | null {
@@ -156,6 +200,7 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
   const out: OwnedRecord[] = [];
   let cursor: string | null = null;
   const recordType = `${client.config.protocol.record}::record::Record`;
+  const pressingPackageId = client.config.protocol.pressing;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // Annotated: `cursor` is both an input and assigned from the result, which
@@ -169,7 +214,9 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
         include: { json: true },
       });
     for (const obj of res.objects) {
-      if (obj.type !== recordType) continue;
+      if (!isCanonicalRecordType(obj.type, client.config.protocol.record, pressingPackageId)) {
+        continue;
+      }
       const json = (obj.json ?? {}) as Record<string, unknown>;
       out.push({
         id: obj.objectId,
