@@ -202,12 +202,12 @@ export interface MisoPlatformConfig {
   /** Generic royalty-pool value package used by pool and routed-stake helpers. */
   royaltyPoolPackageId?: string;
   /** Vault plugins, deliberately separate from data-extension package ids. */
-  compositionRoyaltyPoolPluginPackageId?: string;
-  recordingRoyaltyPoolPluginPackageId?: string;
-  partyWalletPluginPackageId?: string;
-  compositionRoutedStakePluginPackageId?: string;
+  vaultCompositionRoyaltyPoolPluginPackageId?: string;
+  vaultRecordingRoyaltyPoolPluginPackageId?: string;
+  vaultPartyWalletPluginPackageId?: string;
+  vaultCompositionRoutedStakePluginPackageId?: string;
   routedStakePackageId?: string;
-  releaseRevenueDistributorPluginPackageId?: string;
+  vaultReleaseRevenueDistributorPluginPackageId?: string;
   releaseCreditsPackageId?: string;
   misoCreditPackageId?: string;
   coverArtPackageId?: string;
@@ -578,41 +578,41 @@ export class MisoPlatformClient {
             ["setKind", "unsetKind", "hasKind"] as const,
           )
         : undefined,
-      releaseRevenueDistributor: this.#config.releaseRevenueDistributorPluginPackageId
+      releaseRevenueDistributor: this.#config.vaultReleaseRevenueDistributorPluginPackageId
         ? bindModulePackage(
             releaseRevenueDistributorContract,
-            this.#config.releaseRevenueDistributorPluginPackageId,
+            this.#config.vaultReleaseRevenueDistributorPluginPackageId,
             ["install", "uninstall", "redeemAndDistribute", "receiveAndDistribute", "isInstalled"] as const,
           )
         : undefined,
       vault: this.#config.vaultPackageId
         ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "vaultId", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
         : undefined,
-      compositionRoyaltyPool: this.#config.compositionRoyaltyPoolPluginPackageId
+      compositionRoyaltyPool: this.#config.vaultCompositionRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
-            this.#config.compositionRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
+            this.#config.vaultCompositionRoyaltyPoolPluginPackageId,
+            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
-      recordingRoyaltyPool: this.#config.recordingRoyaltyPoolPluginPackageId
+      recordingRoyaltyPool: this.#config.vaultRecordingRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
-            this.#config.recordingRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
+            this.#config.vaultRecordingRoyaltyPoolPluginPackageId,
+            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
-      partyWallet: this.#config.partyWalletPluginPackageId
+      partyWallet: this.#config.vaultPartyWalletPluginPackageId
         ? bindModulePackage(
             partyWalletContract,
-            this.#config.partyWalletPluginPackageId,
+            this.#config.vaultPartyWalletPluginPackageId,
             ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemBalance", "sweepBalance", "isInstalled", "inboxAddress", "settledFunds"] as const,
           )
         : undefined,
-      compositionRoutedStake: this.#config.compositionRoutedStakePluginPackageId
+      compositionRoutedStake: this.#config.vaultCompositionRoutedStakePluginPackageId
         ? bindModulePackage(
             compositionRoutedStakeContract,
-            this.#config.compositionRoutedStakePluginPackageId,
+            this.#config.vaultCompositionRoutedStakePluginPackageId,
             ["install", "uninstall", "createStake", "register", "unregister", "unstake", "restake", "isInstalled", "stakeAddress"] as const,
           )
         : undefined,
@@ -706,16 +706,16 @@ export function miso<const Name extends string = "miso">(
           recordingPreviewPackageId: deployment.packages.recordingPreview,
           vaultPackageId: deployment.packages.vault,
           royaltyPoolPackageId: deployment.packages.royaltyPool,
-          compositionRoyaltyPoolPluginPackageId:
-            deployment.packages.compositionRoyaltyPoolPlugin,
-          recordingRoyaltyPoolPluginPackageId:
-            deployment.packages.recordingRoyaltyPoolPlugin,
-          partyWalletPluginPackageId: deployment.packages.partyWalletPlugin,
-          compositionRoutedStakePluginPackageId:
-            deployment.packages.compositionRoutedStakePlugin,
+          vaultCompositionRoyaltyPoolPluginPackageId:
+            deployment.packages.vaultCompositionRoyaltyPoolPlugin,
+          vaultRecordingRoyaltyPoolPluginPackageId:
+            deployment.packages.vaultRecordingRoyaltyPoolPlugin,
+          vaultPartyWalletPluginPackageId: deployment.packages.vaultPartyWalletPlugin,
+          vaultCompositionRoutedStakePluginPackageId:
+            deployment.packages.vaultCompositionRoutedStakePlugin,
           routedStakePackageId: deployment.packages.routedStake,
-          releaseRevenueDistributorPluginPackageId:
-            deployment.packages.releaseRevenueDistributorPlugin,
+          vaultReleaseRevenueDistributorPluginPackageId:
+            deployment.packages.vaultReleaseRevenueDistributorPlugin,
           releaseCreditsPackageId: deployment.packages.releaseCredits,
           misoCreditPackageId: deployment.packages.credit,
           coverArtPackageId: deployment.packages.coverArt,

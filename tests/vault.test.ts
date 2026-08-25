@@ -17,6 +17,7 @@ import {
   sweepPartyWalletBalance,
   sweepRecordingRoyaltyPool,
   invokeWithAdminCap,
+  newCompositionRoyaltyPool,
 } from "../src/vault.ts";
 
 const VAULT = "0x" + "10".repeat(32);
@@ -134,6 +135,22 @@ test("plugins build their own witnesses and expose no client-side witness input"
     "initialize_pool",
   ]);
   expect(pluginCalls.every((call) => call.module !== "witness")).toBe(true);
+});
+
+test("royalty-pool constructors return the unshared pool for same-PTB registration", () => {
+  const tx = new Transaction();
+  const pool = newCompositionRoyaltyPool(tx, {
+    vault: tx.object(A),
+    vaultAdminCap: tx.object(A),
+    composition: tx.object(A),
+    compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI,
+    pluginPackageId: COMP_POOL_PLUGIN,
+  });
+  expect(pool.$kind).toBe("Result");
+  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
+    "composition_royalty_pool::new_pool",
+  ]);
 });
 
 test("royalty-pool cranks sweep the settled accumulator snapshot without an amount", () => {

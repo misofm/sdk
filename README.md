@@ -215,8 +215,8 @@ const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
   miso({ deployment: verifiedDeployment }),
 );
 
-// Mints the composition's share supply, disperses it to shareRecipients via
-// minato, publishes (shares) the composition, and transfers the
+// Mints the composition's share supply, disperses it to shareRecipients as
+// address balances, publishes (shares) the composition, and transfers the
 // CompositionAdminCap to adminAddress — createComposition → finalizeComposition
 // in one PTB.
 const thunk = client.miso.tx.publishComposition({
@@ -269,6 +269,16 @@ Recording, Track, and Release; applies all declared data extensions; installs
 and initializes Vault plugins; opens the Pressing and Listings; shares the new
 objects; and delivers only the selected direct admin cap or VaultAdminCap. The
 entire catalog stage is one PTB, so none of it can land partially.
+
+Share allocation is explicit at the SDK boundary. Omitting
+`shareDistribution` preserves the existing `"balance"` behavior. Setting it to
+`"stake"` converts the minted `Balance<Share>` into one address-owned
+`Stake<Share>` per `shareRecipients` entry. When the work also declares a
+`royaltyPool`, the builder creates the pool unshared, registers each fresh
+stake, shares the pool, and then transfers the registered stakes. The lower
+level `createShareStake`, `createShareStakes`, `registerShareStake`,
+`newCompositionRoyaltyPool`, `newRecordingRoyaltyPool`, and
+`shareRoyaltyPool` builders expose each step separately for custom PTBs.
 
 ```ts
 import {

@@ -267,6 +267,21 @@ export interface InitializeCompositionRoyaltyPoolParams
   readonly currencyType: string;
 }
 
+/** Create the canonical pool without sharing it so callers can configure fresh stakes first. */
+export function newCompositionRoyaltyPool(
+  tx: Transaction,
+  params: InitializeCompositionRoyaltyPoolParams,
+): TransactionObjectArgument {
+  return tx.add(
+    compositionRoyaltyPool.newPool({
+      package: params.pluginPackageId,
+      typeArguments: [params.compositionShareType, params.currencyType],
+      arguments: [params.vault, params.composition, params.vaultAdminCap],
+    }),
+  );
+}
+
+/** Create and immediately share the canonical Composition royalty pool. */
 export function initializeCompositionRoyaltyPool(
   tx: Transaction,
   params: InitializeCompositionRoyaltyPoolParams,
@@ -470,6 +485,25 @@ export interface InitializeRecordingRoyaltyPoolParams
   readonly currencyType: string;
 }
 
+/** Create the canonical pool without sharing it so callers can configure fresh stakes first. */
+export function newRecordingRoyaltyPool(
+  tx: Transaction,
+  params: InitializeRecordingRoyaltyPoolParams,
+): TransactionObjectArgument {
+  return tx.add(
+    recordingRoyaltyPool.newPool({
+      package: params.pluginPackageId,
+      typeArguments: [
+        params.recordingShareType,
+        params.compositionShareType,
+        params.currencyType,
+      ],
+      arguments: [params.vault, params.recording, params.vaultAdminCap],
+    }),
+  );
+}
+
+/** Create and immediately share the canonical Recording royalty pool. */
 export function initializeRecordingRoyaltyPool(
   tx: Transaction,
   params: InitializeRecordingRoyaltyPoolParams,

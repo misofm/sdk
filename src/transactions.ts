@@ -12,9 +12,9 @@
 // platform-layer call that lives here:
 //
 //   - minting a work's share supply is a protocol primitive
-//     (`createComposition`/`createRecording`) — dispersing it to recipients via
-//     minato, publishing (sharing) the work, and transferring its admin cap is
-//     an opinion about economics;
+//     (`createComposition`/`createRecording`) — allocating it to raw address
+//     balances or composable Stake objects, publishing (sharing) the work, and
+//     transferring its admin cap is an opinion about economics;
 //   - minting a release is a platform primitive: core's `release::new` takes an
 //     unconstructible PTB `&mut UID`, so core `release::new(registry, …)` is the
 //     canonical client path. Choosing a track-assembly strategy, publishing
@@ -43,6 +43,8 @@ import {
   type TxThunk,
 } from "@misonetwork/sdk";
 import { asU64, directAdminCap, disposeNewAdminCap, invokeWithAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input } from "./vault.ts";
+import * as royaltyPool from "./contracts/royalty_pool/pool.ts";
+import * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
 
 const { track, release } = contracts;
 
@@ -94,6 +96,112 @@ export function requiredCommandResult<T>(
 export interface ShareRecipient {
   address: string;
   value: U64Input;
+}
+
+export interface CreateShareStakeParams {
+  readonly balance: TransactionObjectArgument;
+  readonly shareType: string;
+  readonly value: U64Input;
+  readonly royaltyPoolPackageId: string;
+}
+
+/** Split shares from a Balance and return a fresh, unregistered Stake object. */
+export function createShareStake(
+  tx: Transaction,
+  params: CreateShareStakeParams,
+): TransactionObjectArgument {
+  const value = asU64("share stake value", params.value);
+  if (value === 0n) throw new Error("share stake value must be greater than zero");
+  const stakeBalance = tx.moveCall({
+    target: "0x2::balance::split",
+    typeArguments: [params.shareType],
+    arguments: [params.balance, tx.pure.u64(value)],
+  });
+  return tx.add(
+    royaltyPoolStake._new({
+      package: params.royaltyPoolPackageId,
+      typeArguments: [params.shareType],
+      arguments: [stakeBalance],
+    }),
+  );
+}
+
+export interface RegisterShareStakeParams {
+  readonly stake: TransactionObjectArgument;
+  readonly pool: TransactionObjectArgument;
+  readonly shareType: string;
+  readonly currencyType: string;
+  readonly royaltyPoolPackageId: string;
+}
+
+/** Register an existing Stake with one RoyaltyPool. */
+export function registerShareStake(
+  tx: Transaction,
+  params: RegisterShareStakeParams,
+): void {
+  tx.add(
+    royaltyPool.registerStake({
+      package: params.royaltyPoolPackageId,
+      typeArguments: [params.shareType, params.currencyType],
+      arguments: [params.pool, params.stake],
+    }),
+  );
+}
+
+export interface CreateShareStakesParams {
+  readonly balance: TransactionObjectArgument;
+  readonly shareType: string;
+  readonly recipients: readonly ShareRecipient[];
+  readonly royaltyPoolPackageId: string;
+}
+
+/**
+ * Convert an entire share Balance into one unregistered Stake per recipient.
+ * The emptied Balance is destroyed, so recipient values must consume it exactly.
+ * Returned stakes remain caller-controlled for optional registration and transfer.
+ */
+export function createShareStakes(
+  tx: Transaction,
+  params: CreateShareStakesParams,
+): TransactionObjectArgument[] {
+  if (params.recipients.length === 0) {
+    throw new Error("share stake recipients must not be empty");
+  }
+  const values = params.recipients.map((recipient) => {
+    const value = asU64("share stake value", recipient.value);
+    if (value === 0n) throw new Error("share stake value must be greater than zero");
+    return value;
+  });
+  const stakes = params.recipients.map((recipient, index) => createShareStake(tx, {
+    balance: params.balance,
+    shareType: params.shareType,
+    value: values[index]!,
+    royaltyPoolPackageId: params.royaltyPoolPackageId,
+  }));
+  tx.moveCall({
+    target: "0x2::balance::destroy_zero",
+    typeArguments: [params.shareType],
+    arguments: [params.balance],
+  });
+  return stakes;
+}
+
+export interface ShareRoyaltyPoolParams {
+  readonly pool: TransactionObjectArgument;
+  readonly shareType: string;
+  readonly currencyType: string;
+  readonly royaltyPoolPackageId: string;
+}
+
+/** Consume an unshared RoyaltyPool and make it globally accessible. */
+export function shareRoyaltyPool(tx: Transaction, params: ShareRoyaltyPoolParams): void {
+  tx.add(
+    royaltyPool.share({
+      package: params.royaltyPoolPackageId,
+      typeArguments: [params.shareType, params.currencyType],
+      arguments: [params.pool],
+    }),
+  );
 }
 
 /**

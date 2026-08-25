@@ -41,6 +41,7 @@ function params(): AtomicPublicationParams {
       title: "Composition",
       royaltyRateBps: 1_000,
       shareRecipients: [{ address: A, value: 10_000_000_000_000n }],
+      shareDistribution: "stake",
       custody: { kind: "vault", owner: A },
       credits: [{ party: "artist", displayName: "Artist", roles: [{ type: "Composer" }] }],
       royaltyPool: { currencyType: "0x2::sui::SUI" },
@@ -54,6 +55,7 @@ function params(): AtomicPublicationParams {
       shareTreasuryCapId: A,
       compositionShareType: SHARE_1,
       shareRecipients: [{ address: A, value: 9_000_000_000_000n }],
+      shareDistribution: "stake",
       custody: { kind: "vault", owner: A },
       credits: [{ party: "artist", displayName: "Artist", roles: [{ type: "Producer" }], primaryArtist: true }],
       royaltyPool: { currencyType: "0x2::sui::SUI" },
@@ -115,9 +117,13 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
   expect(count("release_genre::set_primary_genre")).toBe(1);
   expect(count("release_cover_art::set_cover")).toBe(1);
   expect(count("composition_royalty_pool::install")).toBe(1);
-  expect(count("composition_royalty_pool::initialize_pool")).toBe(1);
+  expect(count("composition_royalty_pool::new_pool")).toBe(1);
   expect(count("recording_royalty_pool::install")).toBe(1);
-  expect(count("recording_royalty_pool::initialize_pool")).toBe(1);
+  expect(count("recording_royalty_pool::new_pool")).toBe(1);
+  expect(count("stake::new")).toBe(2);
+  expect(count("pool::register_stake")).toBe(2);
+  expect(count("pool::share")).toBe(2);
+  expect(count("minato::disperse_balance")).toBe(0);
   expect(count("composition_routed_stake::install")).toBe(1);
   expect(count("release_revenue_distributor::install")).toBe(1);
   expect(count("party_wallet::install")).toBe(1);
@@ -131,8 +137,8 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
     command.MoveCall.typeArguments.includes(recordingCapType));
   expect(recordingVault).toBeDefined();
   expect(seq.indexOf("release::new")).toBeLessThan(seq.indexOf("release::publish"));
-  expect(seq.indexOf("composition_royalty_pool::initialize_pool")).toBeLessThan(seq.indexOf("composition::publish"));
-  expect(seq.indexOf("recording_royalty_pool::initialize_pool")).toBeLessThan(seq.indexOf("recording::publish"));
+  expect(seq.indexOf("composition_royalty_pool::new_pool")).toBeLessThan(seq.indexOf("composition::publish"));
+  expect(seq.indexOf("recording_royalty_pool::new_pool")).toBeLessThan(seq.indexOf("recording::publish"));
 });
 
 test("atomic publication is exactly assembled and checked before execution", () => {
@@ -140,6 +146,21 @@ test("atomic publication is exactly assembled and checked before execution", () 
   expect(inspected.commands).toBeGreaterThan(40);
   expect(inspected.inputs).toBeGreaterThan(10);
   expect(assertAtomicPublicationBounds(params())).toEqual(inspected);
+});
+
+test("SDK callers can explicitly retain legacy balance dispersal", () => {
+  const input = params();
+  const balanced: AtomicPublicationParams = {
+    ...input,
+    compositions: input.compositions.map(({ shareDistribution: _, ...node }) => node),
+    recordings: input.recordings.map(({ shareDistribution: _, ...node }) => node),
+  };
+  const tx = new Transaction();
+  publishAtomicCatalog(balanced)(tx);
+  const seq = calls(tx);
+  expect(seq.filter((call) => call === "minato::disperse_balance")).toHaveLength(2);
+  expect(seq.filter((call) => call === "stake::new")).toHaveLength(0);
+  expect(seq.filter((call) => call.endsWith("_royalty_pool::initialize_pool"))).toHaveLength(2);
 });
 
 test("Vault-only publication features reject direct custody", () => {

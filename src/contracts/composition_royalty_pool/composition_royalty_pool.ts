@@ -74,6 +74,48 @@ export function uninstall(options: UninstallOptions) {
         typeArguments: options.typeArguments
     });
 }
+export interface NewPoolArguments {
+    vault: RawTransactionArgument<string>;
+    composition: RawTransactionArgument<string>;
+    vaultAdminCap: RawTransactionArgument<string>;
+}
+export interface NewPoolOptions {
+    package?: string;
+    arguments: NewPoolArguments | [
+        vault: RawTransactionArgument<string>,
+        composition: RawTransactionArgument<string>,
+        vaultAdminCap: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/**
+ * Create and return the canonical pool derived from this Composition.
+ *
+ * The matching VaultAdminCap chooses which Currency pools may be created. The
+ * result cannot be redirected: the pool ID is claimed from the Composition UID and
+ * is typed by both CompositionShare and Currency. The caller decides when to share
+ * it, allowing fresh stakes to be registered in the same PTB before the pool
+ * becomes a shared object.
+ */
+export function newPool(options: NewPoolOptions) {
+    const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
+    const argumentsTypes = [
+        null,
+        null,
+        null
+    ] satisfies (string | null)[];
+    const parameterNames = ["vault", "composition", "vaultAdminCap"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'composition_royalty_pool',
+        function: 'new_pool',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
 export interface InitializePoolArguments {
     vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
@@ -94,9 +136,8 @@ export interface InitializePoolOptions {
 /**
  * Create and share the canonical pool derived from this Composition.
  *
- * The matching VaultAdminCap chooses which Currency pools may be created. The
- * result cannot be redirected: the pool ID is claimed from the Composition UID and
- * is typed by both CompositionShare and Currency.
+ * Convenience wrapper over `new_pool` for callers that do not need to register
+ * freshly-created stakes before sharing the pool.
  */
 export function initializePool(options: InitializePoolOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';

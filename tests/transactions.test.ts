@@ -10,7 +10,14 @@
 
 import { test, expect } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
-import { publishCompositionAndRecording, publishRelease, publishShareCurrency } from "../src/transactions.ts";
+import {
+  createShareStakes,
+  publishCompositionAndRecording,
+  publishRelease,
+  publishShareCurrency,
+  registerShareStake,
+  shareRoyaltyPool,
+} from "../src/transactions.ts";
 
 const PKG = "0x" + "cd".repeat(32);
 const A = "0x" + "ab".repeat(32);
@@ -40,6 +47,64 @@ test("share publication consumes its UpgradeCap with make_immutable in the same 
     function: "make_immutable",
     arguments: [{ $kind: "Result", Result: 0 }],
   });
+});
+
+test("share-stake primitives stay composable through create, register, share, and transfer", () => {
+  const tx = new Transaction();
+  const shareType = `${PKG}::share::Share`;
+  const balance = tx.moveCall({
+    target: `${PKG}::fixture::balance`,
+    typeArguments: [shareType],
+  });
+  const pool = tx.moveCall({
+    target: `${PKG}::fixture::pool`,
+    typeArguments: [shareType, "0x2::sui::SUI"],
+  });
+  const recipients = [
+    { address: A, value: 6n },
+    { address: REGISTRY, value: 4n },
+  ];
+  const stakes = createShareStakes(tx, {
+    balance,
+    shareType,
+    recipients,
+    royaltyPoolPackageId: PKG,
+  });
+  for (const stake of stakes) {
+    registerShareStake(tx, {
+      stake,
+      pool,
+      shareType,
+      currencyType: "0x2::sui::SUI",
+      royaltyPoolPackageId: PKG,
+    });
+  }
+  shareRoyaltyPool(tx, {
+    pool,
+    shareType,
+    currencyType: "0x2::sui::SUI",
+    royaltyPoolPackageId: PKG,
+  });
+  stakes.forEach((stake, index) => tx.transferObjects([stake], recipients[index]!.address));
+
+  const calls = (tx.getData().commands as Array<{ MoveCall?: { module: string; function: string } }>)
+    .flatMap((command) => command.MoveCall ? [`${command.MoveCall.module}::${command.MoveCall.function}`] : []);
+  expect(calls.filter((call) => call === "balance::split")).toHaveLength(2);
+  expect(calls.filter((call) => call === "stake::new")).toHaveLength(2);
+  expect(calls.filter((call) => call === "pool::register_stake")).toHaveLength(2);
+  expect(calls.filter((call) => call === "pool::share")).toHaveLength(1);
+  expect(calls.filter((call) => call === "balance::destroy_zero")).toHaveLength(1);
+  expect(tx.getData().commands.filter((command) => command.$kind === "TransferObjects")).toHaveLength(2);
+});
+
+test("share-stake creation rejects zero allocations before building an aborting PTB", () => {
+  const tx = new Transaction();
+  expect(() => createShareStakes(tx, {
+    balance: tx.object(A),
+    shareType: `${PKG}::share::Share`,
+    recipients: [{ address: A, value: 0n }],
+    royaltyPoolPackageId: PKG,
+  })).toThrow(/greater than zero/);
 });
 
 test("publishCompositionAndRecording orders new→new→publish→publish and borrows the composition in-PTB", () => {
