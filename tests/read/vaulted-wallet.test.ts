@@ -38,6 +38,7 @@ function releaseBytes(): Uint8Array {
 function vaultBytes(): Uint8Array {
   return vaultContract.Vault(contracts.release.ReleaseAdminCap).serialize({
     id: VAULT,
+    cap_id: RAW_CAP,
     cap: {
       id: REFERENT,
       value: { id: RAW_CAP, release_id: RELEASE },

@@ -6,6 +6,8 @@ import { Transaction } from "@mysten/sui/transactions";
 import * as vaultApi from "../src/vault.ts";
 import {
   custodyNewAdminCap,
+  deriveVaultAdminCapId,
+  deriveVaultId,
   initializeCompositionRoyaltyPool,
   installCompositionRoyaltyPoolPlugin,
   installReleaseRevenueDistributorPlugin,
@@ -18,9 +20,12 @@ import {
   sweepRecordingRoyaltyPool,
   invokeWithAdminCap,
   newCompositionRoyaltyPool,
+  restoreVaultCapability,
+  withdrawVaultCapability,
 } from "../src/vault.ts";
 
 const VAULT = "0x" + "10".repeat(32);
+const VAULT_REGISTRY = "0x" + "11".repeat(32);
 const COMP_POOL_PLUGIN = "0x" + "20".repeat(32);
 const ROUTED_PLUGIN = "0x" + "30".repeat(32);
 const REVENUE_PLUGIN = "0x" + "40".repeat(32);
@@ -83,12 +88,50 @@ test("vault authority encloses an independent result in borrow and exact put-bac
 test("vault module exports no borrowed-cap callback helper", () => {
   expect("withAdminCap" in vaultApi).toBe(false);
   expect("withAdminCapResult" in vaultApi).toBe(false);
+  expect("destroyVault" in vaultApi).toBe(false);
+});
+
+test("Vault and VaultAdminCap derivation matches the deployed Move view vector", () => {
+  const vaultId = deriveVaultId({
+    vaultRegistryId: "0xee17744a0c6f71bbde98d0c2b4cab58929000fd2f65e28a4676164d34758584b",
+    capId: "0x" + "aa".repeat(32),
+    capType: "0x5788d67e76b7e6de85ba335731a068ef7cbac7b17504577f293d41c5ba3d1ff0::release::ReleaseAdminCap",
+    vaultPackageId: "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
+  });
+  expect(vaultId).toBe("0x296d2bb945c4104222a16636c94c35fc93e5ebc91fd95d0b7e0e3b1df6da3f4d");
+  expect(deriveVaultAdminCapId(
+    vaultId,
+    "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
+  )).toBe("0x4071674f4f4c05155d1a11096ddf1ee4a18dfe9777553432705af23d29213c57");
+});
+
+test("withdraw and restore preserve the permanent Vault shell", () => {
+  const tx = new Transaction();
+  const adminCap = withdrawVaultCapability(tx, {
+    vault: A,
+    vaultAdminCap: A,
+    capType: CAP,
+    vaultPackageId: VAULT,
+  });
+  restoreVaultCapability(tx, {
+    vault: A,
+    vaultAdminCap: A,
+    adminCap,
+    capType: CAP,
+    vaultPackageId: VAULT,
+  });
+  expect(adminCap.$kind).toBe("Result");
+  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
+    "vault::withdraw_cap",
+    "vault::restore_cap",
+  ]);
 });
 
 test("new capability custody shares the vault and transfers only VaultAdminCap", () => {
   const tx = new Transaction();
   custodyNewAdminCap(tx, {
     adminCap: tx.object(A),
+    vaultRegistry: VAULT_REGISTRY,
     capType: CAP,
     vaultPackageId: VAULT,
     owner: A,
@@ -106,12 +149,16 @@ test("new capability custody shares the vault and transfers only VaultAdminCap",
     "vault::new",
     "composition_royalty_pool::install",
     "vault::share",
+    "vault::transfer_admin_cap",
   ]);
   expect(calls(tx)[1]!.package).toBe(COMP_POOL_PLUGIN);
-  const data = tx.getData() as { commands: { $kind: string; TransferObjects?: { objects: { $kind: string; NestedResult?: [number, number] }[] } }[] };
-  const transfer = data.commands.find((command) => command.$kind === "TransferObjects")!.TransferObjects!;
-  expect(transfer.objects).toHaveLength(1);
-  expect(transfer.objects[0]!.NestedResult).toEqual([0, 1]); // VaultAdminCap, never the wrapped raw cap
+  const data = tx.getData() as { commands: { $kind: string; MoveCall?: { module: string; function: string; arguments: { $kind: string; NestedResult?: [number, number] }[] } }[] };
+  expect(data.commands.some((command) => command.$kind === "TransferObjects")).toBe(false);
+  const transfer = data.commands.find((command) =>
+    command.MoveCall?.module === "vault" &&
+    command.MoveCall.function === "transfer_admin_cap"
+  )!.MoveCall!;
+  expect(transfer.arguments[0]!.NestedResult).toEqual([0, 1]); // VaultAdminCap, never the raw cap
 });
 
 test("plugins build their own witnesses and expose no client-side witness input", () => {

@@ -199,6 +199,8 @@ export interface MisoPlatformConfig {
   recordingPreviewPackageId?: string;
   /** Shared custody package; needed for VaultAdminCap authority orchestration. */
   vaultPackageId?: string;
+  /** Shared singleton from which canonical Vault IDs are derived. */
+  vaultRegistryId?: string;
   /** Generic royalty-pool value package used by pool and routed-stake helpers. */
   royaltyPoolPackageId?: string;
   /** Vault plugins, deliberately separate from data-extension package ids. */
@@ -378,6 +380,18 @@ export class MisoPlatformClient {
       deriveListingId(pressingId, currencyType, this.packageId),
     sale: (releaseId: string, currencyType: string) =>
       deriveSaleIds(releaseId, currencyType, this.packageId),
+    vault: (capId: string, capType: string) =>
+      vaultActions.deriveVaultId({
+        vaultRegistryId: this.#requiredConfig("vaultRegistryId", "Vault ID derivation"),
+        capId,
+        capType,
+        vaultPackageId: this.#requiredConfig("vaultPackageId", "Vault ID derivation"),
+      }),
+    vaultAdminCap: (vaultId: string) =>
+      vaultActions.deriveVaultAdminCapId(
+        vaultId,
+        this.#requiredConfig("vaultPackageId", "VaultAdminCap ID derivation"),
+      ),
     genre: (canonicalName: string) =>
       deriveGenreAddress(
         this.#requiredConfig("genreRegistryId", "genre id derivation"),
@@ -586,7 +600,7 @@ export class MisoPlatformClient {
           )
         : undefined,
       vault: this.#config.vaultPackageId
-        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "vaultId", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
+        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "transferAdminCap", "withdrawCap", "restoreCap", "vaultAddress", "vaultAdminCapAddress", "vaultId", "capId", "isOccupied", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
         : undefined,
       compositionRoyaltyPool: this.#config.vaultCompositionRoyaltyPoolPluginPackageId
         ? bindModulePackage(
@@ -661,7 +675,13 @@ export class MisoPlatformClient {
     Listing: listingContract.Listing,
     Price: listingContract.Price,
     VaultAdminCap: vaultContract.VaultAdminCap,
+    VaultRegistry: vaultContract.VaultRegistry,
+    VaultKey: vaultContract.VaultKey,
+    VaultAdminCapKey: vaultContract.VaultAdminCapKey,
+    VaultRegistryCreatedEvent: vaultContract.VaultRegistryCreatedEvent,
     VaultCreatedEvent: vaultContract.VaultCreatedEvent,
+    VaultCapabilityWithdrawnEvent: vaultContract.VaultCapabilityWithdrawnEvent,
+    VaultCapabilityRestoredEvent: vaultContract.VaultCapabilityRestoredEvent,
     ReleaseRevenueDistributedEvent:
       releaseRevenueDistributorContract.ReleaseRevenueDistributedEvent,
   };
@@ -705,6 +725,7 @@ export function miso<const Name extends string = "miso">(
           recordingMasterReferencePackageId: deployment.packages.recordingMasterReference,
           recordingPreviewPackageId: deployment.packages.recordingPreview,
           vaultPackageId: deployment.packages.vault,
+          vaultRegistryId: deployment.objects.vaultRegistry,
           royaltyPoolPackageId: deployment.packages.royaltyPool,
           vaultCompositionRoyaltyPoolPluginPackageId:
             deployment.packages.vaultCompositionRoyaltyPoolPlugin,

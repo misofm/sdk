@@ -129,6 +129,7 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
   expect(count("party_wallet::install")).toBe(1);
   expect(count("vault::new")).toBe(5);
   expect(count("vault::share")).toBe(5);
+  expect(count("vault::transfer_admin_cap")).toBe(5);
   const recordingCapType = `${input.deployment.protocol.miso}::recording::RecordingAdminCap<${SHARE_2}>`;
   const recordingVault = tx.getData().commands.find((command) =>
     command.$kind === "MoveCall" &&
@@ -174,7 +175,7 @@ test("Vault-only publication features reject direct custody", () => {
   expect(() => publishAtomicCatalog(direct)).toThrow(/Vault-only plugins require Vault custody/);
 });
 
-test("atomic result parsing derives wrapped admin-cap ids instead of requiring top-level cap effects", () => {
+test("atomic result parsing maps canonical Vault events without requiring top-level cap effects", () => {
   const input: AtomicPublicationParams = {
     ...params(),
     parties: [{ ref: "artist", id: A }],
@@ -197,7 +198,7 @@ test("atomic result parsing derives wrapped admin-cap ids instead of requiring t
     bcs: contracts.vault.VaultCreatedEvent.serialize({
       vault_id: vaultIds[index]!,
       vault_admin_cap_id: `0x${(81 + index).toString(16).repeat(64).slice(0, 64)}`,
-      wrapped_cap_id: wrappedCapId,
+      cap_id: wrappedCapId,
       authorized_plugins_id: `0x${(97 + index).toString(16).repeat(64).slice(0, 64)}`,
     }).toBytes(),
   }));

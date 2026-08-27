@@ -219,11 +219,12 @@ test("publishRelease wires one track -> registry release -> publish", () => {
 
 test("release construction passes the exact shared registry as the first core release::new argument", () => {
   const tx = new Transaction();
-  publishRelease({ title: "LP", tracks: [{ recordingId: RECORDING, recordingAuthority: { kind: "direct", adminCap: RECORDING_CAP }, recordingShareType: `${PKG}::r::R`, compositionShareType: `${PKG}::s::S`, splitBps: 10000 }], releaseRegistryId: REGISTRY, releaseId: A, releaseNonce: "0", misoPackageId: PKG, adminCustody: { kind: "vault", owner: A, vaultPackageId: PKG, capType: `${PKG}::release::ReleaseAdminCap` } })(tx);
+  publishRelease({ title: "LP", tracks: [{ recordingId: RECORDING, recordingAuthority: { kind: "direct", adminCap: RECORDING_CAP }, recordingShareType: `${PKG}::r::R`, compositionShareType: `${PKG}::s::S`, splitBps: 10000 }], releaseRegistryId: REGISTRY, releaseId: A, releaseNonce: "0", misoPackageId: PKG, adminCustody: { kind: "vault", owner: A, vaultRegistry: REGISTRY, vaultPackageId: PKG, capType: `${PKG}::release::ReleaseAdminCap` } })(tx);
   const data = tx.getData() as { inputs: unknown[]; commands: { $kind: string; MoveCall?: { module: string; function: string; arguments: { $kind: string; Input?: number }[] } }[] };
   const releaseNew = data.commands.find((command) => command.MoveCall?.module === "release" && command.MoveCall.function === "new")!.MoveCall!;
   expect(releaseNew.arguments[0]!.$kind).toBe("Input");
   expect(JSON.stringify(data.inputs[releaseNew.arguments[0]!.Input!])).toContain(REGISTRY.slice(2));
   expect(data.commands.some((command) => command.MoveCall?.module === "vault" && command.MoveCall.function === "new")).toBe(true);
   expect(data.commands.some((command) => command.MoveCall?.module === "vault" && command.MoveCall.function === "share")).toBe(true);
+  expect(data.commands.some((command) => command.MoveCall?.module === "vault" && command.MoveCall.function === "transfer_admin_cap")).toBe(true);
 });

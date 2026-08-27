@@ -26,7 +26,8 @@ Extensions add data to a work. Plugins provide business logic: a shared
 `VaultAdminCap<AdminCap>`. A plugin borrows the cap and must return the exact
 object in the same PTB. The SDK supports both vault authorities and legacy
 address-owned admin caps explicitly; it never silently treats a legacy cap as a
-vaulted one.
+vaulted one. New Vault IDs are derived from the shared `VaultRegistry`, the raw
+cap ID, and its type; each VaultAdminCap ID is then derived from its Vault.
 
 This package requires `@misonetwork/sdk` as a peer and imports its bare
 `createComposition`/`createRecording` primitives, composing them with its own
@@ -432,8 +433,12 @@ const cover = await getReleaseCover(client, releaseId, releaseCoverArtPackageId)
 `vault.ts` contains composable PTB builders for custody and plugin flows:
 `invokeWithAdminCap` safely sequences `borrow_as_admin → Move call → put_back`, and
 `custodyNewAdminCap` shares the Vault while transferring only its owner-held
-`VaultAdminCap`. Plugin installers construct their witnesses inside their Move
-package; callers supply no witness.
+`VaultAdminCap` through the Vault module. `deriveVaultId` and
+`deriveVaultAdminCapId` discover both canonical object IDs without an RPC lookup.
+`withdrawVaultCapability` and `restoreVaultCapability` operate on the permanent
+Vault shell; withdrawal requires every plugin to have been removed. Plugin
+installers construct their witnesses inside their Move package; callers supply no
+witness.
 
 It also builds Composition/Recording royalty-pool initialization and cranks,
 Release `redeem_and_distribute` / `receive_and_distribute`, and the full

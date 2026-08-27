@@ -277,6 +277,7 @@ function custody(
   return {
     kind: "vault",
     owner: selected.owner,
+    vaultRegistry: p.deployment.objects.vaultRegistry,
     capType,
     vaultPackageId: p.deployment.packages.vault,
     configure,
@@ -410,6 +411,7 @@ function publishComposition(
   }
   custodyNewAdminCap(tx, {
     adminCap: parts.adminCap,
+    vaultRegistry: p.deployment.objects.vaultRegistry,
     capType: compositionCapType(p, node.shareType),
     vaultPackageId: p.deployment.packages.vault,
     owner: node.custody.owner,
@@ -479,6 +481,7 @@ function publishRecording(
   }
   custodyNewAdminCap(tx, {
     adminCap: parts.adminCap,
+    vaultRegistry: p.deployment.objects.vaultRegistry,
     capType: recordingCapType(p, node.shareType),
     vaultPackageId: p.deployment.packages.vault,
     owner: node.custody.owner,
@@ -542,6 +545,7 @@ function publishReleaseObject(
   }
   custodyNewAdminCap(tx, {
     adminCap,
+    vaultRegistry: p.deployment.objects.vaultRegistry,
     capType: releaseCapType(p),
     vaultPackageId: p.deployment.packages.vault,
     owner: node.custody.owner,
@@ -928,12 +932,12 @@ function findByShareType(
   return matches[0]!.objectId;
 }
 
-function vaultsByWrappedCap(result: PlatformExecResult) {
+function vaultsByCap(result: PlatformExecResult) {
   const out = new Map<string, { vaultId: string; vaultAdminCapId: string }>();
   for (const event of result.events) {
     if (!event.eventType.includes("::vault::VaultCreatedEvent<")) continue;
     const parsed = parseVaultCreatedEvent(event.bcs);
-    out.set(parsed.wrapped_cap_id, {
+    out.set(parsed.cap_id, {
       vaultId: parsed.vault_id,
       vaultAdminCapId: parsed.vault_admin_cap_id,
     });
@@ -943,7 +947,7 @@ function vaultsByWrappedCap(result: PlatformExecResult) {
 
 function authorityOut(
   result: PlatformExecResult,
-  vaults: ReturnType<typeof vaultsByWrappedCap>,
+  vaults: ReturnType<typeof vaultsByCap>,
   selected: PublicationCustody,
   adminCapId: string,
   capType: string,
@@ -951,7 +955,7 @@ function authorityOut(
 ): PublicationAuthorityOut {
   if (selected.kind === "direct") return { kind: "direct", adminCapId };
   const found = vaults.get(adminCapId);
-  if (!found) throw new Error(`No VaultCreatedEvent wrapped admin cap ${adminCapId} in ${result.digest}`);
+  if (!found) throw new Error(`No VaultCreatedEvent for admin cap ${adminCapId} in ${result.digest}`);
   return { kind: "vault", ...found, capType, vaultPackageId };
 }
 
@@ -960,7 +964,7 @@ export function parseAtomicPublicationResult(
   p: AtomicPublicationParams,
   result: PlatformExecResult,
 ): AtomicPublicationResult {
-  const vaults = vaultsByWrappedCap(result);
+  const vaults = vaultsByCap(result);
   const createdCompositions = allCreatedByType(result, "::composition::Composition<");
   const createdRecordings = allCreatedByType(result, "::recording::Recording<");
   const createdPools = allCreatedByType(result, "::pool::RoyaltyPool<");

@@ -406,7 +406,7 @@ async function resolveVaultedReleaseCaps(
       const vault = vaultContract.Vault(networkContracts.release.ReleaseAdminCap).parse(
         object.content,
       );
-      const releaseId = vault.cap.value?.release_id;
+      const releaseId = vault.cap?.value?.release_id;
       if (releaseId) releasesByVault.set(object.objectId, releaseId);
     } catch {
       // Batch catalog discovery is best-effort per authority, matching the

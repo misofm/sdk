@@ -17,7 +17,7 @@ import type {
   TransactionArgument,
   TransactionObjectArgument,
 } from "@mysten/sui/transactions";
-import { normalizeStructTag } from "@mysten/sui/utils";
+import { deriveObjectID, normalizeStructTag } from "@mysten/sui/utils";
 import * as vault from "./contracts/vault/vault.ts";
 import * as compositionRoyaltyPool from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
 import * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
@@ -145,6 +145,8 @@ export function invokeWithAdminCap(
 export interface CustodyNewAdminCapParams {
   /** The freshly-created raw protocol cap, consumed into the Vault. */
   readonly adminCap: TransactionObjectArgument;
+  /** Shared singleton from which canonical Vault IDs are derived. */
+  readonly vaultRegistry: ObjectInput;
   readonly capType: string;
   readonly vaultPackageId: string;
   /** Recipient of the only owner-held authority: VaultAdminCap. */
@@ -162,6 +164,7 @@ export type AdminCapCustody =
   | {
       readonly kind: "vault";
       readonly owner: string | TransactionArgument;
+      readonly vaultRegistry: ObjectInput;
       readonly capType: string;
       readonly vaultPackageId: string;
       readonly configure?: CustodyNewAdminCapParams["configure"];
@@ -179,6 +182,7 @@ export function disposeNewAdminCap(
   }
   custodyNewAdminCap(tx, {
     adminCap,
+    vaultRegistry: custody.vaultRegistry,
     capType: custody.capType,
     vaultPackageId: custody.vaultPackageId,
     owner: custody.owner,
@@ -186,23 +190,60 @@ export function disposeNewAdminCap(
   });
 }
 
-/** Destroy a vault only while deliberately disposing of its returned raw cap. */
-export function destroyVault(
+/** Withdraw the raw capability while leaving its canonical Vault shell intact. */
+export function withdrawVaultCapability(
   tx: Transaction,
   params: {
     readonly vault: ObjectInput;
     readonly vaultAdminCap: ObjectInput;
     readonly capType: string;
     readonly vaultPackageId: string;
-    readonly disposition: AdminCapCustody;
   },
-): void {
-  const cap = tx.add(vault.destroy({
+): TransactionObjectArgument {
+  return tx.add(vault.withdrawCap({
     package: params.vaultPackageId,
     typeArguments: [params.capType],
     arguments: [object(tx, params.vault), object(tx, params.vaultAdminCap)],
   }));
-  disposeNewAdminCap(tx, cap, params.disposition);
+}
+
+/** Restore the one exact capability permanently assigned to a Vault. */
+export function restoreVaultCapability(
+  tx: Transaction,
+  params: {
+    readonly vault: ObjectInput;
+    readonly vaultAdminCap: ObjectInput;
+    readonly adminCap: ObjectInput;
+    readonly capType: string;
+    readonly vaultPackageId: string;
+  },
+): void {
+  tx.add(vault.restoreCap({
+    package: params.vaultPackageId,
+    typeArguments: [params.capType],
+    arguments: [
+      object(tx, params.vault),
+      object(tx, params.vaultAdminCap),
+      object(tx, params.adminCap),
+    ],
+  }));
+}
+
+/** Transfer the key-only VaultAdminCap through the Vault module. */
+export function transferVaultAdminCap(
+  tx: Transaction,
+  params: {
+    readonly vaultAdminCap: ObjectInput;
+    readonly owner: string | TransactionArgument;
+    readonly capType: string;
+    readonly vaultPackageId: string;
+  },
+): void {
+  tx.add(vault.transferAdminCap({
+    package: params.vaultPackageId,
+    typeArguments: [params.capType],
+    arguments: [object(tx, params.vaultAdminCap), params.owner],
+  }));
 }
 
 /**
@@ -217,7 +258,7 @@ export function custodyNewAdminCap(
     vault._new({
       package: params.vaultPackageId,
       typeArguments: [params.capType],
-      arguments: [params.adminCap],
+      arguments: [object(tx, params.vaultRegistry), params.adminCap],
     }),
   );
   const vaultObject = requiredVaultResult(created, 0, "vault::_new");
@@ -230,7 +271,43 @@ export function custodyNewAdminCap(
       arguments: [vaultObject],
     }),
   );
-  tx.transferObjects([vaultAdminCap], params.owner);
+  transferVaultAdminCap(tx, {
+    vaultAdminCap,
+    owner: params.owner,
+    capType: params.capType,
+    vaultPackageId: params.vaultPackageId,
+  });
+}
+
+export interface VaultIdParams {
+  readonly vaultRegistryId: string;
+  readonly capId: string;
+  readonly capType: string;
+  readonly vaultPackageId: string;
+}
+
+/** Derive the canonical Vault ID without an RPC lookup. */
+export function deriveVaultId(params: VaultIdParams): string {
+  const keyType = normalizeStructTag(
+    `${params.vaultPackageId}::vault::VaultKey<${params.capType}>`,
+  );
+  return deriveObjectID(
+    params.vaultRegistryId,
+    keyType,
+    vault.VaultKey.serialize([params.capId]).toBytes(),
+  );
+}
+
+/** Derive the canonical VaultAdminCap ID from its Vault ID. */
+export function deriveVaultAdminCapId(
+  vaultId: string,
+  vaultPackageId: string,
+): string {
+  return deriveObjectID(
+    vaultId,
+    `${vaultPackageId}::vault::VaultAdminCapKey`,
+    vault.VaultAdminCapKey.serialize([false]).toBytes(),
+  );
 }
 
 export interface CompositionRoyaltyPoolPluginParams {
