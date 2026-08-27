@@ -42,7 +42,11 @@ import type { Release } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
 import { getRecordingTitles, parseReleaseObject } from "./works.ts";
 import { int, u64 } from "./internal/scalars.ts";
-import { quiltPatchId, u256ToB64Url } from "./internal/walrus.ts";
+import {
+  quiltPatchId,
+  u256ToB64Url,
+  walrusBlobReadUrl,
+} from "./internal/walrus.ts";
 import type {
   Cover,
   CoverImage,
@@ -68,8 +72,7 @@ import type {
 /** Aggregator URL for a cover image ref, whichever Walrus variant it is. */
 function imageUrl(aggregator: string, ref: CoverImageRef): string {
   const base = aggregator.replace(/\/$/, "");
-  if (ref.kind === "blob")
-    return `${base}/v1/blobs/${u256ToB64Url(ref.blobId)}`;
+  if (ref.kind === "blob") return walrusBlobReadUrl(base, ref.blobId);
   const patch = quiltPatchId(
     ref.quiltId,
     ref.version,
