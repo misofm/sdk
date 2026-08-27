@@ -1,13 +1,17 @@
 // Copyright (c) Miso Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-/** Cap-authorized builders for data-only Recording metadata extensions. */
+/** Cap-authorized builders and reads for data-only Recording metadata extensions. */
 
+import { bcs } from "@mysten/sui/bcs";
+import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { Transaction, TransactionArgument, TransactionObjectArgument } from "@mysten/sui/transactions";
+import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
 import { invokeWithAdminCap, type AdminCapAuthority, type ObjectInput } from "./vault.ts";
 import * as advisory from "./contracts/recording_advisory/recording_advisory.ts";
 import * as language from "./contracts/recording_language/recording_language.ts";
+import * as walrusData from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
 import * as masterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
 import * as preview from "./contracts/recording_preview/recording_preview.ts";
 
@@ -103,4 +107,103 @@ export function setRecordingPreview(p: SetRecordingPreviewParams): TxThunk {
       adminCapIndex: 1,
     });
   };
+}
+
+// ── Master-reference reads ───────────────────────────────────────────────────
+
+// recording_master_reference stores the ori::WalrusData value inline in a
+// dynamic field on the Recording. Its empty ExtensionKey serializes to one false
+// byte, so the field object id can be derived without listing the Recording's
+// dynamic fields.
+const MasterReferenceField = bcs.struct("Field", {
+  id: bcs.Address,
+  name: masterReference.ExtensionKey,
+  value: walrusData.WalrusData,
+});
+const MASTER_REFERENCE_KEY_BYTES = masterReference.ExtensionKey.serialize([
+  false,
+]).toBytes();
+
+type ParsedWalrusData =
+  | { $kind: "Blob"; Blob: [string | number | bigint, unknown] }
+  | {
+      $kind: "QuiltPatch";
+      QuiltPatch: [string | number | bigint, number, number, number];
+    };
+
+/** Parse an attached master reference's standalone Walrus blob id. */
+export function parseRecordingMasterReferenceContent(
+  content: Uint8Array,
+): string | null {
+  const reference = MasterReferenceField.parse(content)
+    .value as ParsedWalrusData;
+  return reference.$kind === "Blob" ? String(reference.Blob[0]) : null;
+}
+
+/** Deterministic dynamic-field id for a Recording's master reference. */
+export function recordingMasterReferenceFieldId(
+  recordingId: string,
+  recordingMasterReferencePackageId: string,
+): string {
+  return deriveDynamicFieldID(
+    recordingId,
+    `${recordingMasterReferencePackageId}::recording_master_reference::ExtensionKey`,
+    MASTER_REFERENCE_KEY_BYTES,
+  );
+}
+
+/** Read one Recording's master-reference blob id, or null when absent. */
+export async function getRecordingMasterReference(
+  client: ClientWithCoreApi,
+  recordingId: string,
+  recordingMasterReferencePackageId: string,
+): Promise<string | null> {
+  return (
+    (
+      await getRecordingMasterReferencesByIds(
+        client,
+        [recordingId],
+        recordingMasterReferencePackageId,
+      )
+    )[recordingId] ?? null
+  );
+}
+
+/**
+ * Read master-reference blob ids for many Recordings in one Core request.
+ *
+ * Missing fields and malformed individual objects are omitted so one Recording
+ * without a playable master cannot make the rest of an album unplayable.
+ */
+export async function getRecordingMasterReferencesByIds(
+  client: ClientWithCoreApi,
+  recordingIdsInput: readonly string[],
+  recordingMasterReferencePackageId: string,
+): Promise<Partial<Record<string, string>>> {
+  const recordingIds = [...new Set(recordingIdsInput)];
+  const targets = recordingIds.map((recordingId) => ({
+    recordingId,
+    fieldId: recordingMasterReferenceFieldId(
+      recordingId,
+      recordingMasterReferencePackageId,
+    ),
+  }));
+  if (targets.length === 0) return {};
+
+  const { objects } = await client.core.getObjects({
+    objectIds: targets.map((target) => target.fieldId),
+    include: { content: true },
+  });
+  const out: Partial<Record<string, string>> = {};
+  objects.forEach((object, index) => {
+    const target = targets[index];
+    if (!target || object instanceof Error || !object.content) return;
+    try {
+      const blobId = parseRecordingMasterReferenceContent(object.content);
+      if (blobId) out[target.recordingId] = blobId;
+    } catch {
+      // Extension metadata is soft: retain valid tracks when one field is stale.
+    }
+  });
+  return out;
 }

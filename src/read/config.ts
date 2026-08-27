@@ -35,6 +35,8 @@ export interface ProtocolIds {
   releaseCoverArt: string;
   /** `release_kind` — the Release's optional self-declared kind. */
   releaseKind: string;
+  /** `recording_master_reference` — optional Walrus master pointers. */
+  recordingMasterReference: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
   compositionCredits: string;
   recordingCredits: string;
@@ -99,6 +101,7 @@ export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}
       vault: platform.packages.vault,
       releaseCoverArt: platform.packages.releaseCoverArt,
       releaseKind: platform.packages.releaseKind,
+      recordingMasterReference: platform.packages.recordingMasterReference,
       compositionCredits: platform.packages.compositionCredits,
       recordingCredits: platform.packages.recordingCredits,
       releaseCredits: platform.packages.releaseCredits,

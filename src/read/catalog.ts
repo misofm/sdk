@@ -35,6 +35,7 @@ import {
   parseReleaseKindContent,
   releaseKindFieldId,
 } from "../release-extensions.ts";
+import { getRecordingMasterReferencesByIds } from "../recording-extensions.ts";
 import { getTrackCreditsByRecordingIds } from "../catalog.ts";
 import { getReleaseById, getReleasesByIds, isNotFound } from "@misonetwork/sdk";
 import type { Release } from "@misonetwork/sdk";
@@ -206,15 +207,20 @@ export function primaryArtistNames(credits: Credit[]): string[] {
 function toTracks(
   release: Release,
   titles: Record<string, string>,
+  masterBlobIds: Partial<Record<string, string>>,
 ): TrackView[] {
-  return release.tracks.map((track, index) => ({
-    no: `${index + 1}`,
-    title: titles[track.recordingId] ?? "Untitled",
-    recordingId: track.recordingId,
-    compositionId: track.compositionId,
-    splitBps: int(track.splitBps.value),
-    disc: 1,
-  }));
+  return release.tracks.map((track, index) => {
+    const masterBlobId = masterBlobIds[track.recordingId];
+    return {
+      no: `${index + 1}`,
+      title: titles[track.recordingId] ?? "Untitled",
+      recordingId: track.recordingId,
+      compositionId: track.compositionId,
+      splitBps: int(track.splitBps.value),
+      disc: 1,
+      ...(masterBlobId ? { masterBlobId } : {}),
+    };
+  });
 }
 
 // ── Cover ────────────────────────────────────────────────────────────────────
@@ -360,17 +366,26 @@ export async function getReleaseDetail(
   );
 
   const recordingIds = release.tracks.map((track) => track.recordingId);
-  const [titles, trackCredits] = await Promise.all([
+  const [titles, masterReferences, trackCredits] = await Promise.all([
     getRecordingTitles(
       client.protocol,
       client.graphql,
       recordingIds,
       client.config.deployment.miso,
     ),
+    getRecordingMasterReferencesByIds(
+      client.protocol,
+      recordingIds,
+      client.config.protocol.recordingMasterReference,
+    ).catch(() => ({})),
     options.include?.includes("trackCredits")
       ? getTrackCreditsForRecordingIds(client, recordingIds)
       : Promise.resolve(undefined),
   ]);
+  const masterBlobIds: Record<string, string> = {};
+  for (const [recordingId, blobId] of Object.entries(masterReferences)) {
+    if (blobId) masterBlobIds[recordingId] = u256ToB64Url(blobId);
+  }
 
   const creditViews = credits ?? [];
   return {
@@ -385,7 +400,7 @@ export async function getReleaseDetail(
     credits: creditViews,
     primaryArtists: primaryArtistNames(creditViews),
     discCount: release.tracks.length > 0 ? 1 : 0,
-    tracks: toTracks(release, titles),
+    tracks: toTracks(release, titles, masterBlobIds),
     ...(trackCredits !== undefined ? { trackCredits } : {}),
   };
 }
