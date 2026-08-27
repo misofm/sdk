@@ -14,6 +14,15 @@ export function u256ToB64Url(value: bigint | string): string {
   return toBase64Url(u256.serialize(BigInt(value)).toBytes());
 }
 
+/** Build a blob URL with Walrus's non-strict default made explicit. */
+export function walrusBlobReadUrl(
+  aggregator: string,
+  blobId: bigint | string,
+): string {
+  const base = aggregator.replace(/\/$/, "");
+  return `${base}/v1/blobs/${u256ToB64Url(blobId)}?strict_consistency_check=false`;
+}
+
 /** Build Walrus's 37-byte quilt-patch id. All fields use BCS little-endian. */
 export function quiltPatchId(
   quiltId: bigint | string,
