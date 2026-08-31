@@ -30,17 +30,17 @@
  * and no stored set of listings: a listing either exists at its derived address or
  * it does not (`listing::has_listing`), and `ListingOpenedEvent<Currency>`
  * enumerates them for an indexer. It also makes the number sequence gap-free for
- * free, and every record verifiable against its pressing from chain state alone by
- * comparing the certificate and derived address.
+ * free, and every record verifiable against its pressing from its address and
+ * number.
  * 
  * # Starting and stopping is state, never teardown
  * 
  * Nothing here is ever destroyed, sealed, or wound down — deleting a pressing
  * would strand its whole derived subtree, so there is no destructor at all. The
  * run's lifecycle is `Scheduled → Active → Paused → Active`: it opens itself at
- * its drop moment (no artist transaction, and nobody can buy early), and after
- * that the artist stops and starts it at will. The first transition is real, not
- * computed — the first sale past the start rewrites `Scheduled` to `Active` inside
+ * its scheduled start (no artist transaction, and nobody can buy early), then the
+ * artist stops and starts it at will. The first transition is real, not computed —
+ * the first sale past the start rewrites `Scheduled` to `Active` inside
  * `mint_next`, which is why `Scheduled` only ever describes a run still waiting.
  * Below it, each listing's `Enabled | Disabled` governs one currency. A run that
  * is paused or not yet open sells in no currency, whatever the listings say.
@@ -71,10 +71,11 @@ import { type Transaction, type TransactionArgument } from '@mysten/sui/transact
 const $moduleName = '@local-pkg/miso_pressing::pressing';
 export const PressingKey = new MoveTuple({ name: `${$moduleName}::PressingKey`, fields: [bcs.bool()] });
 export const PressingAdminCapKey = new MoveTuple({ name: `${$moduleName}::PressingAdminCapKey`, fields: [bcs.bool()] });
+export const MintWitness = new MoveTuple({ name: `${$moduleName}::MintWitness`, fields: [bcs.bool()] });
 /**
  * Whether the run sells, over every currency at once. The lifecycle runs
- * `Scheduled → Active → Paused → Active`: a pressing opens itself at its drop
- * moment, then the artist stops and starts it at will.
+ * `Scheduled → Active → Paused → Active`: a pressing opens itself at its scheduled
+ * start, then the artist stops and starts it at will.
  */
 export const PressingState = new MoveEnum({ name: `${$moduleName}::PressingState`, fields: {
         /**
@@ -85,7 +86,7 @@ export const PressingState = new MoveEnum({ name: `${$moduleName}::PressingState
           * `Active` (in `mint_next`, before any sales logic), so a run reads `Scheduled`
           * only while it is still waiting. Between the start and that first sale the run
           * already sells — `is_selling` answers against the clock — so nobody has to go
-          * first for the drop to be open.
+          * first for the Pressing to be open.
           *
           * Consequence worth knowing: once the transition fires the start time is gone from
           * the object. `PressingOpenedEvent` and `PressingStateChangedEvent` carry it, so
@@ -190,7 +191,7 @@ export interface NewOptions {
     ];
 }
 /**
- * Open a release's pressing in `state` — `Scheduled` for a drop moment, `Active`
+ * Open a release's pressing in `state` — `Scheduled` for a future start, `Active`
  * to sell immediately, `Paused` to set it up quietly. Returns it unshared, so the
  * same transaction can list it (`listing::new`) before `share` puts it on chain,
  * plus the cap that governs it from here on. Neither value has `drop`, so neither

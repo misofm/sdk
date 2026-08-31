@@ -32,6 +32,7 @@ function bcsEvent(price: { Fixed: { amount: string } } | { Floor: { amount: stri
     price,
     paid: "2500",
     buyer: IDS.buyer,
+    created_at_ms: "1234",
   }).toBytes();
 }
 
@@ -73,6 +74,7 @@ describe("record sale event identity", () => {
       pressingId: IDS.pressing,
       price: { kind: "floor", amount: "2500" },
       currencyType: "0x" + "0".repeat(63) + "2::sui::SUI",
+      createdAtMs: 1234,
     });
   });
 
@@ -97,11 +99,13 @@ describe("record sale event identity", () => {
             price: { floor: { amount: "123" } },
             paid: "123",
             buyer: IDS.buyer,
+            created_at_ms: "5678",
           },
         },
       ],
       PRESSING_PACKAGE,
     );
     expect(floor?.price).toEqual({ kind: "floor", amount: "123" });
+    expect(floor?.createdAtMs).toBe(5678);
   });
 });

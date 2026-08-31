@@ -12,7 +12,6 @@
 // The record production line (pressing runs + their per-currency listings).
 export * as pressing from "./contracts/miso_pressing/pressing.ts";
 export * as listing from "./contracts/miso_pressing/listing.ts";
-export * as certificate from "./contracts/miso_pressing/certificate.ts";
 
 // Generic royalty-pool primitive plus vault-custodied business-logic plugins.
 export * as royaltyPool from "./contracts/royalty_pool/pool.ts";

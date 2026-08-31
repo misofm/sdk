@@ -17,8 +17,8 @@ const PRESSING_PACKAGE = "0x" + "ef".repeat(32);
 const WRONG_RECORD_PACKAGE = "0x" + "cd".repeat(32);
 const CERTIFICATE_TYPE = `${PRESSING_PACKAGE}::certificate::Certificate`;
 const RECORD_TYPE_FILTER = `${RECORD_PACKAGE}::record::Record`;
-const RECORD_TYPE = `${RECORD_TYPE_FILTER}<${CERTIFICATE_TYPE}>`;
-const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record<${CERTIFICATE_TYPE}>`;
+const RECORD_TYPE = RECORD_TYPE_FILTER;
+const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record`;
 
 function fakeClient(pages: Page[]): { client: MisoClient; calls: number; types: string[] } {
   const state = { calls: 0, types: [] as string[] };
@@ -79,7 +79,7 @@ describe("getOwnedRecords", () => {
     expect(records[0]!.id).toBe("0x1");
   });
 
-  test("reads the canonical copy number from the embedded certificate", async () => {
+  test("does not infer Pressing provenance from stale embedded fields", async () => {
     const { client } = fakeClient([
       {
         objects: [
@@ -94,7 +94,7 @@ describe("getOwnedRecords", () => {
       },
     ]);
     const records = await getOwnedRecords(client, "0xowner");
-    expect(records[0]!.number).toBe(7);
+    expect(records[0]!.number).toBeNull();
   });
 
   test("rejects non-canonical generic Record specializations", async () => {
@@ -102,11 +102,7 @@ describe("getOwnedRecords", () => {
     const { client } = fakeClient([
       {
         objects: [
-          {
-            objectId: "0xtrusted",
-            type: RECORD_TYPE,
-            json: { release_id: "0xa", certificate: { number: 1 } },
-          },
+          { objectId: "0xtrusted", type: RECORD_TYPE, json: { release_id: "0xa" } },
           {
             objectId: "0xarbitrary",
             type: `${RECORD_TYPE_FILTER}<${arbitraryCertificate}>`,

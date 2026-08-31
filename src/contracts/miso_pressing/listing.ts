@@ -46,20 +46,19 @@
  * pressing's own `Scheduled → Active → Paused` governs every currency at once
  * (`pressing::mint_next`). A sale needs both open.
  * 
- * The **when** lives on the pressing, not here: a drop moment is a fact about the
- * release going on sale, not about one payment rail, and a run that opened in SUI
- * at Friday 8pm and in USDC at some other time would have two drop moments and one
+ * The **when** lives on the Pressing, not here: its opening time is a fact about
+ * the release going on sale, not about one payment rail, and a run that opened in
+ * SUI at Friday 8pm and in USDC at some other time would have two starts and one
  * number sequence. So a listing carries no schedule — only whether its currency is
  * taken.
  * 
- * # The certificate
+ * # Sale provenance
  * 
- * What the buyer paid is not part of the record — it is a fact about the _sale_ —
- * so it rides out on the record's `Certificate`, stamped by `pressing::mint_next`
- * alongside the number. One field, written once, in the transaction that pressed
- * the record. `RecordSoldEvent` also snapshots both the accepted `Price` and the
- * amount paid, so an indexer can distinguish fixed sales from floor sales and
- * compute tips without replaying listing state.
+ * What the buyer paid is not part of the Record — it is a fact about the _sale_.
+ * `RecordSoldEvent` snapshots the accepted `Price`, actual payment, buyer, and
+ * clock timestamp. The Record creation event separately records the authorized
+ * witness, parent, and number, so provenance remains explicit without changing
+ * Record's universal object schema.
  */
 
 import { MoveTuple, MoveEnum, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
@@ -115,7 +114,8 @@ export const RecordSoldEvent = new MoveStruct({ name: `${$moduleName}::RecordSol
          */
         price: Price,
         paid: bcs.u64(),
-        buyer: bcs.Address
+        buyer: bcs.Address,
+        created_at_ms: bcs.u64()
     } });
 export const ListingStateChangedEvent = new MoveStruct({ name: `${$moduleName}::ListingStateChangedEvent<phantom Currency>`, fields: {
         listing_id: bcs.Address,
@@ -250,13 +250,15 @@ export interface BuyArguments {
     self: RawTransactionArgument<string>;
     pressing: RawTransactionArgument<string>;
     payment: TransactionArgument;
+    settings: RawTransactionArgument<string>;
 }
 export interface BuyOptions {
     package?: string;
     arguments: BuyArguments | [
         self: RawTransactionArgument<string>,
         pressing: RawTransactionArgument<string>,
-        payment: TransactionArgument
+        payment: TransactionArgument,
+        settings: RawTransactionArgument<string>
     ];
     typeArguments: [
         string
@@ -271,8 +273,7 @@ export interface BuyOptions {
  * address — under `Floor`, anything above the floor is kept as a tip, not
  * refunded. The record's number is the pressing's next 1-based value, shared with
  * every other currency selling the same run, and its UID is derived off the
- * pressing. The sale's transaction sender and terms are embedded in the record's
- * `Certificate`.
+ * pressing. `settings` must authorize this package's `MintWitness`.
  *
  * Both switches must be open: this listing `Enabled`, checked here, and the run
  * selling at this moment, checked in `pressing::mint_next`.
@@ -283,9 +284,10 @@ export function buy(options: BuyOptions) {
         null,
         null,
         null,
+        null,
         '0x2::clock::Clock'
     ] satisfies (string | null)[];
-    const parameterNames = ["self", "pressing", "payment"];
+    const parameterNames = ["self", "pressing", "payment", "settings"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'listing',
@@ -548,8 +550,8 @@ export interface IsLiveOptions {
 }
 /**
  * Whether `buy` would be accepted right now: the right pressing, this currency
- * enabled, and the run selling at this moment (open, and past its drop time if it
- * has one).
+ * enabled, and the run selling at this moment (open, and past its scheduled start
+ * if it has one).
  */
 export function isLive(options: IsLiveOptions) {
     const packageAddress = options.package ?? '@local-pkg/miso_pressing';
