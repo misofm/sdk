@@ -615,20 +615,54 @@ export async function getWorkByCap(client: MisoClient, capId: string): Promise<W
 
 // ── Balance ──────────────────────────────────────────────────────────────────
 
+const decimalsByClient = new WeakMap<MisoClient, Map<string, Promise<number>>>();
+
+/** Resolve once per client/type. Failed lookups are evicted so a transient
+ * fullnode error cannot poison a long-lived API worker. */
+async function coinDecimals(client: MisoClient, coinType: string): Promise<number> {
+  let cache = decimalsByClient.get(client);
+  if (!cache) {
+    cache = new Map();
+    decimalsByClient.set(client, cache);
+  }
+  const key = normalizeStructTag(coinType);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const pending = client.protocol.core.getCoinMetadata({ coinType: key }).then(({ coinMetadata }) => {
+    const decimals = coinMetadata?.decimals;
+    if (!Number.isSafeInteger(decimals) || decimals! < 0 || decimals! > 18) {
+      throw new Error(`Coin metadata for ${key} has no supported decimal precision`);
+    }
+    return decimals!;
+  });
+  cache.set(key, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    if (cache.get(key) === pending) cache.delete(key);
+    throw error;
+  }
+}
+
 /**
- * A wallet's spendable balance in one currency. `core.getBalance` totals coin
- * OBJECTS and the address balance, so funds that arrived either way are counted —
- * which matters because `balance::send_funds` (how the app transfers dollars)
- * credits the address balance, not a coin.
+ * A wallet's balance in one currency. Keep the aggregate and both Sui storage
+ * classes: callers using a `FundsWithdrawal` must never mistake coin-object
+ * value for immediately withdrawable address balance.
  */
 export async function getBalance(client: MisoClient, address: string, coinType?: string): Promise<Balance> {
   const type = coinType ?? client.config.money.usdCoinType;
-  const res = await client.protocol.core.getBalance({ owner: address, coinType: type });
+  const [res, decimals] = await Promise.all([
+    client.protocol.core.getBalance({ owner: address, coinType: type }),
+    coinDecimals(client, type),
+  ]);
   return {
     address: normalizeSuiAddress(address),
     coinType: type,
     balance: u64(res.balance.balance),
-    decimals: type === client.config.money.usdCoinType ? client.config.money.usdDecimals : 9,
+    coinBalance: u64(res.balance.coinBalance),
+    addressBalance: u64(res.balance.addressBalance),
+    decimals,
   };
 }
 

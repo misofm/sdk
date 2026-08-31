@@ -5,7 +5,7 @@
 // `src/lib/records.test.ts` — the logic moved here, so its coverage did too.
 
 import { describe, expect, test } from "bun:test";
-import { getOwnedRecords } from "../../src/read/wallet.ts";
+import { getBalance, getOwnedRecords } from "../../src/read/wallet.ts";
 import type { MisoClient } from "../../src/read/client.ts";
 
 type Obj = { objectId: string; type: string; json?: Record<string, unknown> | null };
@@ -178,5 +178,80 @@ describe("getOwnedRecords", () => {
     ]);
     const [record] = await getOwnedRecords(client, "0xowner");
     expect(record).toEqual({ id: "0x1", type: RECORD_TYPE, releaseId: null, number: null });
+  });
+});
+
+describe("getBalance", () => {
+  test("preserves storage breakdown and resolves decimals from cached chain metadata", async () => {
+    const balanceCalls: Array<{ owner: string; coinType: string }> = [];
+    const metadataCalls: string[] = [];
+    const client = {
+      config: { money: { usdCoinType: "0x2::usd::USD", usdDecimals: 99 } },
+      protocol: {
+        core: {
+          getBalance: async ({ owner, coinType }: { owner: string; coinType: string }) => {
+            balanceCalls.push({ owner, coinType });
+            return {
+              balance: {
+                coinType,
+                balance: "90000000",
+                coinBalance: "55000000",
+                addressBalance: "35000000",
+              },
+            };
+          },
+          getCoinMetadata: async ({ coinType }: { coinType: string }) => {
+            metadataCalls.push(coinType);
+            return {
+              coinMetadata: {
+                id: "0xmetadata",
+                decimals: 6,
+                name: "USD",
+                symbol: "USD",
+                description: "",
+                iconUrl: null,
+              },
+            };
+          },
+        },
+      },
+    } as unknown as MisoClient;
+
+    const expected = {
+      address: `0x${"0".repeat(63)}1`,
+      coinType: "0x2::usd::USD",
+      balance: "90000000",
+      coinBalance: "55000000",
+      addressBalance: "35000000",
+      decimals: 6,
+    };
+    await expect(getBalance(client, "0x1")).resolves.toEqual(expected);
+    await expect(getBalance(client, "0x1")).resolves.toEqual(expected);
+    expect(balanceCalls).toEqual([
+      { owner: "0x1", coinType: "0x2::usd::USD" },
+      { owner: "0x1", coinType: "0x2::usd::USD" },
+    ]);
+    expect(metadataCalls).toEqual([`0x${"0".repeat(63)}2::usd::USD`]);
+  });
+
+  test("fails closed when coin metadata is unavailable", async () => {
+    const client = {
+      config: { money: { usdCoinType: "0x2::usd::USD", usdDecimals: 99 } },
+      protocol: {
+        core: {
+          getBalance: async () => ({
+            balance: {
+              coinType: "0x2::usd::USD",
+              balance: "0",
+              coinBalance: "0",
+              addressBalance: "0",
+            },
+          }),
+          getCoinMetadata: async () => ({ coinMetadata: null }),
+        },
+      },
+    } as unknown as MisoClient;
+
+    await expect(getBalance(client, "0x1")).rejects.toThrow(/decimal precision/);
   });
 });
