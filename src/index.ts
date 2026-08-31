@@ -58,6 +58,7 @@ export * from "./credits.ts";
 export * from "./cover.ts";
 export * from "./release-extensions.ts";
 export * from "./recording-extensions.ts";
+export * from "./mix.ts";
 export * from "./vault.ts";
 
 // Generated, ABI-bound bindings (BCS structs + type-safe Move calls).

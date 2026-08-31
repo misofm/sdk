@@ -51,6 +51,10 @@ export interface MisoPlatformDeployment {
     readonly recordingAdvisory: string;
     readonly recordingLanguage: string;
     readonly recordingMasterReference: string;
+    /** Canonical plaintext session pointer extension; absent before publication. */
+    readonly recordingEngineSession?: string;
+    /** Original immutable Record-gated Seal policy; absent before publication. */
+    readonly recordSealPolicy?: string;
     readonly recordingPreview: string;
     /** External `ori::walrus_data::WalrusData` dependency used by cover art. */
     readonly ori: string;
@@ -67,6 +71,8 @@ export interface MisoPlatformDeployment {
      * Settings ID from a newer verified deployment explicitly.
      */
     readonly recordSettings?: string;
+    /** Frozen namespace object embedded in Recording-session Seal identities. */
+    readonly recordGate?: string;
   };
   readonly legacy: {
     readonly releaseCoverArtPackages: readonly string[];
