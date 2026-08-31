@@ -40,12 +40,26 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.15.0 @misonetwork/sdk@^0.10.0
+bun add @misofm/sdk@^0.16.0 @misonetwork/sdk@^0.10.0
 ```
 
 Both SDKs are consumed from npm. The platform package keeps
 `@misonetwork/sdk` as a peer so applications resolve exactly one protocol SDK
 and one compatible deployment map.
+
+### Canonical Record-gated sessions
+
+`@misofm/sdk/mix` defines the complete protected-playback wire contract. A
+Record resolves its immutable Release track to a Recording, then derives that
+Recording's `recording_engine_session::ExtensionKey` dynamic field directly.
+The field names one plaintext Walrus `miso.engine-session/1` document containing
+the encrypted stem blob IDs and one Seal-wrapped 32-byte session key. No event
+scan, indexer-maintained relationship, or second encrypted manifest is needed.
+
+The same entry point exposes exact identity encoding, strict canonical-session
+parsing, Seal-envelope inspection, and explicit attach/replace/unset PTB
+builders. Applications must pin the Record, policy, gate, and engine-session
+package IDs from one verified deployment.
 
 ## The model
 
