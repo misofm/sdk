@@ -332,12 +332,16 @@ export interface WorkDetail extends OwnedWork {
   trackCount?: number;
 }
 
-/** A wallet's spendable balance in one currency. */
+/** A wallet's balance in one currency, split by Sui storage model. */
 export interface Balance {
   address: string;
   coinType: string;
-  /** Base units, decimal string. Totals coin objects AND the address balance. */
+  /** Base units, decimal string. `coinBalance + addressBalance`. */
   balance: string;
+  /** Base units held in address-owned `Coin<T>` objects. */
+  coinBalance: string;
+  /** Base units held in the address balance and available to `FundsWithdrawal`. */
+  addressBalance: string;
   decimals: number;
 }
 
