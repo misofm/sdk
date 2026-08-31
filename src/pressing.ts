@@ -367,6 +367,11 @@ export interface BuyRecordParams {
   currencyType: string;
   /** Where to send the pressed `Record` (usually the buyer). */
   recipient: string;
+  /**
+   * The shared `miso_record::settings::Settings` object that authorizes this
+   * Pressing package's private `MintWitness` to create Records.
+   */
+  recordSettingsId: string;
   misoPressingPackageId: string;
   /**
    * Set only when the buyer pays their OWN gas. Miso sponsors every purchase — the gas
@@ -409,7 +414,7 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
     const record = tx.add(
       listing.buy({
         package: pkg,
-        arguments: [listingId, pressingId, payment],
+        arguments: [listingId, pressingId, payment, p.recordSettingsId],
         typeArguments: [p.currencyType],
       }),
     );

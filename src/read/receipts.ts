@@ -28,7 +28,7 @@ import {
 import { normalizeStructTag, normalizeSuiAddress } from "@mysten/sui/utils";
 import { getPressingDetail } from "./catalog.ts";
 import type { MisoClient } from "./client.ts";
-import { int, u64 } from "./internal/scalars.ts";
+import { int, ms, msOrNull, u64 } from "./internal/scalars.ts";
 import type { Price, PressingDetail, PurchaseReceipt, RecordSale, TrackRoyalty } from "./types.ts";
 import { getWorkAddressesByShareTypes } from "./works.ts";
 
@@ -82,9 +82,16 @@ function saleFromJson(
 ): RecordSale | null {
   const number = coerceBigInt(json.number);
   const paid = coerceBigInt(json.paid);
+  const createdAtMs = msOrNull(json.created_at_ms as bigint | number | string | null | undefined);
   const recordId = json.record_id;
   const price = priceFromUnknown(json.price);
-  if (number == null || paid == null || !price || typeof recordId !== "string") return null;
+  if (
+    number == null ||
+    paid == null ||
+    createdAtMs == null ||
+    !price ||
+    typeof recordId !== "string"
+  ) return null;
   return {
     listingId: typeof json.listing_id === "string" ? json.listing_id : "",
     pressingId: typeof json.pressing_id === "string" ? json.pressing_id : "",
@@ -95,6 +102,7 @@ function saleFromJson(
     price,
     currencyType,
     buyer: typeof json.buyer === "string" ? json.buyer : "",
+    createdAtMs,
   };
 }
 
@@ -174,6 +182,7 @@ export function findRecordSale(
         price,
         currencyType,
         buyer: s.buyer,
+        createdAtMs: ms(s.created_at_ms),
       };
     } catch {
       // Unparseable BCS (or none surfaced) — fall through to the JSON view.

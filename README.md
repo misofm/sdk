@@ -97,6 +97,7 @@ tx.add(
     currencyType: USD_COIN_TYPE,
     amount: listing.price.amount,
     recipient: buyer,
+    recordSettingsId,
   }),
 );
 ```

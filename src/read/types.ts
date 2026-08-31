@@ -285,7 +285,10 @@ export interface OwnedRecord {
   /** Full on-chain type, e.g. `<miso_record>::record::Record`. */
   type: string;
   releaseId: string | null;
-  /** Copy / edition number, when the struct exposes one. */
+  /**
+   * Always `null` for the current key-only Record schema. Issuance numbers are
+   * Pressing-sale provenance and are indexed from creation/sale events.
+   */
   number: number | null;
 }
 
@@ -373,6 +376,8 @@ export interface RecordSale {
   /** Currency type carried by the `RecordSoldEvent` generic argument. */
   currencyType: string;
   buyer: string;
+  /** Chain-clock timestamp captured by `listing::buy` (Unix milliseconds). */
+  createdAtMs: number;
 }
 
 /** One track's share of the paid amount, and how that share splits again. */

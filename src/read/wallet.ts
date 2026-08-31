@@ -125,29 +125,14 @@ export function classifyVaultedWorkAdminCapType(
 
 // ── Records ──────────────────────────────────────────────────────────────────
 
-function coerceNumber(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "bigint") return Number(v);
-  if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
-  return null;
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 /**
- * A wallet record is trusted only when both halves of its concrete type are the
- * currently configured protocol packages. Checking the parsed tag (rather than
- * a prefix/suffix) rejects retired namespaces, extra type parameters, and an
- * arbitrary certificate that anyone can use with `record::new`.
+ * A wallet record is trusted only when it is the exact, non-generic Record type
+ * from the configured package. Checking the parsed tag (rather than a prefix or
+ * suffix) rejects retired namespaces and legacy/arbitrary generic wrappers.
  */
 function isCanonicalRecordType(
   type: string,
   recordPackageId: string,
-  pressingPackageId: string,
 ): boolean {
   let tag: ReturnType<typeof parseStructTag>;
   try {
@@ -160,29 +145,11 @@ function isCanonicalRecordType(
     tag.address !== normalizeSuiAddress(recordPackageId) ||
     tag.module !== "record" ||
     tag.name !== "Record" ||
-    tag.typeParams.length !== 1
+    tag.typeParams.length !== 0
   ) {
     return false;
   }
-
-  const certificate = tag.typeParams[0];
-  return (
-    certificate !== undefined &&
-    typeof certificate !== "string" &&
-    certificate.address === normalizeSuiAddress(pressingPackageId) &&
-    certificate.module === "certificate" &&
-    certificate.name === "Certificate" &&
-    certificate.typeParams.length === 0
-  );
-}
-
-/**
- * This copy's number in its pressing run. The current Record keeps issuance
- * details inside its embedded Certificate, so the canonical JSON shape is
- * `{ release_id, certificate: { number } }`.
- */
-function readRecordNumber(json: Record<string, unknown>): number | null {
-  return coerceNumber(record(json.certificate)?.number);
+  return true;
 }
 
 function readReleaseId(json: Record<string, unknown>): string | null {
@@ -200,7 +167,6 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
   const out: OwnedRecord[] = [];
   let cursor: string | null = null;
   const recordType = `${client.config.protocol.record}::record::Record`;
-  const pressingPackageId = client.config.protocol.pressing;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // Annotated: `cursor` is both an input and assigned from the result, which
@@ -214,7 +180,7 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
         include: { json: true },
       });
     for (const obj of res.objects) {
-      if (!isCanonicalRecordType(obj.type, client.config.protocol.record, pressingPackageId)) {
+      if (!isCanonicalRecordType(obj.type, client.config.protocol.record)) {
         continue;
       }
       const json = (obj.json ?? {}) as Record<string, unknown>;
@@ -222,7 +188,7 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
         id: obj.objectId,
         type: obj.type,
         releaseId: readReleaseId(json),
-        number: readRecordNumber(json),
+        number: null,
       });
     }
     if (!res.hasNextPage) break;

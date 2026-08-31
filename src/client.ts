@@ -9,7 +9,7 @@
 //
 //   await client.miso.getSale({ releaseId, currencyType });
 //   await client.miso.protocol.getReleaseById(releaseId);
-//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient }));
+//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient, recordSettingsId }));
 //
 // Two things this buys over calling the bare functions:
 //

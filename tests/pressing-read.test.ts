@@ -18,6 +18,7 @@ import * as pressing from "../src/contracts/miso_pressing/pressing.ts";
 
 const RELEASE = "0x" + "33".repeat(32);
 const CURRENCY = "0x2::sui::SUI";
+const RECORD_SETTINGS = "0x" + "55".repeat(32);
 const { pressingId: PRESSING, listingId: LISTING } = deriveSaleIds(
   RELEASE,
   CURRENCY,
@@ -217,6 +218,7 @@ test("rejects unsafe JavaScript numbers before serializing u64 price, schedule, 
       releaseId: RELEASE,
       currencyType: CURRENCY,
       recipient: PRESSING,
+      recordSettingsId: RECORD_SETTINGS,
       misoPressingPackageId: "0xa",
       amount: unsafe,
     })(new Transaction()),
@@ -230,4 +232,36 @@ test("rejects unsafe JavaScript numbers before serializing u64 price, schedule, 
       listings: [{ currencyType: CURRENCY, price: { kind: "fixed", amount: "9007199254740993" } }],
     })(new Transaction()),
   ).not.toThrow();
+});
+
+test("buy passes the explicit Record Settings object to listing::buy", () => {
+  const tx = new Transaction();
+  buyRecord({
+    releaseId: RELEASE,
+    currencyType: CURRENCY,
+    recipient: PRESSING,
+    recordSettingsId: RECORD_SETTINGS,
+    misoPressingPackageId: "0xa",
+    amount: "7",
+  })(tx);
+
+  const data = tx.getData() as {
+    inputs: Array<{
+      UnresolvedObject?: { objectId: string };
+    }>;
+    commands: Array<{
+      MoveCall?: {
+        module: string;
+        function: string;
+        arguments: Array<{ $kind: string; Input?: number }>;
+      };
+    }>;
+  };
+  const call = data.commands.find(
+    (command) => command.MoveCall?.module === "listing" && command.MoveCall.function === "buy",
+  )!.MoveCall!;
+  expect(call.arguments).toHaveLength(5);
+  const settings = call.arguments[3]!;
+  expect(settings.$kind).toBe("Input");
+  expect(data.inputs[settings.Input!]!.UnresolvedObject?.objectId).toBe(RECORD_SETTINGS);
 });
