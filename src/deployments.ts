@@ -4,6 +4,7 @@
 import type { MisoDeployment, MisoNetwork } from "@misonetwork/sdk/deployments";
 import { MISO_DEPLOYMENTS } from "@misonetwork/sdk/deployments";
 import { normalizeSuiObjectId } from "@mysten/sui/utils";
+import { immutableSnapshot } from "./internal.ts";
 
 /** Primary Record sales are unavailable on legacy deployments until both new
  * immutable packages have been freshly published and verified. */
@@ -119,9 +120,10 @@ function canonicalObjectId(value: unknown): value is string {
 /**
  * Require one complete, non-aliased operations deployment.
  *
- * The ten identities form one atomic compatibility boundary: mixing a Vault
- * package or registry object, raw Action, or suffixed plugin from another
- * publication is rejected.
+ * This validates only a complete canonical, pairwise-distinct structural set.
+ * It cannot establish provenance for arbitrary caller-supplied custom IDs; the
+ * caller owns that provenance. The bundled frozen map below is generated from
+ * one verified immutable admin export.
  */
 export function requireOperationsDeployment(
   deployment: OperationsDeployment | undefined,
@@ -188,7 +190,7 @@ export interface MisoPlatformDeployment {
   /** The complete protocol and Party deployment this platform build targets. */
   readonly protocol: MisoDeployment;
   readonly recordSales: RecordSalesDeployment;
-  /** Fail-closed Vault custody and Action/plugin compatibility boundary. */
+  /** Fail-closed, structurally complete Vault/Action/plugin identity set. */
   readonly operations: OperationsDeployment;
   readonly packages: {
     readonly minato: string;
@@ -238,95 +240,103 @@ export interface MisoPlatformDeployment {
  * IDs come only from verified immutable deployment output.
  * Consumers may still pass an explicit complete deployment for custom networks.
  */
-export const MISO_PLATFORM_DEPLOYMENTS = {
+export const MISO_PLATFORM_DEPLOYMENTS = immutableSnapshot({
   testnet: {
     network: "testnet",
     chainIdentifier: "69WiPg3DAQiwdxfncX6wYQ2siKwAe6L9BZthQea3JNMD",
     protocol: MISO_DEPLOYMENTS.testnet,
     recordSales: {
-      status: "unavailable",
-      reason:
-        "the finalized immutable miso_record and miso_record_shop packages have not been deployed",
-      legacy: {
-        pressingPackageId:
-          "0x95fba53c968978f75d6ca8a5e6f0f3ba83fdc3af301bc8419be354a3990af5b9",
-        recordPackageId:
-          "0x6150c474200f63bf73072642564886e5ecb1a4c0498ede31acd7908d94dbc83b",
-      },
+      status: "available",
+      recordPackageId:
+        "0x75e5fa520c39322e0526ff56a495f9a2a88d097e2df7902d94e58a9a12831e76",
+      recordShopPackageId:
+        "0x2b97df3773040bb2cffd8c329bfd57f05f1fd2defb6ab156050ba1ae540d5d2a",
     },
     operations: {
-      status: "unavailable",
-      reason:
-        "the immutable Vault, five raw Action packages, and three suffixed plugin packages have not been published as one verified deployment",
-      legacy: {
-        vaultPackageId:
-          "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
-        vaultRegistryId:
-          "0xee17744a0c6f71bbde98d0c2b4cab58929000fd2f65e28a4676164d34758584b",
-        packageIds: {
-          compositionRoyaltyPool:
-            "0xbfd9b6c9d3e5635c0beb5472b45566b92f509ed67ae4a661bf928c359f3b438f",
-          recordingRoyaltyPool:
-            "0x1643c188790a7e756310ce779b279159356a9bf7fe8237edf1e5b24a15422615",
-          partyWallet:
-            "0x0d869fe4291fec02821aed40c38349bac8547f0c690316f2a1a2273ac1f317ed",
-          compositionRoutedStake:
-            "0xf86994ebd0dabecda1b14efc02a2e71b3219a7c043841ad8097dc3683bd088dd",
-          releaseRevenueDistributor:
-            "0x2172dc326fbf226b6cf6eed610f217fb0ff2682d1938e8089f4d6ce21a4999b5",
-        },
+      status: "available",
+      vault: {
+        packageId:
+          "0xaed1aa729452c77f4c62882b73317851d628c30af55355c81eb1c93d3d3276ac",
+        registryId:
+          "0x5de3c379a15e4609260a94ace3d186cc466366fc6aebafe5663c016057b6a2d6",
+      },
+      actions: {
+        compositionRoyaltyPool:
+          "0x46b9b193255f28ec5190e8cd37ae85397c9110266da73a4a7a94fcb6e990155b",
+        recordingRoyaltyPool:
+          "0x78964bdc2dd7fad943633542edf5a1c9be38b1d2d25de1cc6cca64757c7d037a",
+        partyWallet:
+          "0x934f15715f725e3eed2acaeda5c717b6641dce4bb88b7670db26249cb6646728",
+        compositionRoutedStake:
+          "0xb1539001eaf32350d7044acb03092dcbd5a366e708d959aece0cca683f7f57fc",
+        releaseRevenueDistributor:
+          "0xd19dde6c20fa41092c9645e8300284cf1a268ab5ed3b3c7a2a12593672203b45",
+      },
+      plugins: {
+        compositionRoyaltyPool:
+          "0xad3525b86fad3f2aaaa3fdf0430d690efba249e378b1b89ed8180ecbc5d89392",
+        recordingRoyaltyPool:
+          "0x2adfc809152c5c8cf07f0e466d881b62d48c7da3ae2e787c0471deb867a6a385",
+        releaseRevenueDistributor:
+          "0x4f1da8c04ec53749f6cf6e8d2d48701fd72654078240050e20e41dc774f93d46",
       },
     },
     packages: {
       minato:
-        "0x8466e9864c1d947888e73b0e349b035bc22805579eef18f132966f56c8efe1d2",
+        "0xcdf58ed7e4580118a6a3f2a8077abffe633c551b2f19e95ce01685d42f90b8d9",
       credit:
-        "0x20d8e38f49445cbae45fd66c262c2cbc4bf4cccab487b3fb443a491dc24071cd",
+        "0xc5a82310ce313af8f0ec18a4e564af11971b360db9e2ae686fef86fb2297a9a9",
       compositionCredits:
-        "0x8b376967e9c32169727ec5341890f28c66d8577d7bfcecb83aa78aec3e84dce5",
+        "0xc58ac5d69740866f6514f68f2e9c86b1d069d819ad0bcf5384b6aaa66e0fbf53",
       recordingCredits:
-        "0x7096a47b0ba12063c037d6d417bffade758665a3f313574c8ba218823cfb159a",
+        "0x7bafa653854f0820d911b8f6aa0aac3b131163c254b0021330881b77206d4d79",
       releaseCredits:
-        "0xbe293700ef758c95b69838df6cfa8377b9cad1dd59cbf933974f68b1766d87b5",
+        "0x47ccd23c669b023b8678193e7748235916e16e737fdd8ba48b131ded29c76a00",
       royaltyPool:
-        "0x8021942b5e91c5ef5e383ad481102ee96f52dd77b9b3dbcdf06bb133cd7c91ed",
+        "0xecaa5a29cf8e110face3b80f0e4a5554e8c80edd8eda0983ed2f8015367eecca",
       routedStake:
-        "0x7a55b1841043efea865d65a6601e057400a79a0aa7bb11e781a25dbe622cbe5f",
+        "0x30ed387d3fea69579ddb34d011fa6e1416580bfb3ee6587aabf103fb0d17bced",
       coverArt:
-        "0x2dae28058b89df93224bacfb9af42fd3ab41f001c2c815fd57fd575024d9a50b",
+        "0x2b811f82d33cf6a9448adb11a598f6b04c14970cfc8e2982cde1d468e8e7d4a4",
       releaseCoverArt:
-        "0x649b18f2bb3d94f6a611a8e4ad3a29dcf8b7bba3f684056d60897a8a5e835106",
+        "0x4f0a8736685f6b1ddbcd0bddcd7aae2d072aa3d4043efc0ad4042a7786068999",
       genre:
-        "0x5091d30e893105abe24adf75223f587361034e90516c6e509897bb86d18d2387",
+        "0x01e58dbc76c15c9ac137dabac1823ebd6ef81efd563c5121000bc11c51a47cc7",
       releaseDescription:
-        "0x3e26e4c4c5b3f51070d6d7bb1527eaa304f34ae5dfde078661e180e7594d6d28",
+        "0x50f5acf7c0c05cdc7656072fd1bfc5ee76d02beabeae090103734b2d75118fa3",
       releaseDspLink:
-        "0x2b8e1d7be7a3cbc07e6167c5b5c6511059791b4a2116c1fa97d65cfd871d0bda",
+        "0x9ca9ad8cab49c4897cd3cb89628b771ee4f10831ddc273036837751a5339d02a",
       releaseGenre:
-        "0x7882367d45efff41ef0cb9e937029a3f8a3cdf5908d83beeb5cbc0cff178d290",
+        "0xfb73b04be2f72704ec5e6a1035bfab108e5ee2a72e72c0505f999291e23219bd",
       releaseKind:
-        "0x3e74c960d9446ae2ebf228456ddc1b099d2090501c9cbcd284a999aa2e774e12",
+        "0xfb2e5790f0577aca3ac8ddd672c4c58ef1e49ef1c3dfe14fb9676aaabf769169",
       recordingAdvisory:
-        "0x28e0e72c5b892fc888a9007afa59ebe04ed8e47f12632ddb42cd685d09c4af2e",
+        "0x23abf3f248466c08edc3349b202d6e809064c0e52098ff290cef1fdc51d5942e",
       recordingLanguage:
-        "0x4b284a9435cf4f48e3785e4485d16be2fcbcef5beaa2b44b6556d9c1028e2c0d",
+        "0xb3e1c578638a79acc7ab573c994206047ad8ef76893f9c5c987887c5b10a5c68",
       recordingMasterReference:
-        "0x2b06ab58f2d5a915b42fc5879d52241fc72e804b3da782fa752b2d2f242170c0",
+        "0x92a752854b80a6103721743125ee48223b577a023fe360e25d3aa695462a6d15",
+      recordingEngineSession:
+        "0xdd8f817a221e2acd5a4e6f34d0192d8e0dbddeb76c2dff2fdc82991cb4feb6c6",
+      recordSealPolicy:
+        "0xfa22d0678eaec39ad36b74c2c5439d574292e8fb19a9a15272733267499d5351",
       recordingPreview:
-        "0x449aafe29707adf249df7e90355ecb19d939ea77d9e19fd3e2fdb220e73e74f0",
-      ori: "0x340057f2174fb59e4626742dd2b46c662237837b6187450cb59e4976ce7eac78",
+        "0x2be8405f6b77a30d6942cb240c0d804d608ef761395e6f861b71d9ae3c98f997",
+      ori: "0xf35cf353a62cef01084b51a9cf3da4c64c8724685ad1862f2f8284b71bd26c1a",
     },
     objects: {
       releaseRegistry:
-        "0xf5941ae9640f6f24b75e921da16c95fd23d776b9e6518c275a50a5ce6337c8ba",
+        "0x452c9904677a1bbf92d4e07d86d2c3eb038c47595b0e17a23756f03887eb2a2a",
       genreRegistry:
-        "0xa83f9c7a340b5b5b6387d1d5933019b45bcedebbae85bbb89bab855a56e90816",
+        "0xda4cc070da1a71d43387973027a7230587a1b9c829d37c2af4a3adbc15fdb8a8",
+      recordGate:
+        "0x8fd51c8b31bb6012fb03d2be39ed7b9f0f581329b6b338c60c209110cc659f31",
     },
     legacy: {
       releaseCoverArtPackages: [],
     },
   },
-} as const satisfies Partial<Record<MisoNetwork, MisoPlatformDeployment>>;
+} as const) satisfies Partial<Record<MisoNetwork, MisoPlatformDeployment>>;
 
 /** Resolve a bundled platform deployment, failing closed when it is unavailable. */
 export function getMisoPlatformDeployment(

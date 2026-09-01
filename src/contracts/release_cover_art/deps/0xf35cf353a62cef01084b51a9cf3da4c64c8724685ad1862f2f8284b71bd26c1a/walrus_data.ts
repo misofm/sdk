@@ -4,7 +4,7 @@
 import { MoveEnum, MoveStruct, MoveTuple } from '../../../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
 import type {} from "@mysten/bcs";
-const $moduleName = '0x340057f2174fb59e4626742dd2b46c662237837b6187450cb59e4976ce7eac78::walrus_data';
+const $moduleName = '0xf35cf353a62cef01084b51a9cf3da4c64c8724685ad1862f2f8284b71bd26c1a::walrus_data';
 /**
  * Confidentiality of a stored blob: cleartext, or encrypted with an access policy.
  * Only applies to standalone blobs — a quilt patch is a slice of a shared quilt

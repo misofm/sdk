@@ -42,12 +42,14 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.17.0 @misonetwork/sdk@^0.10.0
+bun add @misofm/sdk@^0.17.0 @misonetwork/sdk@^0.11.0
 ```
 
 Both SDKs are consumed from npm. The platform package keeps
 `@misonetwork/sdk` as a peer so applications resolve exactly one protocol SDK
-and one compatible deployment map.
+and one compatible deployment map. Registration takes a recursively frozen
+snapshot of custom deployment/config records without freezing the caller's
+original objects, so later caller mutation cannot retarget an existing client.
 
 ### Canonical Record-gated sessions
 
@@ -60,8 +62,10 @@ scan, indexer-maintained relationship, or second encrypted manifest is needed.
 
 The same entry point exposes exact identity encoding, strict canonical-session
 parsing, Seal-envelope inspection, and explicit attach/replace/unset PTB
-builders. Applications must pin the Record, policy, gate, and engine-session
-package IDs from one verified deployment.
+builders. The bundled Testnet deployment pins the Record, policy, gate, and
+engine-session identities together at `recordSales.recordPackageId`,
+`packages.recordSealPolicy`, `objects.recordGate`, and
+`packages.recordingEngineSession`.
 
 ## The model
 
@@ -124,9 +128,9 @@ tx.add(
 );
 ```
 
-The deployment records sales as either explicitly unavailable (legacy) or available
-with both verified immutable package IDs. New sales builders and readers fail closed
-when either package is unavailable.
+The bundled Testnet deployment includes both verified immutable package IDs.
+Custom deployments can still mark sales unavailable explicitly; sales builders
+and readers fail closed whenever either package is unavailable.
 
 Holding the ids yourself? The bare APIs take `recordPackageId` and/or
 `recordShopPackageId` explicitly:
@@ -135,8 +139,7 @@ Holding the ids yourself? The bare APIs take `recordPackageId` and/or
 import { purchaseRecord, getSale } from "@misofm/sdk/pressing";
 ```
 
-Verified package IDs are bundled only after immutable publication. Legacy Testnet
-identities remain labeled unavailable and are never reused as the new packages.
+Verified package and singleton IDs are bundled in
 `MISO_PLATFORM_DEPLOYMENTS.testnet`. Calling `miso()` selects that verified map
 from the Sui client's network. Unbundled and custom networks still fail closed
 unless the caller passes one complete deployment through `miso({ deployment })`.
@@ -546,17 +549,20 @@ Actions, and the full Composition routed-stake Action lifecycle. Receive flows
 take exact object references and construct the required
 `vector<Receiving<Coin<Currency>>>` in the PTB.
 
-The bundled legacy Testnet deployment marks `operations.status` as
-`"unavailable"`; its historical IDs are metadata only. Consequently
-zero-config clients expose no Vault, Action, or plugin call surface. A custom
-available deployment must provide one canonical Vault package and registry,
-five distinct raw Action packages, and three distinct suffixed plugin packages.
+The bundled Testnet deployment sets `operations.status` to `"available"` with
+one canonical Vault package and registry, five distinct raw Action packages,
+and three distinct suffixed plugin packages. Zero-config Testnet clients expose
+that complete verified surface after `await client.miso.ready()`. Custom
+deployments remain fail-closed unless they provide the same atomic identity set.
+Structural validation checks canonical, pairwise-distinct IDs; callers remain
+responsible for the provenance and compatibility of arbitrary custom IDs. The
+bundled map is recursively frozen from one verified immutable admin export.
 
 ### Migrating from 0.16
 
 Version 0.17 is a breaking deployment-safety release. Replace flat Vault,
-Action, and plugin package fields with the discriminated `operations` union;
-historical IDs belong only under unavailable `legacy` metadata. After client
+Action, and plugin package fields with the discriminated `operations` union.
+After client
 registration, call `await client.miso.ready()` before using synchronous
 `client.miso.tx`, `ids`, `call`, `vault`, or `party` surfaces. Platform reads
 and SDK execution helpers await the same memoized readiness check themselves.
@@ -632,8 +638,8 @@ enforce gets undone.
 
 Paths resolve against sibling checkouts, so regenerating requires
 `~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins}` and
-`~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
-royalty-pool, routed-stake, share}`.
+`~/Documents/GitHub/misonetwork/{party-actions, protocol, protocol-actions,
+protocol-extensions, royalty-pool, routed-stake, share, cover-art, genre}`.
 
 For an isolated checkout, copy those source trees and set
 `MISO_SDK_CODEGEN_SOURCE_ROOT` to their common parent. The codegen config reads
@@ -641,7 +647,7 @@ only from that copy, avoiding writes to a developer's live source tree.
 
 ## Dependency on `@misonetwork/sdk`
 
-`@misonetwork/sdk` is a required peer (`^0.10.0`), not a runtime dependency.
+`@misonetwork/sdk` is a required peer (`^0.11.0`), not a runtime dependency.
 This package imports its primitives, deployment configuration, protocol client,
 and Party client directly, then exposes them at `client.miso.protocol` and
 `client.miso.party` only after `await client.miso.ready()` validates the exact
@@ -653,7 +659,7 @@ silently nesting an older protocol ABI alongside the application's copy.
 `@misonetwork/sdk`.
 
 The published tarball intentionally contains no protocol SDK copy: consumers
-satisfy the peer with their verified `@misonetwork/sdk@^0.10.0` installation.
+satisfy the peer with their verified `@misonetwork/sdk@^0.11.0` installation.
 
 ```bash
 bun install

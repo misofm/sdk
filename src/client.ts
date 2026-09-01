@@ -126,6 +126,7 @@ import {
   type OperationsDeployment,
   type RecordSalesDeployment,
 } from "./deployments.ts";
+import { immutableSnapshot } from "./internal.ts";
 import {
   deriveGenreAddress,
   setReleaseDescription,
@@ -291,7 +292,7 @@ export interface MisoPlatformConfig {
   recordingLanguagePackageId?: string;
   recordingMasterReferencePackageId?: string;
   recordingPreviewPackageId?: string;
-  /** Atomic Vault/Action/plugin compatibility boundary. */
+  /** Structurally complete Vault/Action/plugin identity set. */
   operations?: OperationsDeployment;
   /** Generic royalty-pool value package used by pool and routed-stake helpers. */
   royaltyPoolPackageId?: string;
@@ -380,24 +381,28 @@ export class MisoPlatformClient {
     protocol?: MisoProtocolClient,
     deployment?: MisoPlatformDeployment,
   ) {
+    const configSnapshot = immutableSnapshot(config);
+    const deploymentSnapshot = deployment
+      ? immutableSnapshot(deployment)
+      : undefined;
     this.#client = client;
-    this.#config = config;
-    if (config.operations?.status === "available") {
-      requireOperationsDeployment(config.operations);
+    this.#config = configSnapshot;
+    if (configSnapshot.operations?.status === "available") {
+      requireOperationsDeployment(configSnapshot.operations);
     }
     // A pressing-only facade must not implicitly register a fail-closed core
     // extension. Supply a core deployment/misoPackageId when `protocol` is
     // needed; otherwise this remains a safe, independent pressing client.
     this.#protocol =
       protocol ??
-      (config.misoPackageId
+      (configSnapshot.misoPackageId
         ? protocolMiso({
-            deployment: { packageId: config.misoPackageId },
+            deployment: { packageId: configSnapshot.misoPackageId },
           }).register(client)
         : undefined);
-    this.deployment = deployment;
+    this.deployment = deploymentSnapshot;
     this.#chainIdentifier =
-      deployment?.chainIdentifier ?? config.chainIdentifier;
+      deploymentSnapshot?.chainIdentifier ?? configSnapshot.chainIdentifier;
   }
 
   /** Permissionless protocol APIs bound to the same validated ledger. */
@@ -1195,8 +1200,9 @@ export function miso<const Name extends string = "miso">(
   return {
     name,
     register: (client: ClientWithCoreApi) => {
-      const deployment =
-        options.deployment ?? getMisoPlatformDeployment(client.network);
+      const deployment = immutableSnapshot(
+        options.deployment ?? getMisoPlatformDeployment(client.network),
+      );
       if (deployment.network !== client.network) {
         throw new MisoNetworkMismatchError(client.network, deployment.network);
       }
@@ -1246,15 +1252,16 @@ export function misoPlatform(config: MisoPlatformConfig) {
   return {
     name: "misoPlatform" as const,
     register: (client: ClientWithCoreApi) => {
-      if (config.network && config.network !== client.network) {
-        throw new MisoNetworkMismatchError(client.network, config.network);
+      const configSnapshot = immutableSnapshot(config);
+      if (configSnapshot.network && configSnapshot.network !== client.network) {
+        throw new MisoNetworkMismatchError(client.network, configSnapshot.network);
       }
-      const protocol = config.misoPackageId
+      const protocol = configSnapshot.misoPackageId
         ? protocolMiso({
-            deployment: { packageId: config.misoPackageId },
+            deployment: { packageId: configSnapshot.misoPackageId },
           }).register(client)
         : undefined;
-      return new MisoPlatformClient(client, config, protocol);
+      return new MisoPlatformClient(client, configSnapshot, protocol);
     },
   };
 }

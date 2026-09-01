@@ -78,7 +78,8 @@ const config: SuiCodegenConfig = {
     },
     // Caveat: release_cover_art transitively depends on ori (walrus_data), which
     // is NOT declared here, so its dep bindings land under the deployed package
-    // address (src/contracts/release_cover_art/deps/0x340057f2…/walrus_data.ts)
+    // address (currently
+    // src/contracts/release_cover_art/deps/0xf35cf353…/walrus_data.ts)
     // rather than a readable name. @mysten/codegen has no address→name mapping
     // for transitive deps (only declared packages get names, and declaring ori
     // would generate full bindings for an external package). If ori is ever

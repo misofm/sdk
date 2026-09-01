@@ -43,11 +43,10 @@ export const TrackLinksKey = new MoveTuple({ name: `${$moduleName}::TrackLinksKe
  * album/track flag.
  *
  * **Variant order is frozen.** Storage keys off `platform()`, a `u8` discriminant
- * matching declaration order (`Spotify = 0` … `YouTubeMusic =  7`). Sui's
- * compatible-upgrade policy allows appending new enum variants but not reordering
- * or removing existing ones, so a new platform is always appended at the end in a
- * package upgrade — existing BCS variant indices, and therefore existing
- * dynamic-field keys, stay stable.
+ * matching declaration order (`Spotify = 0` … `YouTubeMusic =  7`). This immutable
+ * package never changes those indices. Supporting another platform requires a new
+ * immutable package identity and an explicit client/data migration; existing
+ * variants are never reordered.
  */
 export const DspLinkData = new MoveEnum({ name: `${$moduleName}::DspLinkData`, fields: {
         /**

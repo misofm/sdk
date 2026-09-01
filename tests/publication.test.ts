@@ -236,7 +236,10 @@ test("unavailable operations reject Vault custody before adding any PTB command"
     ...input,
     deployment: {
       ...input.deployment,
-      operations: getMisoPlatformDeployment("testnet").operations,
+      operations: {
+        status: "unavailable",
+        reason: "test deployment has no verified operations ABI",
+      },
     },
   };
   const tx = new Transaction();
@@ -253,7 +256,10 @@ test("unavailable RecordSales rejects a direct-custody pressing before returning
     ...input,
     deployment: {
       ...input.deployment,
-      recordSales: getMisoPlatformDeployment("testnet").recordSales,
+      recordSales: {
+        status: "unavailable",
+        reason: "test deployment has no verified Record sales ABI",
+      },
     },
     parties: input.parties.map((node) =>
       "create" in node

@@ -16,6 +16,11 @@ const exactVersions = {
   "@mysten/sui": "2.27.1",
 } as const;
 const exactVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const protocolSdkContract = {
+  development: "0.11.0",
+  peer: "^0.11.0",
+  version: "0.11.0",
+} as const;
 
 async function readManifest(path: string): Promise<PackageManifest> {
   return Bun.file(path).json();
@@ -71,4 +76,24 @@ test("Seal accepts the SDK's exact Sui version", async () => {
   expect(Bun.semver.satisfies(exactVersions["@mysten/sui"], sealSuiRange!)).toBe(
     true,
   );
+});
+
+test("protocol SDK is pinned for development and ranged for consumers", async () => {
+  const manifest = await readManifest(`${repositoryRoot}/package.json`);
+  const installed = await readManifest(
+    `${repositoryRoot}/node_modules/@misonetwork/sdk/package.json`,
+  );
+
+  expect(manifest.devDependencies?.["@misonetwork/sdk"]).toBe(
+    protocolSdkContract.development,
+  );
+  expect(manifest.peerDependencies?.["@misonetwork/sdk"]).toBe(
+    protocolSdkContract.peer,
+  );
+  expect(installed.version).toBe(protocolSdkContract.version);
+  expect(
+    await Bun.file(
+      `${repositoryRoot}/node_modules/@misonetwork/sdk/node_modules/@mysten/sui/package.json`,
+    ).exists(),
+  ).toBeFalse();
 });
