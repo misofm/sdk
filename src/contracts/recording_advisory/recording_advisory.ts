@@ -7,7 +7,7 @@
  * The parental advisory rating for a recording — whether its lyrics are explicit —
  * stored as a dynamic field on the recording's UID and written through its
  * cap-gated `uid_mut`.
- * 
+ *
  * This is its own package on purpose. Advisory ratings are set by a different
  * person, at a different time, for entirely different reasons than the other facts
  * about a recording, and the standard that governs them moves on its own schedule.
@@ -15,13 +15,13 @@
  * the advisory standard drags every unrelated field through the migration. Kept
  * separate, a consumer implementing some future metadata profile selects this
  * extension or ignores it, and swapping it touches nothing else.
- * 
+ *
  * The rating is deliberately not a boolean. Every distributor and storefront
  * distinguishes a _cleaned_ edit — an explicit recording re-issued with the
  * offending content removed — from a recording that was never explicit at all.
  * They are merchandised differently and a boolean cannot express the difference,
  * so `Cleaned` is a first-class variant.
- * 
+ *
  * Attaching the extension IS the statement. There is no "attached but undeclared"
  * state: if a rating is present it has been asserted by the rights holder, and a
  * recording with nothing attached has simply said nothing.

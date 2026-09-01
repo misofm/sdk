@@ -10,7 +10,7 @@
  * a handle into the object system to retrieve those keys and values. Note that
  * this means that `Bag` values with exactly the same key-value mapping will not be
  * equal, with `==`, at runtime. For example
- * 
+ *
  * ```
  * let bag1 = bag::new();
  * let bag2 = bag::new();
@@ -21,7 +21,7 @@
  * // bag1 does not equal bag2, despite having the same entries
  * assert!(&bag1 != &bag2);
  * ```
- * 
+ *
  * At it's core, `sui::bag` is a wrapper around `UID` that allows for access to
  * `sui::dynamic_field` while preventing accidentally stranding field values. A
  * `UID` can be deleted, even if it has dynamic fields associated with it, but a

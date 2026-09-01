@@ -4,311 +4,283 @@
 import { expect, test } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
 import * as vaultApi from "../src/vault.ts";
+import * as releasePluginContract from "../src/contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin.ts";
 import {
-  custodyNewAdminCap,
-  deriveVaultAdminCapId,
-  deriveVaultId,
-  initializeCompositionRoyaltyPool,
-  installCompositionRoyaltyPoolPlugin,
-  installReleaseRevenueDistributorPlugin,
-  receivePartyWalletBalance,
-  redeemPartyWalletBalance,
-  settleAndDistributeReleaseRevenue,
-  settleCompositionRoyaltyPool,
-  settlePartyWalletBalance,
-  settleRecordingRoyaltyPool,
-  registerCompositionRoutedStake,
-  receivingCoins,
-  invokeWithAdminCap,
-  newCompositionRoyaltyPool,
-  restoreVaultCapability,
-  withdrawVaultCapability,
+  createCompositionRoutedStake, directAdminCap,
+  custodyNewAdminCap, deriveVaultAdminCapId, deriveVaultId,
+  installCompositionRoyaltyPoolPlugin, installRecordingRoyaltyPoolPlugin,
+  installReleaseRevenueDistributorPlugin, invokeWithAdminCap,
+  newCompositionRoyaltyPool, receivePartyWalletBalance,
+  redeemAndDistributeReleaseRevenue, redeemPartyWalletBalance,
+  registerCompositionRoutedStake, restoreVaultCapability,
+  restakeCompositionRoutedStake, settleAndDistributeReleaseRevenue,
+  settleCompositionRoyaltyPool, settleRecordingRoyaltyPool,
+  unstakeCompositionRoutedStake, vaultAdminCap, withdrawVaultCapability,
 } from "../src/vault.ts";
 
-const VAULT = "0x" + "10".repeat(32);
-const VAULT_REGISTRY = "0x" + "11".repeat(32);
-const COMP_POOL_PLUGIN = "0x" + "20".repeat(32);
-const ROUTED_PLUGIN = "0x" + "30".repeat(32);
-const REVENUE_PLUGIN = "0x" + "40".repeat(32);
-const PARTY_WALLET_PLUGIN = "0x" + "50".repeat(32);
-const A = "0x" + "ab".repeat(32);
-const CAP = "0x" + "cd".repeat(32) + "::composition::CompositionAdminCap<" + "0x" + "ef".repeat(32) + "::share::Share>";
-const COMPOSITION_SHARE = "0x" + "ef".repeat(32) + "::share::Share";
-const RECORDING_SHARE = "0x" + "12".repeat(32) + "::share::Share";
+const A = `0x${"ab".repeat(32)}`;
+const B = `0x${"bc".repeat(32)}`;
+const C = `0x${"cd".repeat(32)}`;
+const VAULT = `0x${"10".repeat(32)}`;
+const ACTION = `0x${"20".repeat(32)}`;
+const PLUGIN = `0x${"30".repeat(32)}`;
+const CAP = `${A}::composition::CompositionAdminCap<${B}::share::Share>`;
+const COMPOSITION_SHARE = `${B}::share::Share`;
+const RECORDING_SHARE = `${A}::share::Share`;
 const SUI = "0x2::sui::SUI";
 
-interface Call {
-  package?: string;
-  module: string;
-  function: string;
-  typeArguments: string[];
-}
-
+interface Call { package?: string; module: string; function: string; typeArguments: string[] }
 function calls(tx: Transaction): Call[] {
-  const data = tx.getData() as {
-    commands: { $kind: string; MoveCall?: Call }[];
-  };
-  return data.commands
-    .filter((command) => command.$kind === "MoveCall" && command.MoveCall)
+  return (tx.getData().commands as Array<{ $kind: string; MoveCall?: Call }>)
+    .filter((command) => command.$kind === "MoveCall")
     .map((command) => command.MoveCall!);
 }
+const labels = (tx: Transaction) => calls(tx).map((call) => `${call.module}::${call.function}`);
+const direct = directAdminCap(A);
+const vaulted = (tx: Transaction) => vaultAdminCap({
+  vault: tx.object(A), vaultAdminCap: tx.object(B), capType: CAP, vaultPackageId: VAULT,
+});
 
-test("vault authority encloses an independent result in borrow and exact put-back", () => {
+test("invokeWithAdminCap supports direct caps without custody commands", () => {
   const tx = new Transaction();
-  const track = invokeWithAdminCap(
-    tx,
-    {
-      kind: "vault",
-      vault: tx.object(A),
-      vaultAdminCap: tx.object(A),
-      capType: CAP,
-      vaultPackageId: VAULT,
-    },
-    {
-      target: `${A}::track::new`,
-      arguments: [tx.object(A), tx.pure.id(A), tx.pure.u16(10_000)],
-      adminCapIndex: 0,
-    },
-  );
-
-  const labels = calls(tx).map((call) => `${call.module}::${call.function}`);
-  expect(labels).toEqual([
-    "vault::borrow_as_admin",
-    "track::new",
-    "vault::put_back",
-  ]);
-  expect(calls(tx)[0]!.typeArguments).toEqual([CAP]);
-  expect(calls(tx)[2]!.typeArguments).toEqual([CAP]);
-  const data = tx.getData() as { commands: { $kind: string; MoveCall?: { arguments: { $kind: string; NestedResult?: [number, number] }[] } }[] };
-  // `track` is the target call's own result, while its cap input is the Vault
-  // borrow's nested result; no borrowed value is surfaced by the API.
-  expect(track.$kind).toBe("Result");
-  expect(data.commands[1]!.MoveCall!.arguments[0]!.NestedResult).toEqual([0, 0]);
-});
-
-test("vault module exports no borrowed-cap callback helper", () => {
-  expect("withAdminCap" in vaultApi).toBe(false);
-  expect("withAdminCapResult" in vaultApi).toBe(false);
-  expect("destroyVault" in vaultApi).toBe(false);
-});
-
-test("Vault and VaultAdminCap derivation matches the deployed Move view vector", () => {
-  const vaultId = deriveVaultId({
-    vaultRegistryId: "0xee17744a0c6f71bbde98d0c2b4cab58929000fd2f65e28a4676164d34758584b",
-    capId: "0x" + "aa".repeat(32),
-    capType: "0x5788d67e76b7e6de85ba335731a068ef7cbac7b17504577f293d41c5ba3d1ff0::release::ReleaseAdminCap",
-    vaultPackageId: "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
+  const result = invokeWithAdminCap(tx, direct, {
+    target: `${ACTION}::sample::act`, arguments: [tx.object(B)], adminCapIndex: 1,
   });
-  expect(vaultId).toBe("0x296d2bb945c4104222a16636c94c35fc93e5ebc91fd95d0b7e0e3b1df6da3f4d");
-  expect(deriveVaultAdminCapId(
-    vaultId,
-    "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
-  )).toBe("0x4071674f4f4c05155d1a11096ddf1ee4a18dfe9777553432705af23d29213c57");
+  expect(result.$kind).toBe("Result");
+  expect(labels(tx)).toEqual(["sample::act"]);
 });
 
-test("withdraw and restore preserve the permanent Vault shell", () => {
+test("borrowed caps are enclosed by exact borrow/action/put-back ordering", () => {
   const tx = new Transaction();
-  const adminCap = withdrawVaultCapability(tx, {
+  invokeWithAdminCap(tx, vaulted(tx), {
+    target: `${ACTION}::sample::act`, arguments: [tx.object(A)], adminCapIndex: 1,
+  });
+  expect(labels(tx)).toEqual(["vault::borrow_as_admin", "sample::act", "vault::put_back"]);
+  const commands = tx.getData().commands as Array<{ MoveCall?: { arguments: Array<{ NestedResult?: [number, number] }> } }>;
+  expect(commands[1]!.MoveCall!.arguments[1]!.NestedResult).toEqual([0, 0]);
+  expect(commands[2]!.MoveCall!.arguments[2]!.NestedResult).toEqual([0, 1]);
+  expect(calls(tx).map((call) => call.typeArguments)).toEqual([
+    [CAP],
+    [],
+    [CAP],
+  ]);
+  expect(calls(tx).map((call) => call.package)).toEqual([
+    VAULT,
+    ACTION,
+    VAULT,
+  ]);
+});
+
+test("Vault and VaultAdminCap derivation match fixed on-chain vectors", () => {
+  const vaultId = deriveVaultId({
+    vaultRegistryId: `0x${"01".repeat(32)}`,
+    capId: `0x${"02".repeat(32)}`,
+    vaultPackageId: `0x${"03".repeat(32)}`,
+    capType: `0x${"04".repeat(32)}::release::ReleaseAdminCap`,
+  });
+  expect(vaultId).toBe(
+    "0x714b431c13c92bcab68db202a0869e29defad71151221bd17a9ad9e054a0a5b1",
+  );
+  expect(deriveVaultAdminCapId(vaultId, `0x${"03".repeat(32)}`)).toBe(
+    "0x19438d196d205b45b6853a9f90c097e08dcd2350d05d4eecac7f3e9a089011fc",
+  );
+});
+
+test("new custody configures result 0, shares it, and transfers result 1", () => {
+  const tx = new Transaction();
+  custodyNewAdminCap(tx, {
+    adminCap: tx.object(A),
+    vaultRegistry: tx.object(B),
+    capType: CAP,
+    vaultPackageId: VAULT,
+    owner: A,
+    configure: (vault, adminCap) =>
+      installCompositionRoyaltyPoolPlugin(tx, {
+        vault,
+        vaultAdminCap: adminCap,
+        compositionShareType: COMPOSITION_SHARE,
+        pluginPackageId: PLUGIN,
+      }),
+  });
+  expect(labels(tx)).toEqual([
+    "vault::new",
+    "composition_royalty_pool_plugin::install",
+    "vault::share",
+  ]);
+  const commands = tx.getData().commands;
+  expect(commands[1]!.MoveCall.arguments[0]!.NestedResult).toEqual([0, 0]);
+  expect(commands[1]!.MoveCall.arguments[1]!.NestedResult).toEqual([0, 1]);
+  expect(commands[2]!.MoveCall.arguments[0]!.NestedResult).toEqual([0, 0]);
+  expect(commands[3]!.$kind).toBe("TransferObjects");
+  expect(commands[3]!.TransferObjects.objects[0]!.NestedResult).toEqual([0, 1]);
+});
+
+test("withdraw and restore use the exact Vault package, cap type, and returned cap", () => {
+  const tx = new Transaction();
+  const cap = withdrawVaultCapability(tx, {
     vault: A,
-    vaultAdminCap: A,
+    vaultAdminCap: B,
     capType: CAP,
     vaultPackageId: VAULT,
   });
   restoreVaultCapability(tx, {
     vault: A,
-    vaultAdminCap: A,
-    adminCap,
+    vaultAdminCap: B,
+    adminCap: cap,
     capType: CAP,
     vaultPackageId: VAULT,
   });
-  expect(adminCap.$kind).toBe("Result");
-  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
-    "vault::withdraw_cap",
-    "vault::restore_cap",
-  ]);
+  expect(labels(tx)).toEqual(["vault::withdraw_cap", "vault::restore_cap"]);
+  expect(calls(tx).map((call) => call.package)).toEqual([VAULT, VAULT]);
+  expect(calls(tx).map((call) => call.typeArguments)).toEqual([[CAP], [CAP]]);
+  const restore = tx.getData().commands[1]!.MoveCall;
+  expect(restore.arguments[2]!.$kind).toBe("Result");
+  expect(restore.arguments[2]!.Result).toBe(0);
 });
 
-test("new capability custody shares the vault and transfers only VaultAdminCap", () => {
+test("only the three safe automation plugins can be installed", () => {
   const tx = new Transaction();
-  custodyNewAdminCap(tx, {
-    adminCap: tx.object(A),
-    vaultRegistry: VAULT_REGISTRY,
-    capType: CAP,
-    vaultPackageId: VAULT,
-    owner: A,
-    configure: (vault, vaultAdminCap) => {
-      installCompositionRoyaltyPoolPlugin(tx, {
-        vault,
-        vaultAdminCap,
-        compositionShareType: COMPOSITION_SHARE,
-        pluginPackageId: COMP_POOL_PLUGIN,
-      });
-    },
-  });
-  const labels = calls(tx).map((call) => `${call.module}::${call.function}`);
-  expect(labels).toEqual([
-    "vault::new",
-    "composition_royalty_pool::install",
-    "vault::share",
-    "vault::transfer_admin_cap",
+  const common = { vault: tx.object(A), vaultAdminCap: tx.object(B), pluginPackageId: PLUGIN };
+  installCompositionRoyaltyPoolPlugin(tx, { ...common, compositionShareType: COMPOSITION_SHARE });
+  installRecordingRoyaltyPoolPlugin(tx, { ...common, recordingShareType: RECORDING_SHARE, compositionShareType: COMPOSITION_SHARE });
+  installReleaseRevenueDistributorPlugin(tx, common);
+  expect(labels(tx)).toEqual([
+    "composition_royalty_pool_plugin::install",
+    "recording_royalty_pool_plugin::install",
+    "release_revenue_distributor_plugin::install",
   ]);
-  expect(calls(tx)[1]!.package).toBe(COMP_POOL_PLUGIN);
-  const data = tx.getData() as { commands: { $kind: string; MoveCall?: { module: string; function: string; arguments: { $kind: string; NestedResult?: [number, number] }[] } }[] };
-  expect(data.commands.some((command) => command.$kind === "TransferObjects")).toBe(false);
-  const transfer = data.commands.find((command) =>
-    command.MoveCall?.module === "vault" &&
-    command.MoveCall.function === "transfer_admin_cap"
-  )!.MoveCall!;
-  expect(transfer.arguments[0]!.NestedResult).toEqual([0, 1]); // VaultAdminCap, never the raw cap
+  expect("installPartyWalletPlugin" in vaultApi).toBe(false);
+  expect("installCompositionRoutedStakePlugin" in vaultApi).toBe(false);
+  expect("initializeCompositionRoyaltyPool" in vaultApi).toBe(false);
+  expect("initializeRecordingRoyaltyPool" in vaultApi).toBe(false);
 });
 
-test("plugins build their own witnesses and expose no client-side witness input", () => {
-  const tx = new Transaction();
-  installReleaseRevenueDistributorPlugin(tx, {
-    vault: tx.object(A),
-    vaultAdminCap: tx.object(A),
-    pluginPackageId: REVENUE_PLUGIN,
-  });
-  initializeCompositionRoyaltyPool(tx, {
-    vault: tx.object(A),
-    vaultAdminCap: tx.object(A),
-    composition: tx.object(A),
-    compositionShareType: COMPOSITION_SHARE,
-    currencyType: SUI,
-    pluginPackageId: COMP_POOL_PLUGIN,
-  });
-  const pluginCalls = calls(tx).filter((call) => call.package !== VAULT);
-  expect(pluginCalls.map((call) => call.function)).toEqual([
-    "install",
-    "initialize_pool",
-  ]);
-  expect(pluginCalls.every((call) => call.module !== "witness")).toBe(true);
-});
-
-test("royalty-pool constructors return the unshared pool for same-PTB registration", () => {
+test("pool construction targets the Action and returns an unshared pool", () => {
   const tx = new Transaction();
   const pool = newCompositionRoyaltyPool(tx, {
-    vault: tx.object(A),
-    vaultAdminCap: tx.object(A),
-    composition: tx.object(A),
-    compositionShareType: COMPOSITION_SHARE,
-    currencyType: SUI,
-    pluginPackageId: COMP_POOL_PLUGIN,
+    authority: vaulted(tx), composition: tx.object(A), compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI, actionPackageId: ACTION,
+  });
+  tx.moveCall({
+    target: `${B}::pool::share`,
+    typeArguments: [COMPOSITION_SHARE, SUI],
+    arguments: [pool],
   });
   expect(pool.$kind).toBe("Result");
-  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
-    "composition_royalty_pool::new_pool",
+  expect(labels(tx)).toEqual([
+    "vault::borrow_as_admin", "composition_royalty_pool::new_pool", "vault::put_back",
+    "pool::share",
   ]);
+  expect(calls(tx)[1]!.package).toBe(ACTION);
+  expect(tx.getData().commands[3]!.MoveCall.arguments[0]!.Result).toBe(1);
 });
 
-test("settlement cranks pipe the framework snapshot into exact plugin calls", () => {
+test("Party receive/redeem Actions return caller-controlled balances", () => {
   const tx = new Transaction();
-  settleCompositionRoyaltyPool(tx, {
-    vault: tx.object(A),
-    compositionId: A,
-    pool: tx.object(A),
-    compositionShareType: COMPOSITION_SHARE,
-    currencyType: SUI,
-    pluginPackageId: COMP_POOL_PLUGIN,
-  });
-  settleRecordingRoyaltyPool(tx, {
-    vault: tx.object(A),
-    recordingId: A,
-    pool: tx.object(A),
-    recordingShareType: RECORDING_SHARE,
-    compositionShareType: COMPOSITION_SHARE,
-    currencyType: SUI,
-    pluginPackageId: COMP_POOL_PLUGIN,
-  });
-  settleAndDistributeReleaseRevenue(tx, {
-    vault: tx.object(A),
-    releaseId: A,
-    currencyType: SUI,
-    pluginPackageId: REVENUE_PLUGIN,
-  });
-
-  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
-    "balance::settled_funds_value",
-    "composition_royalty_pool::redeem_and_deposit",
-    "balance::settled_funds_value",
-    "recording_royalty_pool::redeem_and_deposit",
-    "balance::settled_funds_value",
-    "release_revenue_distributor::redeem_and_distribute",
-  ]);
-  const data = tx.getData() as { commands: { MoveCall?: { arguments: { $kind: string; Result?: number }[] } }[] };
-  expect(data.commands[1]!.MoveCall!.arguments[3]).toMatchObject({ $kind: "Result", Result: 0 });
-  expect(data.commands[3]!.MoveCall!.arguments[3]).toMatchObject({ $kind: "Result", Result: 2 });
-  expect(data.commands[5]!.MoveCall!.arguments[2]).toMatchObject({ $kind: "Result", Result: 4 });
-});
-
-test("party-wallet monetary builders return composable Balance results", () => {
-  const tx = new Transaction();
-  const common = {
-    vault: tx.object(A),
-    party: tx.object(A),
-    vaultAdminCap: tx.object(A),
-    currencyType: SUI,
-    pluginPackageId: PARTY_WALLET_PLUGIN,
-  };
+  const authority = vaulted(tx);
   const received = receivePartyWalletBalance(tx, {
-    ...common,
-    coins: [{ objectId: A, version: "7", digest: "11111111111111111111111111111111" }],
+    authority, party: tx.object(A), actionPackageId: ACTION, currencyType: SUI,
+    coins: [{ objectId: C, version: "7", digest: "11111111111111111111111111111111" }],
   });
-  const redeemed = redeemPartyWalletBalance(tx, { ...common, value: 7n });
-  const settled = settlePartyWalletBalance(tx, {
-    ...common,
-    partyId: A,
+  const redeemed = redeemPartyWalletBalance(tx, {
+    authority, party: tx.object(A), actionPackageId: ACTION, currencyType: SUI, value: 7n,
   });
-
-  for (const balance of [received, redeemed, settled]) {
-    const coin = tx.moveCall({
-      target: "0x2::coin::from_balance",
-      typeArguments: [SUI],
-      arguments: [balance],
-    });
+  for (const balance of [received, redeemed]) {
+    const coin = tx.moveCall({ target: "0x2::coin::from_balance", typeArguments: [SUI], arguments: [balance] });
     tx.transferObjects([coin], tx.pure.address(A));
   }
-
-  expect([received.$kind, redeemed.$kind, settled.$kind]).toEqual([
-    "Result",
-    "Result",
-    "Result",
-  ]);
-  expect(
-    calls(tx)
-      .filter((call) => call.module === "party_wallet")
-      .map((call) => call.function),
-  ).toEqual(["receive_coins", "redeem_balance", "redeem_balance"]);
-});
-
-test("routed-stake registration pins the vault, composition, recording, and canonical pool", () => {
-  const tx = new Transaction();
-  registerCompositionRoutedStake(tx, {
-    vault: tx.object(A),
-    vaultAdminCap: tx.object(A),
-    composition: tx.object(A),
-    recording: tx.object(A),
-    routedStake: tx.object(A),
-    royaltyPool: tx.object(A),
-    compositionShareType: COMPOSITION_SHARE,
-    recordingShareType: RECORDING_SHARE,
-    currencyType: SUI,
-    pluginPackageId: ROUTED_PLUGIN,
+  expect(calls(tx).filter((call) => call.module === "party_wallet").map((call) => call.function))
+    .toEqual(["receive_balance", "redeem_balance"]);
+  expect(calls(tx).filter((call) => call.module === "vault" && call.function === "put_back")).toHaveLength(2);
+  expect(calls(tx).filter((call) => call.module === "party_wallet").map((call) => call.typeArguments))
+    .toEqual([[SUI], [SUI]]);
+  expect(calls(tx).filter((call) => call.module === "coin" && call.function === "from_balance"))
+    .toHaveLength(2);
+  expect(tx.getData().commands.filter((command) => command.$kind === "TransferObjects"))
+    .toHaveLength(2);
+  expect(tx.getData().inputs).toContainEqual({
+    Object: {
+      Receiving: {
+        objectId: C,
+        version: "7",
+        digest: "11111111111111111111111111111111",
+      },
+      $kind: "Receiving",
+    },
+    $kind: "Object",
   });
-  const call = calls(tx)[0]!;
-  expect(`${call.module}::${call.function}`).toBe(
-    "composition_routed_stake::register",
-  );
-  expect(call.typeArguments).toEqual([
-    RECORDING_SHARE,
-    COMPOSITION_SHARE,
-    SUI,
-  ]);
 });
 
-test("receiving coin vectors use exact Receiving inputs, never ordinary object inputs", () => {
+test("routed-stake lifecycle targets Actions and returned assets remain composable", () => {
   const tx = new Transaction();
-  receivingCoins(tx, SUI, [{ objectId: A, version: "7", digest: "11111111111111111111111111111111" }]);
-  const inputs = (tx.getData() as { inputs: { $kind: string; Object?: { $kind?: string } }[] }).inputs;
-  expect(inputs.some((input) => input.$kind === "Object" && input.Object?.$kind === "Receiving")).toBe(true);
+  const common = { authority: direct, actionPackageId: ACTION, compositionShareType: COMPOSITION_SHARE, recordingShareType: RECORDING_SHARE };
+  const routed = createCompositionRoutedStake(tx, {
+    ...common, composition: tx.object(A), recording: tx.object(B), value: 5n,
+  });
+  registerCompositionRoutedStake(tx, {
+    ...common, composition: tx.object(A), recording: tx.object(B), routedStake: routed,
+    royaltyPool: tx.object(B), currencyType: SUI,
+  });
+  const shares = unstakeCompositionRoutedStake(tx, {
+    ...common, composition: tx.object(A), routedStake: routed,
+  });
+  restakeCompositionRoutedStake(tx, {
+    ...common, composition: tx.object(A), routedStake: routed, shares,
+  });
+  expect(calls(tx).filter((call) => call.module === "composition_routed_stake").map((call) => call.function))
+    .toEqual(["create_stake", "register", "unstake", "restake"]);
+  expect(calls(tx).filter((call) => call.module === "composition_routed_stake").every((call) => call.package === ACTION)).toBe(true);
+});
+
+test("explicit Release amounts remain raw Action composition only", () => {
+  const tx = new Transaction();
+  redeemAndDistributeReleaseRevenue(tx, {
+    authority: vaulted(tx),
+    release: tx.object(A),
+    currencyType: SUI,
+    actionPackageId: ACTION,
+    value: 9n,
+  });
+  expect(labels(tx)).toEqual([
+    "vault::borrow_as_admin",
+    "release_revenue_distributor::redeem_and_distribute",
+    "vault::put_back",
+  ]);
+  expect(calls(tx)[1]).toMatchObject({
+    package: ACTION,
+    typeArguments: [SUI],
+  });
+  expect("redeemAndDistribute" in releasePluginContract).toBe(false);
+});
+
+test("settlement cranks use suffixed plugin modules in exact order", () => {
+  const tx = new Transaction();
+  settleCompositionRoyaltyPool(tx, {
+    vault: tx.object(A), compositionId: A, pool: tx.object(B), compositionShareType: COMPOSITION_SHARE,
+    currencyType: SUI, pluginPackageId: PLUGIN,
+  });
+  settleRecordingRoyaltyPool(tx, {
+    vault: tx.object(A), recordingId: A, pool: tx.object(B), recordingShareType: RECORDING_SHARE,
+    compositionShareType: COMPOSITION_SHARE, currencyType: SUI, pluginPackageId: PLUGIN,
+  });
+  settleAndDistributeReleaseRevenue(tx, {
+    vault: tx.object(A), releaseId: A, currencyType: SUI, pluginPackageId: PLUGIN,
+  });
+  expect(labels(tx)).toEqual([
+    "balance::settled_funds_value", "composition_royalty_pool_plugin::redeem_and_deposit",
+    "balance::settled_funds_value", "recording_royalty_pool_plugin::redeem_and_deposit",
+    "release_revenue_distributor_plugin::redeem_all_and_distribute",
+  ]);
+  const releaseCall = tx.getData().commands.find(
+    (command) =>
+      command.$kind === "MoveCall" &&
+      command.MoveCall.module === "release_revenue_distributor_plugin",
+  );
+  expect(releaseCall?.MoveCall.arguments).toHaveLength(3);
+  const rootArgument = releaseCall?.MoveCall.arguments[2];
+  expect(rootArgument?.$kind).toBe("Input");
+  const rootInput = tx.getData().inputs[rootArgument!.Input];
+  expect(rootInput?.UnresolvedObject?.objectId).toBe(
+    `0x${"acc".padStart(64, "0")}`,
+  );
 });

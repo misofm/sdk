@@ -5,7 +5,7 @@
 
 /**
  * A simple library that enables hot-potato-locked borrow mechanics.
- * 
+ *
  * With Programmable transactions, it is possible to borrow a value within a
  * transaction, use it and put back in the end. Hot-potato `Borrow` makes sure the
  * object is returned and was not swapped for another one.

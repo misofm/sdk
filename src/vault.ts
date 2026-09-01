@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Capability custody and vault-plugin transaction builders.
+ * Capability custody, raw-cap Action, and safe crank-plugin transaction builders.
  *
  * A direct admin cap remains supported for existing works. New work should give
  * the owner a `VaultAdminCap<AdminCap>` and keep the raw admin cap inside the
  * shared Vault. Every authorized call borrows and returns the raw cap inside
  * one helper; borrowed capabilities are never exposed to application code.
+ * Party wallet and routed-stake operations remain Actions because their useful
+ * results must stay under the caller's control.
  */
 
 import type { BcsType } from "@mysten/sui/bcs";
@@ -19,11 +21,10 @@ import type {
 } from "@mysten/sui/transactions";
 import { deriveObjectID, normalizeStructTag } from "@mysten/sui/utils";
 import * as vault from "./contracts/vault/vault.ts";
-import * as compositionRoyaltyPool from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
-import * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
-import * as partyWallet from "./contracts/party_wallet/party_wallet.ts";
-import * as compositionRoutedStake from "./contracts/composition_routed_stake/composition_routed_stake.ts";
 import * as releaseRevenueDistributor from "./contracts/release_revenue_distributor/release_revenue_distributor.ts";
+import * as compositionRoyaltyPoolPlugin from "./contracts/composition_royalty_pool_plugin/composition_royalty_pool_plugin.ts";
+import * as recordingRoyaltyPoolPlugin from "./contracts/recording_royalty_pool_plugin/recording_royalty_pool_plugin.ts";
+import * as releaseRevenueDistributorPlugin from "./contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin.ts";
 import * as routedStake from "./contracts/routed_stake/routed_stake.ts";
 
 /** A legacy work whose raw protocol admin cap is still address-owned. */
@@ -232,7 +233,7 @@ export function restoreVaultCapability(
   }));
 }
 
-/** Transfer the key-only VaultAdminCap through the Vault module. */
+/** Transfer the `key + store` VaultAdminCap to its next owner. */
 export function transferVaultAdminCap(
   tx: Transaction,
   params: {
@@ -242,15 +243,11 @@ export function transferVaultAdminCap(
     readonly vaultPackageId: string;
   },
 ): void {
-  tx.add(vault.transferAdminCap({
-    package: params.vaultPackageId,
-    typeArguments: [params.capType],
-    arguments: [object(tx, params.vaultAdminCap), params.owner],
-  }));
+  tx.transferObjects([object(tx, params.vaultAdminCap)], params.owner);
 }
 
 /**
- * Custody a freshly-created raw admin cap, optionally install plugins, share the
+ * Custody a freshly-created raw admin cap, optionally configure it, share the
  * Vault, then transfer only the VaultAdminCap to its owner.
  */
 export function custodyNewAdminCap(
@@ -326,7 +323,7 @@ export function installCompositionRoyaltyPoolPlugin(
   params: CompositionRoyaltyPoolPluginParams,
 ): void {
   tx.add(
-    compositionRoyaltyPool.install({
+    compositionRoyaltyPoolPlugin.install({
       package: params.pluginPackageId,
       typeArguments: [params.compositionShareType],
       arguments: [params.vault, params.vaultAdminCap],
@@ -338,41 +335,34 @@ export function uninstallCompositionRoyaltyPoolPlugin(
   tx: Transaction,
   params: CompositionRoyaltyPoolPluginParams,
 ): void {
-  tx.add(compositionRoyaltyPool.uninstall({ package: params.pluginPackageId, typeArguments: [params.compositionShareType], arguments: [params.vault, params.vaultAdminCap] }));
+  tx.add(
+    compositionRoyaltyPoolPlugin.uninstall({
+      package: params.pluginPackageId,
+      typeArguments: [params.compositionShareType],
+      arguments: [params.vault, params.vaultAdminCap],
+    }),
+  );
 }
 
-export interface InitializeCompositionRoyaltyPoolParams
-  extends CompositionRoyaltyPoolPluginParams {
+export interface NewCompositionRoyaltyPoolParams {
+  readonly authority: AdminCapAuthority;
   readonly composition: TransactionObjectArgument;
+  readonly actionPackageId: string;
   readonly currencyType: string;
+  readonly compositionShareType: string;
 }
 
 /** Create the canonical pool without sharing it so callers can configure fresh stakes first. */
 export function newCompositionRoyaltyPool(
   tx: Transaction,
-  params: InitializeCompositionRoyaltyPoolParams,
+  params: NewCompositionRoyaltyPoolParams,
 ): TransactionObjectArgument {
-  return tx.add(
-    compositionRoyaltyPool.newPool({
-      package: params.pluginPackageId,
-      typeArguments: [params.compositionShareType, params.currencyType],
-      arguments: [params.vault, params.composition, params.vaultAdminCap],
-    }),
-  );
-}
-
-/** Create and immediately share the canonical Composition royalty pool. */
-export function initializeCompositionRoyaltyPool(
-  tx: Transaction,
-  params: InitializeCompositionRoyaltyPoolParams,
-): void {
-  tx.add(
-    compositionRoyaltyPool.initializePool({
-      package: params.pluginPackageId,
-      typeArguments: [params.compositionShareType, params.currencyType],
-      arguments: [params.vault, params.composition, params.vaultAdminCap],
-    }),
-  );
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_royalty_pool::new_pool`,
+    typeArguments: [params.compositionShareType, params.currencyType],
+    arguments: [params.composition],
+    adminCapIndex: 1,
+  });
 }
 
 export interface CompositionRoyaltyPoolCrankParams {
@@ -405,13 +395,13 @@ export function asU64(name: string, value: U64Input): bigint {
   return parsed;
 }
 
-function asU64Argument(name: string, value: U64Argument): bigint | TransactionArgument {
+function asU64Argument(tx: Transaction, name: string, value: U64Argument): TransactionArgument {
   if (
     typeof value === "bigint" ||
     typeof value === "string" ||
     typeof value === "number"
   ) {
-    return asU64(name, value);
+    return tx.pure.u64(asU64(name, value));
   }
   return value;
 }
@@ -445,14 +435,14 @@ export function redeemAndDepositCompositionRoyaltyPool(
   },
 ): void {
   tx.add(
-    compositionRoyaltyPool.redeemAndDeposit({
+    compositionRoyaltyPoolPlugin.redeemAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [params.compositionShareType, params.currencyType],
       arguments: [
         params.vault,
         params.composition,
         params.pool,
-        asU64Argument("value", params.value),
+        asU64Argument(tx, "value", params.value),
       ],
     }),
   );
@@ -484,7 +474,7 @@ export function receiveCompositionRoyaltyPool(
   params: CompositionRoyaltyPoolCrankParams & { readonly coins: readonly ReceivingObjectRef[] },
 ): void {
   tx.add(
-    compositionRoyaltyPool.receiveAndDeposit({
+    compositionRoyaltyPoolPlugin.receiveAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [params.compositionShareType, params.currencyType],
       arguments: [
@@ -510,7 +500,7 @@ export function installRecordingRoyaltyPoolPlugin(
   params: RecordingRoyaltyPoolPluginParams,
 ): void {
   tx.add(
-    recordingRoyaltyPool.install({
+    recordingRoyaltyPoolPlugin.install({
       package: params.pluginPackageId,
       typeArguments: [params.recordingShareType],
       arguments: [params.vault, params.vaultAdminCap],
@@ -518,40 +508,11 @@ export function installRecordingRoyaltyPoolPlugin(
   );
 }
 
-export interface PartyWalletPluginParams {
-  readonly vault: TransactionObjectArgument;
-  readonly vaultAdminCap: TransactionObjectArgument;
-  readonly pluginPackageId: string;
-}
-
-/** Install the Party wallet plugin; its canonical witness stays internal. */
-export function installPartyWalletPlugin(
-  tx: Transaction,
-  params: PartyWalletPluginParams,
-): void {
-  tx.add(
-    partyWallet.install({
-      package: params.pluginPackageId,
-      arguments: [params.vault, params.vaultAdminCap],
-    }),
-  );
-}
-
-export function uninstallPartyWalletPlugin(
-  tx: Transaction,
-  params: PartyWalletPluginParams,
-): void {
-  tx.add(
-    partyWallet.uninstall({
-      package: params.pluginPackageId,
-      arguments: [params.vault, params.vaultAdminCap],
-    }),
-  );
-}
-
-export interface PartyWalletFundsParams extends PartyWalletPluginParams {
+export interface PartyWalletFundsParams {
+  readonly authority: AdminCapAuthority;
   readonly party: TransactionObjectArgument;
   readonly currencyType: string;
+  readonly actionPackageId: string;
 }
 
 /** Receive selected Party-owned coins and return their merged Balance. */
@@ -559,18 +520,12 @@ export function receivePartyWalletBalance(
   tx: Transaction,
   params: PartyWalletFundsParams & { readonly coins: readonly ReceivingObjectRef[] },
 ): TransactionArgument {
-  return tx.add(
-    partyWallet.receiveCoins({
-      package: params.pluginPackageId,
-      typeArguments: [params.currencyType],
-      arguments: [
-        params.vault,
-        params.party,
-        params.vaultAdminCap,
-        receivingCoins(tx, params.currencyType, params.coins),
-      ],
-    }),
-  );
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::party_wallet::receive_balance`,
+    typeArguments: [params.currencyType],
+    arguments: [params.party, receivingCoins(tx, params.currencyType, params.coins)],
+    adminCapIndex: 1,
+  });
 }
 
 /** Redeem an exact Party accumulator amount and return its Balance. */
@@ -578,18 +533,12 @@ export function redeemPartyWalletBalance(
   tx: Transaction,
   params: PartyWalletFundsParams & { readonly value: U64Argument },
 ): TransactionArgument {
-  return tx.add(
-    partyWallet.redeemBalance({
-      package: params.pluginPackageId,
-      typeArguments: [params.currencyType],
-      arguments: [
-        params.vault,
-        params.party,
-        params.vaultAdminCap,
-        asU64Argument("value", params.value),
-      ],
-    }),
-  );
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::party_wallet::redeem_balance`,
+    typeArguments: [params.currencyType],
+    arguments: [params.party, asU64Argument(tx, "value", params.value)],
+    adminCapIndex: 1,
+  });
 }
 
 /** Redeem exactly the framework-reported settled Party funds. */
@@ -616,49 +565,39 @@ export function uninstallRecordingRoyaltyPoolPlugin(
   tx: Transaction,
   params: RecordingRoyaltyPoolPluginParams,
 ): void {
-  tx.add(recordingRoyaltyPool.uninstall({ package: params.pluginPackageId, typeArguments: [params.recordingShareType], arguments: [params.vault, params.vaultAdminCap] }));
+  tx.add(
+    recordingRoyaltyPoolPlugin.uninstall({
+      package: params.pluginPackageId,
+      typeArguments: [params.recordingShareType],
+      arguments: [params.vault, params.vaultAdminCap],
+    }),
+  );
 }
 
-export interface InitializeRecordingRoyaltyPoolParams
-  extends RecordingRoyaltyPoolPluginParams {
+export interface NewRecordingRoyaltyPoolParams {
+  readonly authority: AdminCapAuthority;
   readonly recording: TransactionObjectArgument;
+  readonly actionPackageId: string;
   readonly currencyType: string;
+  readonly recordingShareType: string;
+  readonly compositionShareType: string;
 }
 
 /** Create the canonical pool without sharing it so callers can configure fresh stakes first. */
 export function newRecordingRoyaltyPool(
   tx: Transaction,
-  params: InitializeRecordingRoyaltyPoolParams,
+  params: NewRecordingRoyaltyPoolParams,
 ): TransactionObjectArgument {
-  return tx.add(
-    recordingRoyaltyPool.newPool({
-      package: params.pluginPackageId,
-      typeArguments: [
-        params.recordingShareType,
-        params.compositionShareType,
-        params.currencyType,
-      ],
-      arguments: [params.vault, params.recording, params.vaultAdminCap],
-    }),
-  );
-}
-
-/** Create and immediately share the canonical Recording royalty pool. */
-export function initializeRecordingRoyaltyPool(
-  tx: Transaction,
-  params: InitializeRecordingRoyaltyPoolParams,
-): void {
-  tx.add(
-    recordingRoyaltyPool.initializePool({
-      package: params.pluginPackageId,
-      typeArguments: [
-        params.recordingShareType,
-        params.compositionShareType,
-        params.currencyType,
-      ],
-      arguments: [params.vault, params.recording, params.vaultAdminCap],
-    }),
-  );
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::recording_royalty_pool::new_pool`,
+    typeArguments: [
+      params.recordingShareType,
+      params.compositionShareType,
+      params.currencyType,
+    ],
+    arguments: [params.recording],
+    adminCapIndex: 1,
+  });
 }
 
 export interface RecordingRoyaltyPoolCrankParams {
@@ -679,7 +618,7 @@ export function redeemAndDepositRecordingRoyaltyPool(
   },
 ): void {
   tx.add(
-    recordingRoyaltyPool.redeemAndDeposit({
+    recordingRoyaltyPoolPlugin.redeemAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [
         params.recordingShareType,
@@ -690,7 +629,7 @@ export function redeemAndDepositRecordingRoyaltyPool(
         params.vault,
         params.recording,
         params.pool,
-        asU64Argument("value", params.value),
+        asU64Argument(tx, "value", params.value),
       ],
     }),
   );
@@ -722,7 +661,7 @@ export function receiveRecordingRoyaltyPool(
   params: RecordingRoyaltyPoolCrankParams & { readonly coins: readonly ReceivingObjectRef[] },
 ): void {
   tx.add(
-    recordingRoyaltyPool.receiveAndDeposit({
+    recordingRoyaltyPoolPlugin.receiveAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [
         params.recordingShareType,
@@ -750,7 +689,7 @@ export function installReleaseRevenueDistributorPlugin(
   params: ReleaseRevenueDistributorPluginParams,
 ): void {
   tx.add(
-    releaseRevenueDistributor.install({
+    releaseRevenueDistributorPlugin.install({
       package: params.pluginPackageId,
       arguments: [params.vault, params.vaultAdminCap],
     }),
@@ -761,28 +700,54 @@ export function uninstallReleaseRevenueDistributorPlugin(
   tx: Transaction,
   params: ReleaseRevenueDistributorPluginParams,
 ): void {
-  tx.add(releaseRevenueDistributor.uninstall({ package: params.pluginPackageId, arguments: [params.vault, params.vaultAdminCap] }));
+  tx.add(releaseRevenueDistributorPlugin.uninstall({ package: params.pluginPackageId, arguments: [params.vault, params.vaultAdminCap] }));
 }
 
-/** Permissionless crank: redeem release-held money and route it by track BPS. */
+export interface ReleaseRevenueDistributorActionParams {
+  readonly authority: AdminCapAuthority;
+  readonly release: TransactionObjectArgument;
+  readonly currencyType: string;
+  readonly actionPackageId: string;
+}
+
+/** Raw-admin composition: redeem an explicit amount and route it by track BPS. */
 export function redeemAndDistributeReleaseRevenue(
+  tx: Transaction,
+  params: ReleaseRevenueDistributorActionParams & {
+    readonly value: U64Argument;
+  },
+): void {
+  invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::release_revenue_distributor::redeem_and_distribute`,
+    typeArguments: [params.currencyType],
+    arguments: [params.release, asU64Argument(tx, "value", params.value)],
+    adminCapIndex: 1,
+  });
+}
+
+/** Fixed permissionless crank: redeem the commit-settled Release balance. */
+export function redeemAllAndDistributeReleaseRevenue(
   tx: Transaction,
   params: Omit<ReleaseRevenueDistributorPluginParams, "vaultAdminCap"> & {
     readonly release: TransactionObjectArgument;
     readonly currencyType: string;
-    readonly value: U64Argument;
+    readonly accumulatorRoot?: ObjectInput;
   },
 ): void {
   tx.add(
-    releaseRevenueDistributor.redeemAndDistribute({
+    releaseRevenueDistributorPlugin.redeemAllAndDistribute({
       package: params.pluginPackageId,
       typeArguments: [params.currencyType],
-      arguments: [params.vault, params.release, asU64Argument("value", params.value)],
+      arguments: [
+        params.vault,
+        params.release,
+        object(tx, params.accumulatorRoot ?? SUI_ACCUMULATOR_ROOT_OBJECT_ID),
+      ],
     }),
   );
 }
 
-/** Redeem exactly the framework-reported settled Release funds and route them. */
+/** Convenience form of the fixed crank for a known Release object ID. */
 export function settleAndDistributeReleaseRevenue(
   tx: Transaction,
   params: Omit<ReleaseRevenueDistributorPluginParams, "vaultAdminCap"> & {
@@ -791,15 +756,9 @@ export function settleAndDistributeReleaseRevenue(
     readonly accumulatorRoot?: ObjectInput;
   },
 ): void {
-  const value = settledFundsValue(tx, {
-    address: params.releaseId,
-    currencyType: params.currencyType,
-    accumulatorRoot: params.accumulatorRoot,
-  });
-  redeemAndDistributeReleaseRevenue(tx, {
+  redeemAllAndDistributeReleaseRevenue(tx, {
     ...params,
     release: tx.object(params.releaseId),
-    value,
   });
 }
 
@@ -813,7 +772,7 @@ export function receiveAndDistributeReleaseRevenue(
   },
 ): void {
   tx.add(
-    releaseRevenueDistributor.receiveAndDistribute({
+    releaseRevenueDistributorPlugin.receiveAndDistribute({
       package: params.pluginPackageId,
       typeArguments: [params.currencyType],
       arguments: [
@@ -825,35 +784,14 @@ export function receiveAndDistributeReleaseRevenue(
   );
 }
 
-export interface CompositionRoutedStakePluginParams {
-  readonly vault: TransactionObjectArgument;
-  readonly vaultAdminCap: TransactionObjectArgument;
+export interface CompositionRoutedStakeActionParams {
+  readonly authority: AdminCapAuthority;
   readonly compositionShareType: string;
-  readonly pluginPackageId: string;
-}
-
-export function installCompositionRoutedStakePlugin(
-  tx: Transaction,
-  params: CompositionRoutedStakePluginParams,
-): void {
-  tx.add(
-    compositionRoutedStake.install({
-      package: params.pluginPackageId,
-      typeArguments: [params.compositionShareType],
-      arguments: [params.vault, params.vaultAdminCap],
-    }),
-  );
-}
-
-export function uninstallCompositionRoutedStakePlugin(
-  tx: Transaction,
-  params: CompositionRoutedStakePluginParams,
-): void {
-  tx.add(compositionRoutedStake.uninstall({ package: params.pluginPackageId, typeArguments: [params.compositionShareType], arguments: [params.vault, params.vaultAdminCap] }));
+  readonly actionPackageId: string;
 }
 
 export interface CreateCompositionRoutedStakeParams
-  extends CompositionRoutedStakePluginParams {
+  extends CompositionRoutedStakeActionParams {
   readonly recording: TransactionObjectArgument;
   readonly composition: TransactionObjectArgument;
   readonly recordingShareType: string;
@@ -863,24 +801,17 @@ export interface CreateCompositionRoutedStakeParams
 export function createCompositionRoutedStake(
   tx: Transaction,
   params: CreateCompositionRoutedStakeParams,
-): void {
-  tx.add(
-    compositionRoutedStake.createStake({
-      package: params.pluginPackageId,
-      typeArguments: [params.recordingShareType, params.compositionShareType],
-      arguments: [
-        params.vault,
-        params.composition,
-        params.recording,
-        params.vaultAdminCap,
-        asU64("value", params.value),
-      ],
-    }),
-  );
+): TransactionObjectArgument {
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_routed_stake::create_stake`,
+    typeArguments: [params.recordingShareType, params.compositionShareType],
+    arguments: [params.composition, params.recording, tx.pure.u64(asU64("value", params.value))],
+    adminCapIndex: 1,
+  });
 }
 
 export interface ManageCompositionRoutedStakeParams
-  extends CompositionRoutedStakePluginParams {
+  extends CompositionRoutedStakeActionParams {
   readonly composition: TransactionObjectArgument;
   readonly recording: TransactionObjectArgument;
   readonly routedStake: TransactionObjectArgument;
@@ -894,24 +825,12 @@ export function registerCompositionRoutedStake(
   tx: Transaction,
   params: ManageCompositionRoutedStakeParams,
 ): void {
-  tx.add(
-    compositionRoutedStake.register({
-      package: params.pluginPackageId,
-      typeArguments: [
-        params.recordingShareType,
-        params.compositionShareType,
-        params.currencyType,
-      ],
-      arguments: [
-        params.vault,
-        params.composition,
-        params.recording,
-        params.routedStake,
-        params.royaltyPool,
-        params.vaultAdminCap,
-      ],
-    }),
-  );
+  invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_routed_stake::register`,
+    typeArguments: [params.recordingShareType, params.compositionShareType, params.currencyType],
+    arguments: [params.composition, params.recording, params.routedStake, params.royaltyPool],
+    adminCapIndex: 1,
+  });
 }
 
 /** Unregister a routed stake after pending rewards have been swept. */
@@ -919,65 +838,40 @@ export function unregisterCompositionRoutedStake(
   tx: Transaction,
   params: ManageCompositionRoutedStakeParams,
 ): void {
-  tx.add(
-    compositionRoutedStake.unregister({
-      package: params.pluginPackageId,
-      typeArguments: [
-        params.recordingShareType,
-        params.compositionShareType,
-        params.currencyType,
-      ],
-      arguments: [
-        params.vault,
-        params.composition,
-        params.recording,
-        params.routedStake,
-        params.royaltyPool,
-        params.vaultAdminCap,
-      ],
-    }),
-  );
+  invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_routed_stake::unregister`,
+    typeArguments: [params.recordingShareType, params.compositionShareType, params.currencyType],
+    arguments: [params.composition, params.recording, params.routedStake, params.royaltyPool],
+    adminCapIndex: 1,
+  });
 }
 
-/** Return routed principal to the Composition address, never to the caller. */
+/** Unstake and return the routed principal for caller-selected composition. */
 export function unstakeCompositionRoutedStake(
   tx: Transaction,
   params: Omit<ManageCompositionRoutedStakeParams, "recording" | "royaltyPool" | "currencyType">,
-): void {
-  tx.add(
-    compositionRoutedStake.unstake({
-      package: params.pluginPackageId,
-      typeArguments: [params.recordingShareType, params.compositionShareType],
-      arguments: [
-        params.vault,
-        params.composition,
-        params.routedStake,
-        params.vaultAdminCap,
-      ],
-    }),
-  );
+): TransactionObjectArgument {
+  return invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_routed_stake::unstake`,
+    typeArguments: [params.recordingShareType, params.compositionShareType],
+    arguments: [params.composition, params.routedStake],
+    adminCapIndex: 1,
+  });
 }
 
-/** Refill an empty routed stake from Recording shares held by the Composition. */
+/** Refill an empty routed stake with caller-supplied Recording shares. */
 export function restakeCompositionRoutedStake(
   tx: Transaction,
   params: Omit<ManageCompositionRoutedStakeParams, "recording" | "royaltyPool" | "currencyType"> & {
-    readonly value: U64Input;
+    readonly shares: TransactionArgument;
   },
 ): void {
-  tx.add(
-    compositionRoutedStake.restake({
-      package: params.pluginPackageId,
-      typeArguments: [params.recordingShareType, params.compositionShareType],
-      arguments: [
-        params.vault,
-        params.composition,
-        params.routedStake,
-        params.vaultAdminCap,
-        asU64("value", params.value),
-      ],
-    }),
-  );
+  invokeWithAdminCap(tx, params.authority, {
+    target: `${params.actionPackageId}::composition_routed_stake::restake`,
+    typeArguments: [params.recordingShareType, params.compositionShareType],
+    arguments: [params.composition, params.routedStake, params.shares],
+    adminCapIndex: 1,
+  });
 }
 
 /** Permissionlessly sweep a routed stake's accrued rewards into its parent pool. */

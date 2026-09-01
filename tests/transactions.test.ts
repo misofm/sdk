@@ -344,11 +344,5 @@ test("release construction passes the exact shared registry as the first core re
         command.MoveCall.function === "share",
     ),
   ).toBe(true);
-  expect(
-    data.commands.some(
-      (command) =>
-        command.MoveCall?.module === "vault" &&
-        command.MoveCall.function === "transfer_admin_cap",
-    ),
-  ).toBe(true);
+  expect(data.commands.some((command) => command.$kind === "TransferObjects")).toBe(true);
 });

@@ -23,7 +23,11 @@ import {
   deriveReleaseAdminCapId,
 } from "@misonetwork/sdk";
 import { derivePartyAdminCapId } from "@misonetwork/sdk/party";
-import type { MisoPlatformDeployment } from "./deployments.ts";
+import {
+  requireOperationsDeployment,
+  type AvailableOperationsDeployment,
+  type MisoPlatformDeployment,
+} from "./deployments.ts";
 import type { TxThunk } from "./transactions.ts";
 import {
   createShareStakes,
@@ -62,11 +66,7 @@ import {
   deriveVaultAdminCapId,
   directAdminCap,
   disposeNewAdminCap,
-  initializeCompositionRoyaltyPool,
-  initializeRecordingRoyaltyPool,
-  installCompositionRoutedStakePlugin,
   installCompositionRoyaltyPoolPlugin,
-  installPartyWalletPlugin,
   installRecordingRoyaltyPoolPlugin,
   installReleaseRevenueDistributorPlugin,
   invokeWithAdminCap,
@@ -103,8 +103,6 @@ export type PublicationParty =
       readonly create: "individual" | "group";
       readonly name: string;
       readonly custody: PublicationCustody;
-      /** Defaults to true with Vault custody. */
-      readonly installWallet?: boolean;
     };
 
 export interface PublicationCompositionCredit {
@@ -139,7 +137,6 @@ export interface PublicationComposition {
   readonly custody: PublicationCustody;
   readonly credits?: PublicationCompositionCredit[];
   readonly royaltyPool?: { readonly currencyType: string };
-  readonly routedStake?: boolean;
 }
 
 type PublicationRecordingParent =
@@ -271,6 +268,23 @@ function pressingCapType(p: AtomicPublicationParams): string {
   return `${requireRecordSalesDeployment(p.deployment.recordSales).recordPackageId}::pressing::PressingAdminCap`;
 }
 
+function publicationUsesVault(p: AtomicPublicationParams): boolean {
+  return (
+    p.parties.some((node) => "create" in node && node.custody.kind === "vault") ||
+    p.compositions.some((node) => node.custody.kind === "vault") ||
+    p.recordings.some((node) => node.custody.kind === "vault") ||
+    p.release?.custody.kind === "vault" ||
+    p.release?.tracks.some((node) =>
+      "authority" in node && node.authority.kind === "vault"
+    ) === true ||
+    p.pressing?.custody.kind === "vault"
+  );
+}
+
+function operations(p: AtomicPublicationParams): AvailableOperationsDeployment {
+  return requireOperationsDeployment(p.deployment.operations);
+}
+
 function custody(
   p: AtomicPublicationParams,
   selected: PublicationCustody,
@@ -278,12 +292,13 @@ function custody(
   configure?: Exclude<AdminCapCustody, { kind: "direct" }>["configure"],
 ): AdminCapCustody {
   if (selected.kind === "direct") return { kind: "direct", owner: selected.owner };
+  const available = operations(p);
   return {
     kind: "vault",
     owner: selected.owner,
-    vaultRegistry: p.deployment.objects.vaultRegistry,
+    vaultRegistry: available.vault.registryId,
     capType,
-    vaultPackageId: p.deployment.packages.vault,
+    vaultPackageId: available.vault.packageId,
     configure,
   };
 }
@@ -404,6 +419,7 @@ function publishComposition(
   node: PublicationComposition,
   parts: WorkParts,
 ): void {
+  const available = node.custody.kind === "vault" ? operations(p) : undefined;
   const stakes = allocatePublicationShares(tx, p, node, parts.balance);
   const typeArguments: [string] = [node.shareType];
   if (node.custody.kind === "direct") {
@@ -418,45 +434,42 @@ function publishComposition(
   }
   custodyNewAdminCap(tx, {
     adminCap: parts.adminCap,
-    vaultRegistry: p.deployment.objects.vaultRegistry,
+    vaultRegistry: available!.vault.registryId,
     capType: compositionCapType(p, node.shareType),
-    vaultPackageId: p.deployment.packages.vault,
+    vaultPackageId: available!.vault.packageId,
     owner: node.custody.owner,
     configure: (vault, vaultAdminCap) => {
       if (node.royaltyPool) {
         installCompositionRoyaltyPoolPlugin(tx, {
           vault, vaultAdminCap, compositionShareType: node.shareType,
-          pluginPackageId: p.deployment.packages.vaultCompositionRoyaltyPoolPlugin,
+          pluginPackageId: available!.plugins.compositionRoyaltyPool,
         });
+        const authority: AdminCapAuthority = {
+          kind: "vault", vault, vaultAdminCap,
+          capType: compositionCapType(p, node.shareType),
+          vaultPackageId: available!.vault.packageId,
+        };
         const poolParams = {
-          vault, vaultAdminCap, composition: parts.work,
+          authority, composition: parts.work,
           compositionShareType: node.shareType,
           currencyType: node.royaltyPool.currencyType,
-          pluginPackageId: p.deployment.packages.vaultCompositionRoyaltyPoolPlugin,
+          actionPackageId: available!.actions.compositionRoyaltyPool,
         };
+        const pool = newCompositionRoyaltyPool(tx, poolParams);
         if (stakes.length > 0) {
-          const pool = newCompositionRoyaltyPool(tx, poolParams);
           registerPublicationStakes(tx, p, node, stakes, pool, node.royaltyPool.currencyType);
-          shareRoyaltyPool(tx, {
-            pool,
-            shareType: node.shareType,
-            currencyType: node.royaltyPool.currencyType,
-            royaltyPoolPackageId: p.deployment.packages.royaltyPool,
-          });
-        } else {
-          initializeCompositionRoyaltyPool(tx, poolParams);
         }
-      }
-      if (node.routedStake) {
-        installCompositionRoutedStakePlugin(tx, {
-          vault, vaultAdminCap, compositionShareType: node.shareType,
-          pluginPackageId: p.deployment.packages.vaultCompositionRoutedStakePlugin,
+        shareRoyaltyPool(tx, {
+          pool,
+          shareType: node.shareType,
+          currencyType: node.royaltyPool.currencyType,
+          royaltyPoolPackageId: p.deployment.packages.royaltyPool,
         });
       }
       invokeWithAdminCap(tx, {
         kind: "vault", vault, vaultAdminCap,
         capType: compositionCapType(p, node.shareType),
-        vaultPackageId: p.deployment.packages.vault,
+        vaultPackageId: available!.vault.packageId,
       }, {
         target: `${p.deployment.protocol.miso}::composition::publish`,
         typeArguments,
@@ -474,6 +487,7 @@ function publishRecording(
   node: PublicationRecording,
   parts: WorkParts,
 ): void {
+  const available = node.custody.kind === "vault" ? operations(p) : undefined;
   const typeArguments: [string, string] = [node.shareType, node.compositionShareType];
   const stakes = allocatePublicationShares(tx, p, node, parts.balance);
   if (node.custody.kind === "direct") {
@@ -488,9 +502,9 @@ function publishRecording(
   }
   custodyNewAdminCap(tx, {
     adminCap: parts.adminCap,
-    vaultRegistry: p.deployment.objects.vaultRegistry,
+    vaultRegistry: available!.vault.registryId,
     capType: recordingCapType(p, node.shareType),
-    vaultPackageId: p.deployment.packages.vault,
+    vaultPackageId: available!.vault.packageId,
     owner: node.custody.owner,
     configure: (vault, vaultAdminCap) => {
       if (node.royaltyPool) {
@@ -498,32 +512,35 @@ function publishRecording(
           vault, vaultAdminCap,
           recordingShareType: node.shareType,
           compositionShareType: node.compositionShareType,
-          pluginPackageId: p.deployment.packages.vaultRecordingRoyaltyPoolPlugin,
+          pluginPackageId: available!.plugins.recordingRoyaltyPool,
         });
+        const authority: AdminCapAuthority = {
+          kind: "vault", vault, vaultAdminCap,
+          capType: recordingCapType(p, node.shareType),
+          vaultPackageId: available!.vault.packageId,
+        };
         const poolParams = {
-          vault, vaultAdminCap, recording: parts.work,
+          authority, recording: parts.work,
           recordingShareType: node.shareType,
           compositionShareType: node.compositionShareType,
           currencyType: node.royaltyPool.currencyType,
-          pluginPackageId: p.deployment.packages.vaultRecordingRoyaltyPoolPlugin,
+          actionPackageId: available!.actions.recordingRoyaltyPool,
         };
+        const pool = newRecordingRoyaltyPool(tx, poolParams);
         if (stakes.length > 0) {
-          const pool = newRecordingRoyaltyPool(tx, poolParams);
           registerPublicationStakes(tx, p, node, stakes, pool, node.royaltyPool.currencyType);
-          shareRoyaltyPool(tx, {
-            pool,
-            shareType: node.shareType,
-            currencyType: node.royaltyPool.currencyType,
-            royaltyPoolPackageId: p.deployment.packages.royaltyPool,
-          });
-        } else {
-          initializeRecordingRoyaltyPool(tx, poolParams);
         }
+        shareRoyaltyPool(tx, {
+          pool,
+          shareType: node.shareType,
+          currencyType: node.royaltyPool.currencyType,
+          royaltyPoolPackageId: p.deployment.packages.royaltyPool,
+        });
       }
       invokeWithAdminCap(tx, {
         kind: "vault", vault, vaultAdminCap,
         capType: recordingCapType(p, node.shareType),
-        vaultPackageId: p.deployment.packages.vault,
+        vaultPackageId: available!.vault.packageId,
       }, {
         target: `${p.deployment.protocol.miso}::recording::publish`,
         typeArguments,
@@ -542,6 +559,7 @@ function publishReleaseObject(
   releaseObject: TransactionObjectArgument,
   adminCap: TransactionObjectArgument,
 ): void {
+  const available = node.custody.kind === "vault" ? operations(p) : undefined;
   if (node.custody.kind === "direct") {
     tx.add(release.publish({
       package: p.deployment.protocol.miso,
@@ -552,21 +570,21 @@ function publishReleaseObject(
   }
   custodyNewAdminCap(tx, {
     adminCap,
-    vaultRegistry: p.deployment.objects.vaultRegistry,
+    vaultRegistry: available!.vault.registryId,
     capType: releaseCapType(p),
-    vaultPackageId: p.deployment.packages.vault,
+    vaultPackageId: available!.vault.packageId,
     owner: node.custody.owner,
     configure: (vault, vaultAdminCap) => {
       if (node.revenueDistribution) {
         installReleaseRevenueDistributorPlugin(tx, {
           vault, vaultAdminCap,
-          pluginPackageId: p.deployment.packages.vaultReleaseRevenueDistributorPlugin,
+          pluginPackageId: available!.plugins.releaseRevenueDistributor,
         });
       }
       invokeWithAdminCap(tx, {
         kind: "vault", vault, vaultAdminCap,
         capType: releaseCapType(p),
-        vaultPackageId: p.deployment.packages.vault,
+        vaultPackageId: available!.vault.packageId,
       }, {
         target: `${p.deployment.protocol.miso}::release::publish`,
         arguments: [releaseObject, tx.object.clock()],
@@ -578,10 +596,16 @@ function publishReleaseObject(
 
 /** Build the complete post-share catalog graph as one atomic PTB. */
 export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
-  if (p.pressing && !p.release) throw new Error("A pressing requires a release");
+  if (publicationUsesVault(p)) {
+    requireOperationsDeployment(p.deployment.operations);
+  }
+  if (p.pressing) {
+    requireRecordSalesDeployment(p.deployment.recordSales);
+    if (!p.release) throw new Error("A pressing requires a release");
+  }
   for (const node of [...p.compositions, ...p.recordings]) {
-    if ((node.royaltyPool || ("routedStake" in node && node.routedStake)) && node.custody.kind !== "vault") {
-      throw new Error(`${node.ref}: Vault-only plugins require Vault custody`);
+    if (node.royaltyPool && node.custody.kind !== "vault") {
+      throw new Error(`${node.ref}: permissionless royalty cranks require Vault custody`);
     }
   }
   if (p.release?.revenueDistribution && p.release.custody.kind !== "vault") {
@@ -875,17 +899,7 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
         package: p.deployment.protocol.misoParty,
         arguments: [parts.party, parts.adminCap],
       }));
-      disposeNewAdminCap(tx, parts.adminCap, custody(
-        p,
-        node.custody,
-        partyCapType(p),
-        node.custody.kind === "vault" && node.installWallet !== false
-          ? (vault, vaultAdminCap) => installPartyWalletPlugin(tx, {
-              vault, vaultAdminCap,
-              pluginPackageId: p.deployment.packages.vaultPartyWalletPlugin,
-            })
-          : undefined,
-      ));
+      disposeNewAdminCap(tx, parts.adminCap, custody(p, node.custody, partyCapType(p)));
     }
 
     if (p.pressing && pressingParts) {
@@ -992,7 +1006,11 @@ export function parseAtomicPublicationResult(
   p: AtomicPublicationParams,
   result: PlatformExecResult,
 ): AtomicPublicationResult {
-  const vaults = vaultsByCap(result, p.deployment.packages.vault);
+  const available = publicationUsesVault(p) ? operations(p) : undefined;
+  const vaultPackageId = available?.vault.packageId ?? "";
+  const vaults = available
+    ? vaultsByCap(result, vaultPackageId)
+    : new Map<string, { vaultId: string; vaultAdminCapId: string }>();
   const createdCompositions = allCreatedByType(result, "::composition::Composition<");
   const createdRecordings = allCreatedByType(result, "::recording::Recording<");
   const createdPools = allCreatedByType(result, "::pool::RoyaltyPool<");
@@ -1020,7 +1038,7 @@ export function parseAtomicPublicationResult(
       id: parsed.party_id,
       adminCapId,
       created: true,
-      authority: authorityOut(result, vaults, node.custody, adminCapId, partyCapType(p), p.deployment.packages.vault),
+      authority: authorityOut(result, vaults, node.custody, adminCapId, partyCapType(p), vaultPackageId),
     };
   });
 
@@ -1032,7 +1050,7 @@ export function parseAtomicPublicationResult(
       id,
       adminCapId,
       shareType: node.shareType,
-      authority: authorityOut(result, vaults, node.custody, adminCapId, compositionCapType(p, node.shareType), p.deployment.packages.vault),
+      authority: authorityOut(result, vaults, node.custody, adminCapId, compositionCapType(p, node.shareType), vaultPackageId),
       royaltyPoolId: node.royaltyPool ? findByShareType(createdPools, node.shareType, "Composition RoyaltyPool") : undefined,
     };
   });
@@ -1046,7 +1064,7 @@ export function parseAtomicPublicationResult(
       adminCapId,
       shareType: node.shareType,
       compositionShareType: node.compositionShareType,
-      authority: authorityOut(result, vaults, node.custody, adminCapId, recordingCapType(p, node.shareType), p.deployment.packages.vault),
+      authority: authorityOut(result, vaults, node.custody, adminCapId, recordingCapType(p, node.shareType), vaultPackageId),
       royaltyPoolId: node.royaltyPool ? findByShareType(createdPools, node.shareType, "Recording RoyaltyPool") : undefined,
     };
   });
@@ -1058,7 +1076,7 @@ export function parseAtomicPublicationResult(
     releaseOut = {
       id,
       adminCapId,
-      authority: authorityOut(result, vaults, p.release.custody, adminCapId, releaseCapType(p), p.deployment.packages.vault),
+      authority: authorityOut(result, vaults, p.release.custody, adminCapId, releaseCapType(p), vaultPackageId),
     };
   }
 
@@ -1070,7 +1088,7 @@ export function parseAtomicPublicationResult(
     pressingOut = {
       id,
       adminCapId,
-      authority: authorityOut(result, vaults, p.pressing.custody, adminCapId, pressingCapType(p), p.deployment.packages.vault),
+      authority: authorityOut(result, vaults, p.pressing.custody, adminCapId, pressingCapType(p), vaultPackageId),
     };
   }
 

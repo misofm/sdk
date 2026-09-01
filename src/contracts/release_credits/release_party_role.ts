@@ -8,18 +8,18 @@
  * commercial packaging of recordings (an album, single, EP), and a release credit
  * captures top-line billing: a party is either a primary artist or a featured
  * artist on the release.
- * 
+ *
  * ### Design
- * 
+ *
  * `ReleasePartyRole` is a closed enum: variants can only be constructed and
  * matched inside this module, so the `new_*_role` constructors are the external
  * write-API and `name()` is the external read-API.
- * 
+ *
  * - **No level axis and no `Custom` escape hatch.** Release billing is a small,
  *   fixed vocabulary: `Primary` or `Featured`.
  * - **`name()` is the canonical identifier**, returned as a stable PascalCase
  *   token (`"Primary"` / `"Featured"`).
- * 
+ *
  * These identifiers are Miso's own canonical vocabulary; any overlap with an
  * external standard (e.g. DDEX) is coincidental, not a reproduction of it.
  */

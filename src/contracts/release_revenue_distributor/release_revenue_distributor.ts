@@ -4,13 +4,11 @@
 
 
 /**
- * Vault-authorized release revenue routing for Miso.
- * 
- * Revenue is split from the immutable Release tracklist and sent to each track's
- * Recording address. A caller can select only the funds to receive or the amount
- * to redeem; it cannot select recipients or alter split amounts. Recording-level
- * plugins may subsequently fold those funds into canonical Recording royalty
- * pools.
+ * Raw-cap Release revenue actions.
+ *
+ * Revenue is split from the immutable Release tracklist and sent to the
+ * corresponding Recording addresses. Callers select only funds already held by the
+ * Release; they cannot select recipients or alter split amounts.
  */
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
@@ -29,68 +27,16 @@ export const ReleaseRevenueDistributedEvent = new MoveStruct({ name: `${$moduleN
         total_distributed: bcs.u64(),
         remainder: bcs.u64()
     } });
-export interface InstallArguments {
-    vault: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
-}
-export interface InstallOptions {
-    package?: string;
-    arguments: InstallArguments | [
-        vault: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
-    ];
-}
-/** Authorize this package on a Release capability Vault. */
-export function install(options: InstallOptions) {
-    const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
-    const argumentsTypes = [
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault", "vaultAdminCap"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'release_revenue_distributor',
-        function: 'install',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface UninstallArguments {
-    vault: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
-}
-export interface UninstallOptions {
-    package?: string;
-    arguments: UninstallArguments | [
-        vault: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
-    ];
-}
-/** Revoke this package from a Release capability Vault. */
-export function uninstall(options: UninstallOptions) {
-    const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
-    const argumentsTypes = [
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault", "vaultAdminCap"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'release_revenue_distributor',
-        function: 'uninstall',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
 export interface RedeemAndDistributeArguments {
-    vault: RawTransactionArgument<string>;
     release: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
     value: RawTransactionArgument<number | bigint>;
 }
 export interface RedeemAndDistributeOptions {
     package?: string;
     arguments: RedeemAndDistributeArguments | [
-        vault: RawTransactionArgument<string>,
         release: RawTransactionArgument<string>,
+        adminCap: RawTransactionArgument<string>,
         value: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
@@ -98,8 +44,8 @@ export interface RedeemAndDistributeOptions {
     ];
 }
 /**
- * Redeem `value` from the Release address and distribute it according to the
- * immutable tracklist. Anyone may crank this after installation.
+ * Redeem `value` from the Release accumulator and distribute it according to the
+ * immutable tracklist.
  */
 export function redeemAndDistribute(options: RedeemAndDistributeOptions) {
     const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
@@ -108,7 +54,7 @@ export function redeemAndDistribute(options: RedeemAndDistributeOptions) {
         null,
         'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "release", "value"];
+    const parameterNames = ["release", "adminCap", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'release_revenue_distributor',
@@ -117,16 +63,57 @@ export function redeemAndDistribute(options: RedeemAndDistributeOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface ReceiveAndDistributeArguments {
-    vault: RawTransactionArgument<string>;
+export interface RedeemAllAndDistributeArguments {
     release: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
+    root: RawTransactionArgument<string>;
+}
+export interface RedeemAllAndDistributeOptions {
+    package?: string;
+    arguments: RedeemAllAndDistributeArguments | [
+        release: RawTransactionArgument<string>,
+        adminCap: RawTransactionArgument<string>,
+        root: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string
+    ];
+}
+/**
+ * Redeem all Release funds settled at the start of the current consensus commit
+ * and distribute them according to the immutable tracklist.
+ *
+ * The framework snapshot is capped at `u64::MAX`; excess funds, newly sent funds,
+ * and per-track flooring remainder settle for a later call. This fixed crank
+ * prevents permissionless adapters from selecting dust-sized fragments. A zero
+ * settled snapshot is an idempotent no-op.
+ */
+export function redeemAllAndDistribute(options: RedeemAllAndDistributeOptions) {
+    const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
+    const argumentsTypes = [
+        null,
+        null,
+        null
+    ] satisfies (string | null)[];
+    const parameterNames = ["release", "adminCap", "root"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'release_revenue_distributor',
+        function: 'redeem_all_and_distribute',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface ReceiveAndDistributeArguments {
+    release: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
     coins: TransactionArgument;
 }
 export interface ReceiveAndDistributeOptions {
     package?: string;
     arguments: ReceiveAndDistributeArguments | [
-        vault: RawTransactionArgument<string>,
         release: RawTransactionArgument<string>,
+        adminCap: RawTransactionArgument<string>,
         coins: TransactionArgument
     ];
     typeArguments: [
@@ -134,9 +121,8 @@ export interface ReceiveAndDistributeOptions {
     ];
 }
 /**
- * Receive selected `Coin<Currency>` objects sent to the Release and distribute
- * their combined value according to the immutable tracklist. Anyone may crank this
- * after installation.
+ * Receive selected coins sent to the Release and distribute their combined value
+ * according to the immutable tracklist.
  */
 export function receiveAndDistribute(options: ReceiveAndDistributeOptions) {
     const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
@@ -145,34 +131,12 @@ export function receiveAndDistribute(options: ReceiveAndDistributeOptions) {
         null,
         'vector<null>'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "release", "coins"];
+    const parameterNames = ["release", "adminCap", "coins"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'release_revenue_distributor',
         function: 'receive_and_distribute',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
-    });
-}
-export interface IsInstalledArguments {
-    vault: RawTransactionArgument<string>;
-}
-export interface IsInstalledOptions {
-    package?: string;
-    arguments: IsInstalledArguments | [
-        vault: RawTransactionArgument<string>
-    ];
-}
-export function isInstalled(options: IsInstalledOptions) {
-    const packageAddress = options.package ?? '@local-pkg/release_revenue_distributor';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'release_revenue_distributor',
-        function: 'is_installed',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }

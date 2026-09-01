@@ -4,110 +4,38 @@
 
 
 /**
- * Vault-authorized royalty-pool business logic for Miso Compositions.
- * 
- * The plugin temporarily leases the CompositionAdminCap from its Vault, uses it
- * only to reach the matching Composition UID, and returns it before calling
- * external pool logic. Pools remain derived from the Composition, not the Vault,
- * so their canonical identity survives vault replacement.
+ * Raw-cap, custody-agnostic royalty-pool actions for Miso Compositions.
+ *
+ * Every mutating action requires the Composition's own admin capability. The
+ * canonical pool remains derived from the Composition, and callers decide when to
+ * register stakes and share a newly returned pool.
  */
 
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import { normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
-export interface InstallArguments {
-    vault: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
-}
-export interface InstallOptions {
-    package?: string;
-    arguments: InstallArguments | [
-        vault: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-/** Authorize this package on a Composition capability Vault. */
-export function install(options: InstallOptions) {
-    const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
-    const argumentsTypes = [
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault", "vaultAdminCap"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'composition_royalty_pool',
-        function: 'install',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface UninstallArguments {
-    vault: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
-}
-export interface UninstallOptions {
-    package?: string;
-    arguments: UninstallArguments | [
-        vault: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-/** Revoke this package from a Composition capability Vault. */
-export function uninstall(options: UninstallOptions) {
-    const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
-    const argumentsTypes = [
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault", "vaultAdminCap"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'composition_royalty_pool',
-        function: 'uninstall',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
 export interface NewPoolArguments {
-    vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
 }
 export interface NewPoolOptions {
     package?: string;
     arguments: NewPoolArguments | [
-        vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
+        adminCap: RawTransactionArgument<string>
     ];
     typeArguments: [
         string,
         string
     ];
 }
-/**
- * Create and return the canonical pool derived from this Composition.
- *
- * The matching VaultAdminCap chooses which Currency pools may be created. The
- * result cannot be redirected: the pool ID is claimed from the Composition UID and
- * is typed by both CompositionShare and Currency. The caller decides when to share
- * it, allowing fresh stakes to be registered in the same PTB before the pool
- * becomes a shared object.
- */
+/** Create and return the canonical unshared pool derived from `composition`. */
 export function newPool(options: NewPoolOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
     const argumentsTypes = [
         null,
-        null,
         null
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "vaultAdminCap"];
+    const parameterNames = ["composition", "adminCap"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_royalty_pool',
@@ -116,56 +44,17 @@ export function newPool(options: NewPoolOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface InitializePoolArguments {
-    vault: RawTransactionArgument<string>;
-    composition: RawTransactionArgument<string>;
-    vaultAdminCap: RawTransactionArgument<string>;
-}
-export interface InitializePoolOptions {
-    package?: string;
-    arguments: InitializePoolArguments | [
-        vault: RawTransactionArgument<string>,
-        composition: RawTransactionArgument<string>,
-        vaultAdminCap: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string,
-        string
-    ];
-}
-/**
- * Create and share the canonical pool derived from this Composition.
- *
- * Convenience wrapper over `new_pool` for callers that do not need to register
- * freshly-created stakes before sharing the pool.
- */
-export function initializePool(options: InitializePoolOptions) {
-    const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
-    const argumentsTypes = [
-        null,
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "vaultAdminCap"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'composition_royalty_pool',
-        function: 'initialize_pool',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
 export interface ReceiveAndDepositArguments {
-    vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
     coins: TransactionArgument;
 }
 export interface ReceiveAndDepositOptions {
     package?: string;
     arguments: ReceiveAndDepositArguments | [
-        vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
+        adminCap: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
         coins: TransactionArgument
     ];
@@ -175,9 +64,8 @@ export interface ReceiveAndDepositOptions {
     ];
 }
 /**
- * Receive coins sent to the Composition and deposit them into its canonical pool.
- * Anyone may crank this after the plugin is installed, but the funds can only
- * reach the pool derived from this Composition.
+ * Receive selected coins sent to the Composition and deposit their balance into
+ * the canonical pool derived from that same Composition.
  */
 export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
@@ -187,7 +75,7 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
         null,
         'vector<null>'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "pool", "coins"];
+    const parameterNames = ["composition", "adminCap", "pool", "coins"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_royalty_pool',
@@ -197,16 +85,16 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
     });
 }
 export interface RedeemAndDepositArguments {
-    vault: RawTransactionArgument<string>;
     composition: RawTransactionArgument<string>;
+    adminCap: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
     value: RawTransactionArgument<number | bigint>;
 }
 export interface RedeemAndDepositOptions {
     package?: string;
     arguments: RedeemAndDepositArguments | [
-        vault: RawTransactionArgument<string>,
         composition: RawTransactionArgument<string>,
+        adminCap: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
         value: RawTransactionArgument<number | bigint>
     ];
@@ -217,10 +105,7 @@ export interface RedeemAndDepositOptions {
 }
 /**
  * Redeem `value` from the Composition's funds accumulator and deposit it into the
- * canonical pool. Anyone may crank this after installation.
- *
- * A PTB can obtain `value` from `sui::balance::settled_funds_value` and pass that
- * command result directly to this function.
+ * canonical pool derived from that same Composition.
  */
 export function redeemAndDeposit(options: RedeemAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
@@ -230,37 +115,11 @@ export function redeemAndDeposit(options: RedeemAndDepositOptions) {
         null,
         'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "composition", "pool", "value"];
+    const parameterNames = ["composition", "adminCap", "pool", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'composition_royalty_pool',
         function: 'redeem_and_deposit',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface IsInstalledArguments {
-    vault: RawTransactionArgument<string>;
-}
-export interface IsInstalledOptions {
-    package?: string;
-    arguments: IsInstalledArguments | [
-        vault: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function isInstalled(options: IsInstalledOptions) {
-    const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["vault"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'composition_royalty_pool',
-        function: 'is_installed',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -278,7 +137,7 @@ export interface PoolAddressOptions {
         string
     ];
 }
-/** The canonical pool address for this Composition, share type, and Currency. */
+/** Canonical pool address for this Composition, share type, and Currency. */
 export function poolAddress(options: PoolAddressOptions) {
     const packageAddress = options.package ?? '@local-pkg/composition_royalty_pool';
     const argumentsTypes = [

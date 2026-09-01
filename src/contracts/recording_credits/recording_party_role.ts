@@ -7,13 +7,13 @@
  * Defines the roles that parties can hold on a recording. Recordings are audio
  * performances of compositions, and these roles represent the various production
  * and performance contributions.
- * 
+ *
  * ### Design
- * 
+ *
  * `RecordingPartyRole` is a closed enum: variants can only be constructed and
  * matched inside this module, so the `new_*_role` constructors are the external
  * write-API and `name()` is the external read-API.
- * 
+ *
  * - **Seniority is a separate axis.** Most roles carry an optional
  *   `RecordingPartyRoleLevel` (Lead, Assistant, Additional, …). Industry variants
  *   like "Second Engineer" or "Additional Producer" are expressed as a base role
@@ -27,7 +27,7 @@
  *   the seed for off-chain display/localization. For `Custom`, `name()` returns
  *   the user-supplied string; for `Instrumentalist`, it returns
  *   `"Instrumentalist"` (the instrument itself is read off-chain).
- * 
+ *
  * These identifiers are Miso's own canonical vocabulary; any overlap with an
  * external standard (e.g. DDEX) is coincidental, not a reproduction of it.
  */

@@ -33,6 +33,7 @@ import type {
 } from "@mysten/sui/client";
 import type { Signer } from "@mysten/sui/cryptography";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
+import type { ParallelTransactionExecutor } from "@mysten/sui/transactions";
 import {
   miso as protocolMiso,
   type MisoProtocolClient,
@@ -53,6 +54,9 @@ import * as compositionRoyaltyPoolContract from "./contracts/composition_royalty
 import * as recordingRoyaltyPoolContract from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
 import * as partyWalletContract from "./contracts/party_wallet/party_wallet.ts";
 import * as compositionRoutedStakeContract from "./contracts/composition_routed_stake/composition_routed_stake.ts";
+import * as compositionRoyaltyPoolPluginContract from "./contracts/composition_royalty_pool_plugin/composition_royalty_pool_plugin.ts";
+import * as recordingRoyaltyPoolPluginContract from "./contracts/recording_royalty_pool_plugin/recording_royalty_pool_plugin.ts";
+import * as releaseRevenueDistributorPluginContract from "./contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin.ts";
 import * as routedStakeContract from "./contracts/routed_stake/routed_stake.ts";
 import * as royaltyPoolContract from "./contracts/royalty_pool/pool.ts";
 import * as recordingAdvisoryContract from "./contracts/recording_advisory/recording_advisory.ts";
@@ -115,8 +119,10 @@ import {
 } from "./release-graph.ts";
 import {
   getMisoPlatformDeployment,
+  requireOperationsDeployment,
   requireRecordSalesDeployment,
   type MisoPlatformDeployment,
+  type OperationsDeployment,
   type RecordSalesDeployment,
 } from "./deployments.ts";
 import {
@@ -137,6 +143,10 @@ import {
   type SetReleaseCoverParams,
   type SetReleaseTrackCoverParams,
 } from "./cover.ts";
+import {
+  executeViaExecutor as executePlatformViaExecutor,
+  type PlatformExecResult,
+} from "./execute.ts";
 
 type BoundMoveFunction<F> = F extends (options: infer Options) => infer Result
   ? Options extends { package?: unknown }
@@ -169,6 +179,43 @@ function bindModulePackage<M extends object, K extends readonly (keyof M)[]>(
   return out as BoundModule<M, K>;
 }
 
+/** Keep synchronous, client-bound surfaces unusable until the endpoint's exact
+ * ledger has been validated. The underlying standalone builders remain pure. */
+function requireReadyOnFunctions<T extends object>(
+  surface: T,
+  requireReady: (operation: string) => void,
+  namespace: string,
+): T {
+  return new Proxy(surface, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        requireReady(`${namespace}.${String(property)}`);
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
+}
+
+function requireReadyOnModuleFunctions<T extends object>(
+  surface: T,
+  requireReady: (operation: string) => void,
+  namespace: string,
+): T {
+  return new Proxy(surface, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (!value || typeof value !== "object") return value;
+      return requireReadyOnFunctions(
+        value,
+        requireReady,
+        `${namespace}.${String(property)}`,
+      );
+    },
+  });
+}
+
 export interface MisoOptions<Name extends string = "miso"> {
   /** Name for the client extension. Defaults to `miso`. */
   name?: Name;
@@ -178,7 +225,44 @@ export interface MisoOptions<Name extends string = "miso"> {
   graphqlClient?: SuiGraphQLClient;
 }
 
+export class MisoNetworkMismatchError extends Error {
+  override readonly name = "MisoNetworkMismatchError";
+  constructor(
+    readonly clientNetwork: string,
+    readonly deploymentNetwork: string,
+  ) {
+    super(
+      `@misofm/sdk: client network "${clientNetwork}" does not match deployment network "${deploymentNetwork}"`,
+    );
+  }
+}
+
+export class MisoChainIdentifierMismatchError extends Error {
+  override readonly name = "MisoChainIdentifierMismatchError";
+  constructor(
+    readonly actual: string,
+    readonly expected: string,
+  ) {
+    super(
+      `@misofm/sdk: endpoint chain identifier "${actual}" does not match deployment chain identifier "${expected}"`,
+    );
+  }
+}
+
+export class MisoClientNotReadyError extends Error {
+  override readonly name = "MisoClientNotReadyError";
+  constructor(readonly operation: string) {
+    super(
+      `@misofm/sdk: ${operation} requires an exact-chain validation lifecycle; call and await client.miso.ready() first`,
+    );
+  }
+}
+
 export interface MisoPlatformConfig {
+  /** Exact client network label for deprecated `misoPlatform()` registration. */
+  network?: string;
+  /** Exact ledger identifier required by deprecated `misoPlatform().ready()`. */
+  chainIdentifier?: string;
   /** Finalized immutable Record + Record Shop identities, or an explicit
    * unavailable legacy state that makes every sales API fail closed. */
   recordSales?: RecordSalesDeployment;
@@ -206,19 +290,11 @@ export interface MisoPlatformConfig {
   recordingLanguagePackageId?: string;
   recordingMasterReferencePackageId?: string;
   recordingPreviewPackageId?: string;
-  /** Shared custody package; needed for VaultAdminCap authority orchestration. */
-  vaultPackageId?: string;
-  /** Shared singleton from which canonical Vault IDs are derived. */
-  vaultRegistryId?: string;
+  /** Atomic Vault/Action/plugin compatibility boundary. */
+  operations?: OperationsDeployment;
   /** Generic royalty-pool value package used by pool and routed-stake helpers. */
   royaltyPoolPackageId?: string;
-  /** Vault plugins, deliberately separate from data-extension package ids. */
-  vaultCompositionRoyaltyPoolPluginPackageId?: string;
-  vaultRecordingRoyaltyPoolPluginPackageId?: string;
-  vaultPartyWalletPluginPackageId?: string;
-  vaultCompositionRoutedStakePluginPackageId?: string;
   routedStakePackageId?: string;
-  vaultReleaseRevenueDistributorPluginPackageId?: string;
   releaseCreditsPackageId?: string;
   misoCreditPackageId?: string;
   coverArtPackageId?: string;
@@ -289,10 +365,13 @@ export type ConfiguredReleaseGraphParams = Omit<
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
   readonly #config: MisoPlatformConfig;
-  /** The permissionless protocol layer wrapped by this platform facade. */
-  readonly protocol?: MisoProtocolClient;
+  readonly #protocol?: MisoProtocolClient;
+  readonly #chainIdentifier?: string;
   /** Bundled/custom deployment selected for the full facade, when available. */
   readonly deployment?: MisoPlatformDeployment;
+  #readyState: "unvalidated" | "validating" | "ready" | "failed" =
+    "unvalidated";
+  #readyPromise?: Promise<void>;
 
   constructor(
     client: ClientWithCoreApi,
@@ -302,10 +381,13 @@ export class MisoPlatformClient {
   ) {
     this.#client = client;
     this.#config = config;
+    if (config.operations?.status === "available") {
+      requireOperationsDeployment(config.operations);
+    }
     // A pressing-only facade must not implicitly register a fail-closed core
     // extension. Supply a core deployment/misoPackageId when `protocol` is
     // needed; otherwise this remains a safe, independent pressing client.
-    this.protocol =
+    this.#protocol =
       protocol ??
       (config.misoPackageId
         ? protocolMiso({
@@ -313,16 +395,93 @@ export class MisoPlatformClient {
           }).register(client)
         : undefined);
     this.deployment = deployment;
+    this.#chainIdentifier =
+      deployment?.chainIdentifier ?? config.chainIdentifier;
+  }
+
+  /** Permissionless protocol APIs bound to the same validated ledger. */
+  get protocol(): MisoProtocolClient | undefined {
+    if (!this.#protocol) return undefined;
+    this.#requireReady("protocol APIs");
+    return this.#protocol;
+  }
+
+  /**
+   * Memoized exact-ledger readiness gate. Registration already rejects a
+   * synchronous network-label mismatch; this Core API read protects every
+   * client-bound write surface from a mislabeled or custom endpoint.
+   */
+  ready(): Promise<void> {
+    if (!this.#readyPromise) {
+      this.#readyState = "validating";
+      this.#readyPromise = (async () => {
+        try {
+          if (!this.#chainIdentifier) {
+            throw new Error(
+              "misoPlatform: chain readiness requires a complete deployment or an explicit `chainIdentifier`.",
+            );
+          }
+          const { chainIdentifier } =
+            await this.#client.core.getChainIdentifier();
+          if (chainIdentifier !== this.#chainIdentifier) {
+            throw new MisoChainIdentifierMismatchError(
+              chainIdentifier,
+              this.#chainIdentifier,
+            );
+          }
+          this.#readyState = "ready";
+        } catch (error) {
+          this.#readyState = "failed";
+          throw error;
+        }
+      })();
+    }
+    return this.#readyPromise;
+  }
+
+  /** Compatibility hook; prefer `await client.miso.ready()`. */
+  async validateChainIdentifier(): Promise<string> {
+    await this.ready();
+    return this.#chainIdentifier!;
+  }
+
+  #requireReady(operation: string): void {
+    // Capability availability remains the first fail-closed boundary. This
+    // keeps an unavailable deployment from masquerading as a mere lifecycle
+    // error while still preventing configured builders from running pre-ready.
+    if (
+      operation === "ids.pressing" ||
+      operation === "ids.pressingAdminCap" ||
+      operation === "ids.record" ||
+      operation === "ids.listing" ||
+      operation === "ids.sale" ||
+      operation === "tx.purchaseRecord" ||
+      operation === "tx.openPressing" ||
+      operation === "tx.openListing" ||
+      operation === "tx.authorizeRecordShop" ||
+      operation === "tx.revokeRecordShop" ||
+      operation === "tx.setListingPrice" ||
+      operation === "tx.setListingState"
+    ) {
+      this.#recordSales();
+    }
+    if (operation === "ids.vault" || operation === "ids.vaultAdminCap") {
+      this.#operations();
+    }
+    if (this.#readyState !== "ready") {
+      throw new MisoClientNotReadyError(operation);
+    }
   }
 
   /** Party identity and profile APIs, backed by the network SDK. */
   get party(): PartyProtocolClient {
-    if (!this.protocol) {
+    if (!this.#protocol) {
       throw new Error(
         "misoPlatform: Party APIs require the complete platform deployment. Use miso({ deployment }).",
       );
     }
-    return this.protocol.party;
+    this.#requireReady("party APIs");
+    return this.#protocol.party;
   }
 
   #recordSales() {
@@ -333,6 +492,16 @@ export class MisoPlatformClient {
           "this client was configured without Record and Record Shop package IDs",
       },
     );
+  }
+
+  #operations() {
+    return requireOperationsDeployment(this.#config.operations);
+  }
+
+  #availableOperations() {
+    return this.#config.operations?.status === "available"
+      ? requireOperationsDeployment(this.#config.operations)
+      : undefined;
   }
 
   get recordPackageId(): string {
@@ -388,25 +557,29 @@ export class MisoPlatformClient {
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   /** The run itself, or `null` if this release has never opened one. */
-  getPressing(pressingId: string): Promise<PressingView | null> {
+  async getPressing(pressingId: string): Promise<PressingView | null> {
+    await this.ready();
     return getPressing(this.#client, pressingId, this.recordPackageId);
   }
 
   /** One currency's offer, or `null` if the run does not sell in it. */
-  getListing(listingId: string): Promise<ListingView | null> {
+  async getListing(listingId: string): Promise<ListingView | null> {
+    await this.ready();
     return getListing(this.#client, listingId, this.recordShopPackageId);
   }
 
   /** One concrete purchased Record, including immutable purchase provenance. */
-  getRecord(recordId: string): Promise<RecordView | null> {
+  async getRecord(recordId: string): Promise<RecordView | null> {
+    await this.ready();
     return getRecord(this.#client, recordId, this.recordPackageId);
   }
 
   /** Run + one currency's offer in a single round trip, by address math. */
-  getSale(p: Configured<GetSaleParams>): Promise<{
+  async getSale(p: Configured<GetSaleParams>): Promise<{
     pressing: PressingView | null;
     listing: ListingView | null;
   }> {
+    await this.ready();
     return getSale(this.#client, {
       ...p,
       recordPackageId: this.recordPackageId,
@@ -416,7 +589,7 @@ export class MisoPlatformClient {
 
   // ── Address math ──────────────────────────────────────────────────────────
 
-  readonly ids = {
+  readonly ids = requireReadyOnFunctions({
     pressing: (releaseId: string, edition: number) =>
       derivePressingId(releaseId, edition, this.recordPackageId),
     pressingAdminCap: (pressingId: string) =>
@@ -435,21 +608,15 @@ export class MisoPlatformClient {
       ),
     vault: (capId: string, capType: string) =>
       vaultActions.deriveVaultId({
-        vaultRegistryId: this.#requiredConfig(
-          "vaultRegistryId",
-          "Vault ID derivation",
-        ),
+        vaultRegistryId: this.#operations().vault.registryId,
         capId,
         capType,
-        vaultPackageId: this.#requiredConfig(
-          "vaultPackageId",
-          "Vault ID derivation",
-        ),
+        vaultPackageId: this.#operations().vault.packageId,
       }),
     vaultAdminCap: (vaultId: string) =>
       vaultActions.deriveVaultAdminCapId(
         vaultId,
-        this.#requiredConfig("vaultPackageId", "VaultAdminCap ID derivation"),
+        this.#operations().vault.packageId,
       ),
     genre: (canonicalName: string) =>
       deriveGenreAddress(
@@ -457,11 +624,13 @@ export class MisoPlatformClient {
         this.#requiredConfig("genrePackageId", "genre id derivation"),
         canonicalName,
       ),
-  };
+  }, (operation) => this.#requireReady(operation), "ids");
 
   // ── Transaction builders ──────────────────────────────────────────────────
 
-  readonly tx = {
+  /** Client-bound builders require a successful `await client.miso.ready()`.
+   * Standalone exports remain pure for explicitly managed offline workflows. */
+  readonly tx = requireReadyOnFunctions({
     purchaseRecord: (p: Configured<PurchaseRecordParams>): TxThunk =>
       purchaseRecord({
         ...p,
@@ -611,14 +780,18 @@ export class MisoPlatformClient {
           "setReleaseTrackCover",
         ),
       }),
-  };
+  }, (operation) => this.#requireReady(operation), "tx");
 
   /**
    * Vault-aware builders and parsers. These take explicit object ids because a
    * VaultAdminCap is owner-held while the Vault is shared; package ids can come
    * from the deployment config or be supplied for private deployments.
    */
-  readonly vault = vaultActions;
+  get vault(): typeof vaultActions | undefined {
+    if (!this.#availableOperations()) return undefined;
+    this.#requireReady("vault builders");
+    return vaultActions;
+  }
 
   // ── Share currency provisioning (executes; Signer pattern) ─────────────────
 
@@ -627,7 +800,17 @@ export class MisoPlatformClient {
     signer: Signer,
     params: share.CreateShareCurrencyParams,
   ): Promise<share.ShareCurrency> {
+    await this.ready();
     return share.createShareCurrency(this.#client, signer, params);
+  }
+
+  /** Execute a composed platform PTB only after exact-ledger validation. */
+  async executeViaExecutor(
+    executor: ParallelTransactionExecutor,
+    ...thunks: TxThunk[]
+  ): Promise<PlatformExecResult> {
+    await this.ready();
+    return executePlatformViaExecutor(executor, ...thunks);
   }
 
   // ── Generated layer ───────────────────────────────────────────────────────
@@ -638,7 +821,8 @@ export class MisoPlatformClient {
       this.#config.recordSales?.status === "available"
         ? this.#config.recordSales
         : undefined;
-    return {
+    const operations = this.#availableOperations();
+    return requireReadyOnModuleFunctions({
       record: sales
         ? bindModulePackage(recordContract, sales.recordPackageId, [
             "destroy",
@@ -755,102 +939,94 @@ export class MisoPlatformClient {
             ["setKind", "unsetKind", "hasKind"] as const,
           )
         : undefined,
-      releaseRevenueDistributor: this.#config
-        .vaultReleaseRevenueDistributorPluginPackageId
+      releaseRevenueDistributor: operations
         ? bindModulePackage(
             releaseRevenueDistributorContract,
-            this.#config.vaultReleaseRevenueDistributorPluginPackageId,
+            operations.actions.releaseRevenueDistributor,
+            [
+              "redeemAndDistribute",
+              "redeemAllAndDistribute",
+              "receiveAndDistribute",
+            ] as const,
+          )
+        : undefined,
+      releaseRevenueDistributorPlugin: operations
+        ? bindModulePackage(
+            releaseRevenueDistributorPluginContract,
+            operations.plugins.releaseRevenueDistributor,
             [
               "install",
               "uninstall",
-              "redeemAndDistribute",
+              "redeemAllAndDistribute",
               "receiveAndDistribute",
               "isInstalled",
             ] as const,
           )
         : undefined,
-      vault: this.#config.vaultPackageId
-        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, [
+      vault: operations
+        ? bindModulePackage(vaultContract, operations.vault.packageId, [
             "share",
-            "transferAdminCap",
             "withdrawCap",
             "restoreCap",
-            "vaultAddress",
-            "vaultAdminCapAddress",
-            "vaultId",
+            "derivedAddress",
             "capId",
-            "isOccupied",
-            "authorizedPluginsId",
-            "authorizedPluginCount",
+            "isActive",
+            "authorizedPlugins",
             "isPluginAuthorized",
           ] as const)
         : undefined,
-      compositionRoyaltyPool: this.#config
-        .vaultCompositionRoyaltyPoolPluginPackageId
+      compositionRoyaltyPool: operations
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
-            this.#config.vaultCompositionRoyaltyPoolPluginPackageId,
+            operations.actions.compositionRoyaltyPool,
+            ["newPool", "receiveAndDeposit", "redeemAndDeposit", "poolAddress"] as const,
+          )
+        : undefined,
+      compositionRoyaltyPoolPlugin: operations
+        ? bindModulePackage(
+            compositionRoyaltyPoolPluginContract,
+            operations.plugins.compositionRoyaltyPool,
             [
               "install",
               "uninstall",
-              "newPool",
-              "initializePool",
               "receiveAndDeposit",
               "redeemAndDeposit",
               "isInstalled",
-              "poolAddress",
             ] as const,
           )
         : undefined,
-      recordingRoyaltyPool: this.#config
-        .vaultRecordingRoyaltyPoolPluginPackageId
+      recordingRoyaltyPool: operations
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
-            this.#config.vaultRecordingRoyaltyPoolPluginPackageId,
+            operations.actions.recordingRoyaltyPool,
+            ["newPool", "receiveAndDeposit", "redeemAndDeposit", "poolAddress"] as const,
+          )
+        : undefined,
+      recordingRoyaltyPoolPlugin: operations
+        ? bindModulePackage(
+            recordingRoyaltyPoolPluginContract,
+            operations.plugins.recordingRoyaltyPool,
             [
               "install",
               "uninstall",
-              "newPool",
-              "initializePool",
               "receiveAndDeposit",
               "redeemAndDeposit",
               "isInstalled",
-              "poolAddress",
             ] as const,
           )
         : undefined,
-      partyWallet: this.#config.vaultPartyWalletPluginPackageId
+      partyWallet: operations
         ? bindModulePackage(
             partyWalletContract,
-            this.#config.vaultPartyWalletPluginPackageId,
-            [
-              "install",
-              "uninstall",
-              "receiveObject",
-              "receiveObjects",
-              "receiveCoins",
-              "redeemBalance",
-              "isInstalled",
-              "inboxAddress",
-            ] as const,
+            operations.actions.partyWallet,
+            ["receive", "receiveBalance", "redeemBalance", "inboxAddress"] as const,
           )
         : undefined,
-      compositionRoutedStake: this.#config
-        .vaultCompositionRoutedStakePluginPackageId
+      compositionRoutedStake: operations
         ? bindModulePackage(
             compositionRoutedStakeContract,
-            this.#config.vaultCompositionRoutedStakePluginPackageId,
-            [
-              "install",
-              "uninstall",
-              "createStake",
-              "register",
-              "unregister",
-              "unstake",
-              "restake",
-              "isInstalled",
-              "stakeAddress",
-            ] as const,
+            operations.actions.compositionRoutedStake,
+            ["createStake", "register", "unregister", "unstake", "restake", "stakeAddress"] as const,
           )
         : undefined,
       routedStake: this.#config.routedStakePackageId
@@ -964,7 +1140,7 @@ export class MisoPlatformClient {
             ["addCredit", "removeCredit", "hasCredits"] as const,
           )
         : undefined,
-    };
+    }, (operation) => this.#requireReady(operation), "call");
   }
 
   /** Generated BCS definitions, for parsing objects or events yourself. */
@@ -992,6 +1168,11 @@ export class MisoPlatformClient {
     VaultCreatedEvent: vaultContract.VaultCreatedEvent,
     VaultCapabilityWithdrawnEvent: vaultContract.VaultCapabilityWithdrawnEvent,
     VaultCapabilityRestoredEvent: vaultContract.VaultCapabilityRestoredEvent,
+    PartyObjectReceivedEvent: partyWalletContract.ObjectReceivedEvent,
+    PartyCoinsReceivedEvent: partyWalletContract.CoinsReceivedEvent,
+    PartyFundsRedeemedEvent: partyWalletContract.FundsRedeemedEvent,
+    ReleaseTrackRevenueDistributedEvent:
+      releaseRevenueDistributorContract.ReleaseTrackRevenueDistributedEvent,
     ReleaseRevenueDistributedEvent:
       releaseRevenueDistributorContract.ReleaseRevenueDistributedEvent,
   };
@@ -1015,6 +1196,9 @@ export function miso<const Name extends string = "miso">(
     register: (client: ClientWithCoreApi) => {
       const deployment =
         options.deployment ?? getMisoPlatformDeployment(client.network);
+      if (deployment.network !== client.network) {
+        throw new MisoNetworkMismatchError(client.network, deployment.network);
+      }
       const protocol = protocolMiso({
         deployment: deployment.protocol,
         graphqlClient: options.graphqlClient,
@@ -1035,20 +1219,9 @@ export function miso<const Name extends string = "miso">(
           recordingMasterReferencePackageId:
             deployment.packages.recordingMasterReference,
           recordingPreviewPackageId: deployment.packages.recordingPreview,
-          vaultPackageId: deployment.packages.vault,
-          vaultRegistryId: deployment.objects.vaultRegistry,
+          operations: deployment.operations,
           royaltyPoolPackageId: deployment.packages.royaltyPool,
-          vaultCompositionRoyaltyPoolPluginPackageId:
-            deployment.packages.vaultCompositionRoyaltyPoolPlugin,
-          vaultRecordingRoyaltyPoolPluginPackageId:
-            deployment.packages.vaultRecordingRoyaltyPoolPlugin,
-          vaultPartyWalletPluginPackageId:
-            deployment.packages.vaultPartyWalletPlugin,
-          vaultCompositionRoutedStakePluginPackageId:
-            deployment.packages.vaultCompositionRoutedStakePlugin,
           routedStakePackageId: deployment.packages.routedStake,
-          vaultReleaseRevenueDistributorPluginPackageId:
-            deployment.packages.vaultReleaseRevenueDistributorPlugin,
           releaseCreditsPackageId: deployment.packages.releaseCredits,
           misoCreditPackageId: deployment.packages.credit,
           coverArtPackageId: deployment.packages.coverArt,
@@ -1072,6 +1245,9 @@ export function misoPlatform(config: MisoPlatformConfig) {
   return {
     name: "misoPlatform" as const,
     register: (client: ClientWithCoreApi) => {
+      if (config.network && config.network !== client.network) {
+        throw new MisoNetworkMismatchError(client.network, config.network);
+      }
       const protocol = config.misoPackageId
         ? protocolMiso({
             deployment: { packageId: config.misoPackageId },

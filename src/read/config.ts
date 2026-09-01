@@ -93,12 +93,23 @@ export type MisoConfigOverrides = Partial<
 /** The config for `network`, derived from this SDK's verified deployment map. */
 export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}): MisoConfig {
   const platform = getMisoPlatformDeployment(network);
+  const vaultPackageId =
+    platform.operations.status === "available"
+      ? platform.operations.vault.packageId
+      : platform.operations.legacy?.vaultPackageId;
+  if (!vaultPackageId) {
+    throw new Error(
+      `@misofm/sdk/read: no current or legacy Vault type metadata for "${network}".`,
+    );
+  }
   const config: MisoConfig = {
     network,
     deployment: platform.protocol,
     recordSales: platform.recordSales,
     protocol: {
-      vault: platform.packages.vault,
+      // Read-only legacy type discovery does not make this package an
+      // executable operations ABI; client call surfaces remain fail closed.
+      vault: vaultPackageId,
       releaseCoverArt: platform.packages.releaseCoverArt,
       releaseKind: platform.packages.releaseKind,
       recordingMasterReference: platform.packages.recordingMasterReference,

@@ -6,24 +6,24 @@
 /**
  * What a release calls itself — "Album", "EP", "Mixtape", "Split" — asserted by
  * whoever holds the release's admin cap, and believed.
- * 
+ *
  * Deliberately a free string rather than an enum. An enum would not decide the
  * classification (the admin still picks) but it would decide the _menu_, and
  * deciding which self-descriptions are legitimate is not the protocol's job.
  * Artists release beat tapes and splits and things nobody has named yet; a closed
  * set would make each of those a package swap, and in the meantime would quietly
  * push releases into whichever official-looking box fit worst.
- * 
+ *
  * Nothing here derives the value or checks it for plausibility. A four-track
  * release may call itself an Album and a twelve-track one an EP; both happen, and
  * the artist's intent is the fact worth recording. The only checks are structural
  * — non-empty and bounded — so the field stays storable.
- * 
+ *
  * This is the opposite call from `release_genre`, on purpose. Genre is a curated
  * vocabulary because discovery and reward-eligibility depend on releases agreeing
  * with each other about what a genre _is_. Nothing depends on two releases
  * agreeing about what an EP is.
- * 
+ *
  * The cost of that freedom lands on readers: "EP", "ep" and "Extended Play" are
  * three distinct values here. Clients that group or facet by kind should normalise
  * (case-fold at minimum) rather than expect canonical strings.

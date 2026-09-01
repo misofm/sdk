@@ -5,7 +5,7 @@
 
 /**
  * A stake whose rewards are irrevocably routed to its parent's royalty pool.
- * 
+ *
  * A `RoutedStake<StakeShare, PoolShare>` is a derived object of any UID-bearing
  * parent (same pattern as `RoyaltyPool`). It wraps a `Stake<StakeShare>` — shares
  * of some other asset that the parent owns — and commits the rewards that stake
@@ -14,7 +14,7 @@
  * the same parent. The wrapper exists precisely so the raw `Stake` is never
  * exposed — a bare shared `Stake` would let any caller claim its rewards and keep
  * them.
- * 
+ *
  * Because the route is fixed, the wrapper is safe to share: `sweep` is
  * permissionless, and it does not matter who calls it, since the money can only go
  * one place. Lifecycle operations (`register`, `unregister`, `unstake`, `restake`)
@@ -23,7 +23,7 @@
  * are gated because a stake registers at most once per `Currency`: a
  * permissionless register could grief by binding the stake to a garbage same-typed
  * pool, permanently blocking the real one for that currency.
- * 
+ *
  * The derivation key encodes only `StakeShare` — at most one routed stake per
  * `(parent, StakeShare)` pair, whatever `PoolShare` it used (the same
  * burned-by-first-claim consequence as `RoyaltyPoolKey`; the parent's cap-gated

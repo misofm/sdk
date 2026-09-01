@@ -3,7 +3,12 @@
 
 import { expect, test } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
-import { getMisoPlatformDeployment } from "../src/deployments.ts";
+import {
+  getMisoPlatformDeployment,
+  OperationsUnavailableError,
+  RecordSalesUnavailableError,
+  type OperationsDeployment,
+} from "../src/deployments.ts";
 import {
   deriveCompositionAdminCapId,
   deriveRecordingAdminCapId,
@@ -25,6 +30,23 @@ const RECORD_PACKAGE = "0x" + "bc".repeat(32);
 const SHOP_PACKAGE = "0x" + "bd".repeat(32);
 const SHARE_1 = "0x" + "11".repeat(32) + "::share::Share";
 const SHARE_2 = "0x" + "22".repeat(32) + "::share::Share";
+const id = (value: number) => `0x${value.toString(16).padStart(64, "0")}`;
+const OPERATIONS = {
+  status: "available",
+  vault: { packageId: id(101), registryId: id(201) },
+  actions: {
+    compositionRoyaltyPool: id(102),
+    recordingRoyaltyPool: id(103),
+    partyWallet: id(104),
+    compositionRoutedStake: id(105),
+    releaseRevenueDistributor: id(106),
+  },
+  plugins: {
+    compositionRoyaltyPool: id(107),
+    recordingRoyaltyPool: id(108),
+    releaseRevenueDistributor: id(109),
+  },
+} as const satisfies OperationsDeployment;
 
 function params(): AtomicPublicationParams {
   return {
@@ -35,6 +57,7 @@ function params(): AtomicPublicationParams {
         recordPackageId: RECORD_PACKAGE,
         recordShopPackageId: SHOP_PACKAGE,
       },
+      operations: OPERATIONS,
     },
     parties: [
       {
@@ -63,7 +86,6 @@ function params(): AtomicPublicationParams {
           },
         ],
         royaltyPool: { currencyType: "0x2::sui::SUI" },
-        routedStake: true,
       },
     ],
     recordings: [
@@ -159,20 +181,20 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
   expect(count("release_description::set_description")).toBe(1);
   expect(count("release_genre::set_primary_genre")).toBe(1);
   expect(count("release_cover_art::set_cover")).toBe(1);
-  expect(count("composition_royalty_pool::install")).toBe(1);
+  expect(count("composition_royalty_pool_plugin::install")).toBe(1);
   expect(count("composition_royalty_pool::new_pool")).toBe(1);
-  expect(count("recording_royalty_pool::install")).toBe(1);
+  expect(count("recording_royalty_pool_plugin::install")).toBe(1);
   expect(count("recording_royalty_pool::new_pool")).toBe(1);
   expect(count("stake::new")).toBe(2);
   expect(count("pool::register_stake")).toBe(2);
   expect(count("pool::share")).toBe(2);
   expect(count("minato::disperse_balance")).toBe(0);
-  expect(count("composition_routed_stake::install")).toBe(1);
-  expect(count("release_revenue_distributor::install")).toBe(1);
-  expect(count("party_wallet::install")).toBe(1);
+  expect(count("release_revenue_distributor_plugin::install")).toBe(1);
+  expect(count("composition_routed_stake::install")).toBe(0);
+  expect(count("party_wallet::install")).toBe(0);
   expect(count("vault::new")).toBe(5);
   expect(count("vault::share")).toBe(5);
-  expect(count("vault::transfer_admin_cap")).toBe(5);
+  expect(tx.getData().commands.filter((command) => command.$kind === "TransferObjects")).toHaveLength(7);
   const recordingCapType = `${input.deployment.protocol.miso}::recording::RecordingAdminCap<${SHARE_2}>`;
   const recordingVault = tx
     .getData()
@@ -208,6 +230,64 @@ test("atomic publication is exactly assembled and checked before execution", () 
   expect(assertAtomicPublicationBounds(params())).toEqual(inspected);
 });
 
+test("unavailable operations reject Vault custody before adding any PTB command", () => {
+  const input = params();
+  const unavailable: AtomicPublicationParams = {
+    ...input,
+    deployment: {
+      ...input.deployment,
+      operations: getMisoPlatformDeployment("testnet").operations,
+    },
+  };
+  const tx = new Transaction();
+  expect(() => publishAtomicCatalog(unavailable)(tx)).toThrow(
+    OperationsUnavailableError,
+  );
+  expect(tx.getData().commands).toHaveLength(0);
+  expect(tx.getData().inputs).toHaveLength(0);
+});
+
+test("unavailable RecordSales rejects a direct-custody pressing before returning a thunk", () => {
+  const input = params();
+  const direct: AtomicPublicationParams = {
+    ...input,
+    deployment: {
+      ...input.deployment,
+      recordSales: getMisoPlatformDeployment("testnet").recordSales,
+    },
+    parties: input.parties.map((node) =>
+      "create" in node
+        ? { ...node, custody: { kind: "direct" as const, owner: A } }
+        : node,
+    ),
+    compositions: input.compositions.map(({ royaltyPool: _, ...node }) => ({
+      ...node,
+      shareDistribution: "balance" as const,
+      custody: { kind: "direct" as const, owner: A },
+    })),
+    recordings: input.recordings.map(({ royaltyPool: _, ...node }) => ({
+      ...node,
+      shareDistribution: "balance" as const,
+      custody: { kind: "direct" as const, owner: A },
+    })),
+    release: input.release && {
+      ...input.release,
+      revenueDistribution: false,
+      custody: { kind: "direct", owner: A },
+    },
+    pressing: input.pressing && {
+      ...input.pressing,
+      custody: { kind: "direct", owner: A },
+    },
+  };
+  const tx = new Transaction();
+  expect(() => publishAtomicCatalog(direct)).toThrow(
+    RecordSalesUnavailableError,
+  );
+  expect(tx.getData().commands).toHaveLength(0);
+  expect(tx.getData().inputs).toHaveLength(0);
+});
+
 test("SDK callers can explicitly retain legacy balance dispersal", () => {
   const input = params();
   const balanced: AtomicPublicationParams = {
@@ -227,7 +307,7 @@ test("SDK callers can explicitly retain legacy balance dispersal", () => {
   ).toHaveLength(2);
   expect(seq.filter((call) => call === "stake::new")).toHaveLength(0);
   expect(
-    seq.filter((call) => call.endsWith("_royalty_pool::initialize_pool")),
+    seq.filter((call) => call.endsWith("_royalty_pool::new_pool")),
   ).toHaveLength(2);
 });
 
@@ -240,7 +320,7 @@ test("Vault-only publication features reject direct custody", () => {
     ),
   };
   expect(() => publishAtomicCatalog(direct)).toThrow(
-    /Vault-only plugins require Vault custody/,
+    /permissionless royalty cranks require Vault custody/,
   );
 });
 
@@ -291,12 +371,10 @@ test("atomic result parsing maps canonical Vault events without requiring top-le
     (_, index) => `0x${(65 + index).toString(16).repeat(64).slice(0, 64)}`,
   );
   const events = wrappedCaps.map((wrappedCapId, index) => ({
-    eventType: `${deployment.packages.vault}::vault::VaultCreatedEvent<0x1::cap::Cap>`,
+    eventType: `${OPERATIONS.vault.packageId}::vault::VaultCreatedEvent<0x1::cap::Cap>`,
     bcs: contracts.vault.VaultCreatedEvent.serialize({
       vault_id: vaultIds[index]!,
-      vault_admin_cap_id: `0x${(81 + index).toString(16).repeat(64).slice(0, 64)}`,
       cap_id: wrappedCapId,
-      authorized_plugins_id: `0x${(97 + index).toString(16).repeat(64).slice(0, 64)}`,
     }).toBytes(),
   }));
   const objectTypes: Record<string, string> = {

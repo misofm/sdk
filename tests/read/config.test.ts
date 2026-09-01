@@ -13,7 +13,10 @@ describe("misoConfig", () => {
     expect(config.deployment).toBe(deployment.protocol);
     expect(config.recordSales).toBe(deployment.recordSales);
     expect(config.protocol).toEqual({
-      vault: deployment.packages.vault,
+      vault:
+        deployment.operations.status === "available"
+          ? deployment.operations.vault.packageId
+          : deployment.operations.legacy?.vaultPackageId,
       releaseCoverArt: deployment.packages.releaseCoverArt,
       releaseKind: deployment.packages.releaseKind,
       recordingMasterReference: deployment.packages.recordingMasterReference,

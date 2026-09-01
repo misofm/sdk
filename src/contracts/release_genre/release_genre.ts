@@ -6,15 +6,15 @@
 /**
  * Genre assignment for a Miso release: an album-level primary + secondary genres,
  * plus optional per-track primary overrides.
- * 
+ *
  * Genre is presentation, not objective recording data, so it is assigned on the
  * release (the consumer object), not the recording. Stored as a single
  * `ReleaseGenre` dynamic field on the release's UID, gated by the
  * `ReleaseAdminCap`.
- * 
+ *
  * A track's effective primary genre resolves as: its per-track override if set,
  * else the album primary.
- * 
+ *
  * A genre is either the album primary or a secondary, never both — the two are
  * kept disjoint: setting the primary to a current secondary aborts (remove it from
  * the secondaries first), and adding the current primary as a secondary aborts.

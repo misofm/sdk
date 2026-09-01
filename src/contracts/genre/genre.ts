@@ -5,12 +5,12 @@
 
 /**
  * Genre vocabulary for Miso — a canonical, deduplicated set of `Genre` objects.
- * 
+ *
  * Genre is a classification, not protocol-verifiable state, so it lives in an
  * extension rather than core. This module owns the **vocabulary**: `Genre` objects
  * are created permissionlessly and derived by canonical name, so the set stays
  * deduplicated and canonical (no "hip-hop" vs "Hip Hop" forks).
- * 
+ *
  * Genre _assignment_ — classifying a release and its individual tracks — lives in
  * the `release_genre` module. How a recording is presented and classified is a
  * property of the release (the consumer object), not of the recording's objective

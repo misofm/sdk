@@ -10,19 +10,17 @@ import { fileURLToPath } from "node:url";
 // this package depends on it for those bindings; adding the core here to save an
 // import is how the split this package exists to enforce gets undone.
 //
-// Extensions add data to a protocol work. Vault plugins instead custody an admin
-// cap and provide business logic through a temporary, hot-potato capability loan.
-// Both are part of the platform client, but they deliberately have different
-// packages and bindings. Core `miso::release::ReleaseRegistry` is the canonical
-// shared derivation parent, and core `release::new` is PTB-callable.
+// Extensions add persistent data to a protocol work. Actions are public,
+// custody-agnostic business logic. Vault plugins are permissionless automation
+// adapters for the subset of Actions that is safe to crank without an admin.
 //
 // Paths resolve against sibling checkouts. For an isolated SDK worktree, set
 // MISO_SDK_CODEGEN_SOURCE_ROOT to a copied checkout root containing both
 // `misofm/` and `misonetwork/`; codegen then never writes summaries or locks into
 // a developer's live sibling sources. Regenerating requires:
 //   ~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins}
-//   ~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
-//     royalty-pool, routed-stake, share}
+//   ~/Documents/GitHub/misonetwork/{party-actions,protocol,protocol-actions,
+//     protocol-extensions,royalty-pool,routed-stake,share}
 const sourceRoot =
   process.env.MISO_SDK_CODEGEN_SOURCE_ROOT ??
   fileURLToPath(new URL("../..", import.meta.url));
@@ -45,25 +43,27 @@ const config: SuiCodegenConfig = {
       path: source("misonetwork/royalty-pool"),
     },
 
-    // Capability custody plus installed business-logic plugins. These are not
-    // protocol extensions: their entry points borrow the cap from Vault and
-    // return it in the same PTB through vault::put_back.
+    // Capability custody plus raw-cap Actions.
     { package: "@local-pkg/vault", path: source("misofm/vault") },
     {
       package: "@local-pkg/composition_royalty_pool",
-      path: source("misofm/vault-plugins/composition_royalty_pool"),
+      path: source("misonetwork/protocol-actions/composition_royalty_pool"),
     },
     {
       package: "@local-pkg/recording_royalty_pool",
-      path: source("misofm/vault-plugins/recording_royalty_pool"),
+      path: source("misonetwork/protocol-actions/recording_royalty_pool"),
     },
     {
       package: "@local-pkg/party_wallet",
-      path: source("misofm/vault-plugins/party_wallet"),
+      path: source("misonetwork/party-actions/party_wallet"),
     },
     {
       package: "@local-pkg/composition_routed_stake",
-      path: source("misofm/vault-plugins/composition_routed_stake"),
+      path: source("misonetwork/protocol-actions/composition_routed_stake"),
+    },
+    {
+      package: "@local-pkg/release_revenue_distributor",
+      path: source("misonetwork/protocol-actions/release_revenue_distributor"),
     },
     {
       package: "@local-pkg/routed_stake",
@@ -128,10 +128,19 @@ const config: SuiCodegenConfig = {
       path: source("misonetwork/protocol-extensions/recording_preview"),
     },
 
-    // Runtime release economics is business logic, so it is a vault plugin.
+    // Permissionless automation adapters. Party wallet and routed stake have no
+    // plugin because their useful operations return caller-controlled assets.
     {
-      package: "@local-pkg/release_revenue_distributor",
-      path: source("misofm/vault-plugins/release_revenue_distributor"),
+      package: "@local-pkg/composition_royalty_pool_plugin",
+      path: source("misofm/vault-plugins/composition_royalty_pool_plugin"),
+    },
+    {
+      package: "@local-pkg/recording_royalty_pool_plugin",
+      path: source("misofm/vault-plugins/recording_royalty_pool_plugin"),
+    },
+    {
+      package: "@local-pkg/release_revenue_distributor_plugin",
+      path: source("misofm/vault-plugins/release_revenue_distributor_plugin"),
     },
 
     // Credits — contributor attribution (display name + roles) attached to a

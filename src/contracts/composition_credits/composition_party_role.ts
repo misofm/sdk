@@ -7,13 +7,13 @@
  * Defines the roles that parties can hold on a composition. Compositions are the
  * underlying musical works (melody + lyrics), and these roles represent the
  * writing and adaptation contributions to them.
- * 
+ *
  * ### Design
- * 
+ *
  * `CompositionPartyRole` is a closed enum: variants can only be constructed and
  * matched inside this module, so the `new_*_role` constructors are the external
  * write-API and `name()` is the external read-API.
- * 
+ *
  * - **No seniority axis.** Unlike recording roles, composition roles carry no
  *   level — a writer either contributed in a given capacity or did not.
  * - **`Custom` is the escape hatch.** The canonical variants cover the common
@@ -22,7 +22,7 @@
  * - **`name()` is the canonical identifier**, returned as a stable PascalCase
  *   token (e.g. `"Songwriter"`). For `Custom`, `name()` returns the user-supplied
  *   string.
- * 
+ *
  * These identifiers are Miso's own canonical vocabulary; any overlap with an
  * external standard (e.g. DDEX) is coincidental, not a reproduction of it.
  */

@@ -7,7 +7,7 @@
  * Recording audio preview: a short, public teaser clip for a recording, stored as
  * a dynamic field on the recording's UID, set/cleared via the recording's
  * cap-gated `uid_mut`.
- * 
+ *
  * V1 is deliberately minimal: the value is a bare `ori::WalrusData` blob reference
  * — no ingestion or attestation ties the preview to the recording's master. What
  * the blob contains (codec, duration, clip offset) is client-side convention, not

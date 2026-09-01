@@ -61,6 +61,124 @@ export function requireRecordSalesDeployment(
   return deployment;
 }
 
+/** Vault custody and the exact Action/plugin ABI deployed alongside it. */
+export type OperationsDeployment =
+  | {
+      readonly status: "unavailable";
+      readonly reason: string;
+      /** Historical identities are metadata only and are never executable ABIs. */
+      readonly legacy?: {
+        readonly vaultPackageId?: string;
+        readonly vaultRegistryId?: string;
+        readonly packageIds?: Readonly<Record<string, string>>;
+      };
+    }
+  | {
+      readonly status: "available";
+      readonly vault: {
+        readonly packageId: string;
+        readonly registryId: string;
+      };
+      readonly actions: {
+        readonly compositionRoyaltyPool: string;
+        readonly recordingRoyaltyPool: string;
+        readonly partyWallet: string;
+        readonly compositionRoutedStake: string;
+        readonly releaseRevenueDistributor: string;
+      };
+      readonly plugins: {
+        readonly compositionRoyaltyPool: string;
+        readonly recordingRoyaltyPool: string;
+        readonly releaseRevenueDistributor: string;
+      };
+    };
+
+export class OperationsUnavailableError extends Error {
+  override readonly name = "OperationsUnavailableError";
+  constructor(readonly reason: string) {
+    super(`@misofm/sdk: Vault operations are unavailable: ${reason}`);
+  }
+}
+
+export type AvailableOperationsDeployment = Extract<
+  OperationsDeployment,
+  { status: "available" }
+>;
+
+function canonicalObjectId(value: unknown): value is string {
+  if (typeof value !== "string" || !/^0x[0-9a-f]{64}$/.test(value)) {
+    return false;
+  }
+  try {
+    return normalizeSuiObjectId(value) === value;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Require one complete, non-aliased operations deployment.
+ *
+ * The ten identities form one atomic compatibility boundary: mixing a Vault
+ * package or registry object, raw Action, or suffixed plugin from another
+ * publication is rejected.
+ */
+export function requireOperationsDeployment(
+  deployment: OperationsDeployment | undefined,
+): AvailableOperationsDeployment {
+  if (!deployment || deployment.status !== "available") {
+    throw new OperationsUnavailableError(
+      deployment?.reason ?? "no Vault operations deployment was configured",
+    );
+  }
+
+  const candidate = deployment as Partial<AvailableOperationsDeployment>;
+  const vault = candidate.vault as
+    | Partial<AvailableOperationsDeployment["vault"]>
+    | undefined;
+  const actions = candidate.actions as
+    | Partial<AvailableOperationsDeployment["actions"]>
+    | undefined;
+  const plugins = candidate.plugins as
+    | Partial<AvailableOperationsDeployment["plugins"]>
+    | undefined;
+  const packageEntries = [
+    ["vault.packageId", vault?.packageId],
+    ["actions.compositionRoyaltyPool", actions?.compositionRoyaltyPool],
+    ["actions.recordingRoyaltyPool", actions?.recordingRoyaltyPool],
+    ["actions.partyWallet", actions?.partyWallet],
+    ["actions.compositionRoutedStake", actions?.compositionRoutedStake],
+    ["actions.releaseRevenueDistributor", actions?.releaseRevenueDistributor],
+    ["plugins.compositionRoyaltyPool", plugins?.compositionRoyaltyPool],
+    ["plugins.recordingRoyaltyPool", plugins?.recordingRoyaltyPool],
+    ["plugins.releaseRevenueDistributor", plugins?.releaseRevenueDistributor],
+  ] as const;
+
+  for (const [field, id] of packageEntries) {
+    if (!canonicalObjectId(id)) {
+      throw new OperationsUnavailableError(
+        `${field} must be a canonical 32-byte Sui package ID`,
+      );
+    }
+  }
+  if (!canonicalObjectId(vault?.registryId)) {
+    throw new OperationsUnavailableError(
+      "vault.registryId must be a canonical 32-byte Sui object ID",
+    );
+  }
+
+  const identities = [
+    ...packageEntries.map(([, id]) => id as string),
+    vault.registryId,
+  ];
+  if (new Set(identities).size !== identities.length) {
+    throw new OperationsUnavailableError(
+      "the Vault registry object and all nine package IDs must be distinct",
+    );
+  }
+  return deployment;
+}
+
 /** Complete on-chain identity used by the Miso platform SDK on one network. */
 export interface MisoPlatformDeployment {
   /** Network name this immutable deployment set belongs to. */
@@ -70,6 +188,8 @@ export interface MisoPlatformDeployment {
   /** The complete protocol and Party deployment this platform build targets. */
   readonly protocol: MisoDeployment;
   readonly recordSales: RecordSalesDeployment;
+  /** Fail-closed Vault custody and Action/plugin compatibility boundary. */
+  readonly operations: OperationsDeployment;
   readonly packages: {
     readonly minato: string;
     readonly credit: string;
@@ -78,18 +198,8 @@ export interface MisoPlatformDeployment {
     readonly releaseCredits: string;
     /** Base royalty-pool value library. */
     readonly royaltyPool: string;
-    /** Shared custody package for protocol admin capabilities. */
-    readonly vault: string;
-    /** Vault plugin that creates and cranks Composition royalty pools. */
-    readonly vaultCompositionRoyaltyPoolPlugin: string;
-    /** Vault plugin that creates and cranks Recording royalty pools. */
-    readonly vaultRecordingRoyaltyPoolPlugin: string;
-    /** Vault plugin that manages a Party's royalty-bearing wallet. */
-    readonly vaultPartyWalletPlugin: string;
-    /** Generic stake wrapper used by the composition routed-stake plugin. */
+    /** Generic stake wrapper used by composition routed-stake operations. */
     readonly routedStake: string;
-    /** Vault plugin for Composition-owned Recording-share staking. */
-    readonly vaultCompositionRoutedStakePlugin: string;
     /** Cover-art value type used by the release cover extension. */
     readonly coverArt: string;
     readonly releaseCoverArt: string;
@@ -99,8 +209,6 @@ export interface MisoPlatformDeployment {
     readonly releaseDspLink: string;
     readonly releaseGenre: string;
     readonly releaseKind: string;
-    /** Vault plugin that routes Release revenue into Recording addresses. */
-    readonly vaultReleaseRevenueDistributorPlugin: string;
     readonly recordingAdvisory: string;
     readonly recordingLanguage: string;
     readonly recordingMasterReference: string;
@@ -114,8 +222,6 @@ export interface MisoPlatformDeployment {
   };
   readonly objects: {
     readonly releaseRegistry: string;
-    /** Shared parent used to derive canonical Vault object ids. */
-    readonly vaultRegistry: string;
     /** Shared parent used to derive canonical Genre object ids. */
     readonly genreRegistry: string;
     /** Frozen namespace object embedded in Recording-session Seal identities. */
@@ -148,6 +254,29 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
           "0x6150c474200f63bf73072642564886e5ecb1a4c0498ede31acd7908d94dbc83b",
       },
     },
+    operations: {
+      status: "unavailable",
+      reason:
+        "the immutable Vault, five raw Action packages, and three suffixed plugin packages have not been published as one verified deployment",
+      legacy: {
+        vaultPackageId:
+          "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
+        vaultRegistryId:
+          "0xee17744a0c6f71bbde98d0c2b4cab58929000fd2f65e28a4676164d34758584b",
+        packageIds: {
+          compositionRoyaltyPool:
+            "0xbfd9b6c9d3e5635c0beb5472b45566b92f509ed67ae4a661bf928c359f3b438f",
+          recordingRoyaltyPool:
+            "0x1643c188790a7e756310ce779b279159356a9bf7fe8237edf1e5b24a15422615",
+          partyWallet:
+            "0x0d869fe4291fec02821aed40c38349bac8547f0c690316f2a1a2273ac1f317ed",
+          compositionRoutedStake:
+            "0xf86994ebd0dabecda1b14efc02a2e71b3219a7c043841ad8097dc3683bd088dd",
+          releaseRevenueDistributor:
+            "0x2172dc326fbf226b6cf6eed610f217fb0ff2682d1938e8089f4d6ce21a4999b5",
+        },
+      },
+    },
     packages: {
       minato:
         "0x8466e9864c1d947888e73b0e349b035bc22805579eef18f132966f56c8efe1d2",
@@ -161,18 +290,8 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
         "0xbe293700ef758c95b69838df6cfa8377b9cad1dd59cbf933974f68b1766d87b5",
       royaltyPool:
         "0x8021942b5e91c5ef5e383ad481102ee96f52dd77b9b3dbcdf06bb133cd7c91ed",
-      vault:
-        "0xfe396139d500e4381adefea72da2e0157c54ee5c38cc8bdcbc4edd551d043230",
-      vaultCompositionRoyaltyPoolPlugin:
-        "0xbfd9b6c9d3e5635c0beb5472b45566b92f509ed67ae4a661bf928c359f3b438f",
-      vaultRecordingRoyaltyPoolPlugin:
-        "0x1643c188790a7e756310ce779b279159356a9bf7fe8237edf1e5b24a15422615",
-      vaultPartyWalletPlugin:
-        "0x0d869fe4291fec02821aed40c38349bac8547f0c690316f2a1a2273ac1f317ed",
       routedStake:
         "0x7a55b1841043efea865d65a6601e057400a79a0aa7bb11e781a25dbe622cbe5f",
-      vaultCompositionRoutedStakePlugin:
-        "0xf86994ebd0dabecda1b14efc02a2e71b3219a7c043841ad8097dc3683bd088dd",
       coverArt:
         "0x2dae28058b89df93224bacfb9af42fd3ab41f001c2c815fd57fd575024d9a50b",
       releaseCoverArt:
@@ -187,8 +306,6 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
         "0x7882367d45efff41ef0cb9e937029a3f8a3cdf5908d83beeb5cbc0cff178d290",
       releaseKind:
         "0x3e74c960d9446ae2ebf228456ddc1b099d2090501c9cbcd284a999aa2e774e12",
-      vaultReleaseRevenueDistributorPlugin:
-        "0x2172dc326fbf226b6cf6eed610f217fb0ff2682d1938e8089f4d6ce21a4999b5",
       recordingAdvisory:
         "0x28e0e72c5b892fc888a9007afa59ebe04ed8e47f12632ddb42cd685d09c4af2e",
       recordingLanguage:
@@ -202,8 +319,6 @@ export const MISO_PLATFORM_DEPLOYMENTS = {
     objects: {
       releaseRegistry:
         "0xf5941ae9640f6f24b75e921da16c95fd23d776b9e6518c275a50a5ce6337c8ba",
-      vaultRegistry:
-        "0xee17744a0c6f71bbde98d0c2b4cab58929000fd2f65e28a4676164d34758584b",
       genreRegistry:
         "0xa83f9c7a340b5b5b6387d1d5933019b45bcedebbae85bbb89bab855a56e90816",
     },

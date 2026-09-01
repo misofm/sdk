@@ -6,7 +6,7 @@
 /**
  * The evolvable cover art value used by the recording/release cover art
  * extensions.
- * 
+ *
  * CoverArt format changes over time (static-only → +animated → future formats).
  * Keeping it in an extension rather than immutable core means a new format is a
  * republish of this small package (or a brand-new cover art standard), not of the

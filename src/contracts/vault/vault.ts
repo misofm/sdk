@@ -5,7 +5,7 @@
 
 /**
  * Generic capability custody and plugin authorization.
- * 
+ *
  * `Vault<Cap>` is a permanent, deterministically addressed shell that can hold one
  * exact capability in a Sui `Referent`. An authorized plugin receives the whole
  * capability temporarily, paired with a hot-potato `Borrow` receipt that forces
@@ -48,14 +48,9 @@ export const VaultAdminCap = new MoveStruct({ name: `${$moduleName}::VaultAdminC
 export const VaultKey = new MoveTuple({ name: `${$moduleName}::VaultKey<phantom Cap>`, fields: [bcs.Address] });
 export const VaultAdminCapKey = new MoveTuple({ name: `${$moduleName}::VaultAdminCapKey`, fields: [bcs.bool()] });
 export const AuthorizedPluginKey = new MoveTuple({ name: `${$moduleName}::AuthorizedPluginKey<phantom Witness>`, fields: [bcs.bool()] });
-export const VaultRegistryCreatedEvent = new MoveStruct({ name: `${$moduleName}::VaultRegistryCreatedEvent`, fields: {
-        registry_id: bcs.Address
-    } });
 export const VaultCreatedEvent = new MoveStruct({ name: `${$moduleName}::VaultCreatedEvent<phantom Cap>`, fields: {
         vault_id: bcs.Address,
-        vault_admin_cap_id: bcs.Address,
-        cap_id: bcs.Address,
-        authorized_plugins_id: bcs.Address
+        cap_id: bcs.Address
     } });
 export const PluginAuthorizedEvent = new MoveStruct({ name: `${$moduleName}::PluginAuthorizedEvent<phantom Cap, phantom Witness>`, fields: {
         vault_id: bcs.Address
@@ -64,12 +59,10 @@ export const PluginRevokedEvent = new MoveStruct({ name: `${$moduleName}::Plugin
         vault_id: bcs.Address
     } });
 export const VaultCapabilityWithdrawnEvent = new MoveStruct({ name: `${$moduleName}::VaultCapabilityWithdrawnEvent<phantom Cap>`, fields: {
-        vault_id: bcs.Address,
-        cap_id: bcs.Address
+        vault_id: bcs.Address
     } });
 export const VaultCapabilityRestoredEvent = new MoveStruct({ name: `${$moduleName}::VaultCapabilityRestoredEvent<phantom Cap>`, fields: {
-        vault_id: bcs.Address,
-        cap_id: bcs.Address
+        vault_id: bcs.Address
     } });
 export interface NewArguments<Cap extends BcsType<any>> {
     registry: RawTransactionArgument<string>;
@@ -127,39 +120,6 @@ export function share(options: ShareOptions) {
         package: packageAddress,
         module: 'vault',
         function: 'share',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface TransferAdminCapArguments {
-    adminCap: RawTransactionArgument<string>;
-    recipient: RawTransactionArgument<string>;
-}
-export interface TransferAdminCapOptions {
-    package?: string;
-    arguments: TransferAdminCapArguments | [
-        adminCap: RawTransactionArgument<string>,
-        recipient: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-/**
- * Transfer exclusive administration without exposing public freeze, share, or
- * wrapping operations for the VaultAdminCap.
- */
-export function transferAdminCap(options: TransferAdminCapOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        null,
-        'address'
-    ] satisfies (string | null)[];
-    const parameterNames = ["adminCap", "recipient"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'transfer_admin_cap',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -250,12 +210,7 @@ export interface AuthorizePluginOptions<Witness extends BcsType<any>> {
         string
     ];
 }
-/**
- * Authorize the package identified by its canonical `witness::Witness` type.
- *
- * The witness is consumed here. A plugin should construct it with a package-only
- * `witness::new()` function.
- */
+/** Authorize the plugin identified by this witness type. */
 export function authorizePlugin<Witness extends BcsType<any>>(options: AuthorizePluginOptions<Witness>) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -322,8 +277,7 @@ export interface BorrowAsPluginOptions<Witness extends BcsType<any>> {
  * Temporarily lend the full custodied capability to an authorized plugin.
  *
  * `Borrow` has no abilities, so the exact capability must be returned through
- * `put_back` in this transaction. Aborts if the supplied type is not the exact
- * non-generic `0xpkg::witness::Witness` shape or is not authorized on this Vault.
+ * `put_back` in this transaction.
  */
 export function borrowAsPlugin<Witness extends BcsType<any>>(options: BorrowAsPluginOptions<Witness>) {
     const packageAddress = options.package ?? '@local-pkg/vault';
@@ -408,13 +362,13 @@ export function putBack<Cap extends BcsType<any>>(options: PutBackOptions<Cap>) 
         typeArguments: options.typeArguments
     });
 }
-export interface VaultAddressArguments {
+export interface DerivedAddressArguments {
     registry: RawTransactionArgument<string>;
     capId: RawTransactionArgument<string>;
 }
-export interface VaultAddressOptions {
+export interface DerivedAddressOptions {
     package?: string;
-    arguments: VaultAddressArguments | [
+    arguments: DerivedAddressArguments | [
         registry: RawTransactionArgument<string>,
         capId: RawTransactionArgument<string>
     ];
@@ -423,7 +377,7 @@ export interface VaultAddressOptions {
     ];
 }
 /** Derive the canonical Vault address for `cap_id` in this registry. */
-export function vaultAddress(options: VaultAddressOptions) {
+export function derivedAddress(options: DerivedAddressOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         null,
@@ -433,56 +387,7 @@ export function vaultAddress(options: VaultAddressOptions) {
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
-        function: 'vault_address',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface VaultAdminCapAddressArguments {
-    vaultId: RawTransactionArgument<string>;
-}
-export interface VaultAdminCapAddressOptions {
-    package?: string;
-    arguments: VaultAdminCapAddressArguments | [
-        vaultId: RawTransactionArgument<string>
-    ];
-}
-/** Derive the canonical VaultAdminCap address for a Vault ID. */
-export function vaultAdminCapAddress(options: VaultAdminCapAddressOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        '0x2::object::ID'
-    ] satisfies (string | null)[];
-    const parameterNames = ["vaultId"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'vault_admin_cap_address',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface VaultIdArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface VaultIdOptions {
-    package?: string;
-    arguments: VaultIdArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function vaultId(options: VaultIdOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'vault_id',
+        function: 'derived_address',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -514,12 +419,12 @@ export function capId(options: CapIdOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface IsOccupiedArguments {
+export interface IsActiveArguments {
     self: RawTransactionArgument<string>;
 }
-export interface IsOccupiedOptions {
+export interface IsActiveOptions {
     package?: string;
-    arguments: IsOccupiedArguments | [
+    arguments: IsActiveArguments | [
         self: RawTransactionArgument<string>
     ];
     typeArguments: [
@@ -527,12 +432,12 @@ export interface IsOccupiedOptions {
     ];
 }
 /**
- * Whether the permanent outer capability slot is occupied.
+ * Whether this Vault is active.
  *
- * This is the persistent-state custody view. It remains true during a
- * transaction-local lease even though the inner Referent is temporarily empty.
+ * An active Vault has an outer Referent. It remains active during a
+ * transaction-local lease even though that Referent is temporarily empty.
  */
-export function isOccupied(options: IsOccupiedOptions) {
+export function isActive(options: IsActiveOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         null
@@ -541,25 +446,25 @@ export function isOccupied(options: IsOccupiedOptions) {
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
-        function: 'is_occupied',
+        function: 'is_active',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
 }
-export interface AuthorizedPluginsIdArguments {
+export interface AuthorizedPluginsArguments {
     self: RawTransactionArgument<string>;
 }
-export interface AuthorizedPluginsIdOptions {
+export interface AuthorizedPluginsOptions {
     package?: string;
-    arguments: AuthorizedPluginsIdArguments | [
+    arguments: AuthorizedPluginsArguments | [
         self: RawTransactionArgument<string>
     ];
     typeArguments: [
         string
     ];
 }
-/** The ID under which `AuthorizedPluginKey` records are dynamic fields. */
-export function authorizedPluginsId(options: AuthorizedPluginsIdOptions) {
+/** The immutable Bag containing typed plugin-authorization records. */
+export function authorizedPlugins(options: AuthorizedPluginsOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         null
@@ -568,33 +473,7 @@ export function authorizedPluginsId(options: AuthorizedPluginsIdOptions) {
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
-        function: 'authorized_plugins_id',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface AuthorizedPluginCountArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface AuthorizedPluginCountOptions {
-    package?: string;
-    arguments: AuthorizedPluginCountArguments | [
-        self: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string
-    ];
-}
-export function authorizedPluginCount(options: AuthorizedPluginCountOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'authorized_plugin_count',
+        function: 'authorized_plugins',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -612,12 +491,7 @@ export interface IsPluginAuthorizedOptions {
         string
     ];
 }
-/**
- * Returns whether this witness type has an authorization record.
- *
- * This deliberately does not validate the witness shape: arbitrary types simply
- * report false, while `authorize_plugin` is the only way to add one.
- */
+/** Returns whether this witness type has an authorization record. */
 export function isPluginAuthorized(options: IsPluginAuthorizedOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [

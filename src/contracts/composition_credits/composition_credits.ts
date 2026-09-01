@@ -5,14 +5,14 @@
 
 /**
  * First-party credits extension for compositions.
- * 
+ *
  * Attribution (writing credits) is display-oriented and varies across platforms,
  * so it lives here as a dynamic field on the composition rather than in immutable
  * core. The data is attached under `ExtensionKey()` via the composition's
  * cap-gated `uid_mut`, so every mutation is authorized by the composition's admin
  * and credits survive into any lifecycle state (they may be attached before or
  * after the composition is published).
- * 
+ *
  * This is Miso's canonical credits standard; because it is an extension, other
  * parties may publish their own composition-credits standard against the same
  * `Composition`. Credits are NOT read by the economics — they are attribution.

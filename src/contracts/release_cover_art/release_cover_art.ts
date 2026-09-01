@@ -7,7 +7,7 @@
  * Release cover art: an album-level cover plus optional per-track cover overrides.
  * Stored as a dynamic field on the release's UID, set/cleared via the release's
  * cap-gated `uid_mut`.
- * 
+ *
  * Cover art is presentation, not objective recording data, so it lives on the
  * release (the consumer object) rather than the recording. A track's effective
  * cover resolves as: its per-track override if set, else the album cover. The

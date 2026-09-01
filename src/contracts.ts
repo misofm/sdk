@@ -15,7 +15,7 @@ export * as record from "./contracts/miso_record/record.ts";
 export * as pressing from "./contracts/miso_record/pressing.ts";
 export * as listing from "./contracts/miso_record_shop/listing.ts";
 
-// Generic royalty-pool primitive plus vault-custodied business-logic plugins.
+// Generic royalty-pool primitive, raw-cap Actions, and the three safe crank plugins.
 export * as royaltyPool from "./contracts/royalty_pool/pool.ts";
 export * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
 export * as vault from "./contracts/vault/vault.ts";
@@ -24,6 +24,9 @@ export * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/record
 export * as partyWallet from "./contracts/party_wallet/party_wallet.ts";
 export * as routedStake from "./contracts/routed_stake/routed_stake.ts";
 export * as compositionRoutedStake from "./contracts/composition_routed_stake/composition_routed_stake.ts";
+export * as compositionRoyaltyPoolPlugin from "./contracts/composition_royalty_pool_plugin/composition_royalty_pool_plugin.ts";
+export * as recordingRoyaltyPoolPlugin from "./contracts/recording_royalty_pool_plugin/recording_royalty_pool_plugin.ts";
+export * as releaseRevenueDistributorPlugin from "./contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin.ts";
 
 // Cover art (the CoverArt value type + the release attachment extension).
 export * as coverArt from "./contracts/cover_art/cover_art.ts";

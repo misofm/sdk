@@ -5,18 +5,18 @@
 
 /**
  * First-party credits extension for releases.
- * 
+ *
  * Attribution (top-line billing) is display-oriented and varies across platforms,
  * so it lives here as a dynamic field on the release rather than in immutable
  * core. The data is attached under `ExtensionKey()` via the release's cap-gated
  * `uid_mut`, so every mutation is authorized by the release's admin and credits
  * survive into any lifecycle state (they may be attached before or after the
  * release is published).
- * 
+ *
  * This is Miso's canonical credits standard; because it is an extension, other
  * parties may publish their own release-credits standard against the same
  * `Release`. Credits are NOT read by the economics — they are attribution.
- * 
+ *
  * A release credit carries exactly one role: a party is billed as either a
  * `Primary` or a `Featured` artist on the release.
  */

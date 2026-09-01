@@ -5,14 +5,14 @@
 
 /**
  * First-party credits extension for recordings.
- * 
+ *
  * Attribution (credits + primary/featured artists) is display-oriented and varies
  * across platforms, so it lives here as a dynamic field on the recording rather
  * than in immutable core. The data is attached under `ExtensionKey()` via the
  * recording's cap-gated `uid_mut`, so every mutation is authorized by the
  * recording's admin and credits survive into any lifecycle state (they may be
  * attached before or after the recording is published).
- * 
+ *
  * This is Miso's canonical credits standard; because it is an extension, other
  * parties may publish their own recording-credits standard against the same
  * `Recording`. Credits are NOT read by the economics — they are attribution.

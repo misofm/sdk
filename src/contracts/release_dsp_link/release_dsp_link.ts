@@ -7,7 +7,7 @@
  * Streaming deep links for a Miso release, one Digital Service Provider (DSP) at a
  * time. Attaches `DspLinkData` records to a `miso::release::Release`: an
  * album-level link per DSP, plus an optional per-track link per DSP.
- * 
+ *
  * `DspLinkData` is a single built-in enum with one variant per DSP, holding that
  * DSP's native identifier(s) — e.g. a Spotify album id, or Apple Music's
  * `(storefront, album_id, track_id)`. URLs are never stored: a client rebuilds the
@@ -16,13 +16,13 @@
  * discriminant matching declaration order, via `platform()`), so each DSP occupies
  * its own independent dynamic field on the release's `UID` — adding or clearing
  * one DSP's link never touches another's.
- * 
+ *
  * Two levels per DSP: the album-level link is the single `DspLinkData` stored
  * under `ReleaseLinkKey(platform)`; the per-track links are a
  * `PerTrack<Option<DspLinkData>>` stored under `TrackLinksKey(platform)` (one slot
  * per track, aligned to the tracklist by construction). A track whose slot is
  * `none` inherits the album-level link at the frontend.
- * 
+ *
  * Streaming presence is presentation, not protocol-verifiable state, so it lives
  * on the release (the consumer object), not the recording. All writes are gated by
  * the `ReleaseAdminCap` via `uid_mut`; views are permissionless.

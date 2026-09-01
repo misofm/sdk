@@ -2,7 +2,7 @@
 
 The complete client SDK for the **Miso platform layer** on Sui: composed catalog,
 artist, wallet, and receipt reads; the record production line and sale of copies;
-and vault-custodied business-logic plugins built on `@misonetwork/sdk`'s
+and fail-closed Vault custody, raw Actions, and safe crank plugins built on `@misonetwork/sdk`'s
 protocol and data-extension primitives.
 
 ## The split
@@ -13,7 +13,7 @@ holding:
 | Scope            | Layer        | Owns                                                                                                                                   |
 | ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `@misonetwork/*` | **Protocol** | Composition, Recording, Release, Party identity; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
-| `@misofm/*`      | **Platform** | Pressing, Listing, Record, and Vault plugins that apply Miso business logic to custodied protocol admin caps                           |
+| `@misofm/*`      | **Platform** | Pressing, Listing, Record, and an explicitly deployed Vault/Action/plugin compatibility set                                           |
 
 A release is protocol. Pressing a record off that release and selling it is
 platform. So is deciding _what to do_ with a freshly-minted work's share
@@ -21,7 +21,9 @@ supply — the protocol only knows how to mint one. Keeping the boundary at the
 package line is what stops the open protocol from quietly growing a
 storefront (or an opinion about tokenomics).
 
-Extensions add data to a work. Plugins provide business logic: a shared
+Extensions add data to a work. Raw Actions accept an admin cap and remain
+composable with either direct authority or a scoped Vault borrow. Three safe,
+permissionless crank plugins borrow through their own witness: a shared
 `Vault<AdminCap>` custodies the raw cap, while its owner holds a
 `VaultAdminCap<AdminCap>`. A plugin borrows the cap and must return the exact
 object in the same PTB. The SDK supports both vault authorities and legacy
@@ -40,7 +42,7 @@ Install both SDKs at the application boundary; the platform package intentionall
 does not carry its own protocol SDK copy:
 
 ```sh
-bun add @misofm/sdk@^0.16.0 @misonetwork/sdk@^0.10.0
+bun add @misofm/sdk@^0.17.0 @misonetwork/sdk@^0.10.0
 ```
 
 Both SDKs are consumed from npm. The platform package keeps
@@ -92,6 +94,10 @@ import { miso } from "@misofm/sdk";
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
   miso({ deployment: verifiedDeployment }),
 );
+
+// One memoized Core API read proves this endpoint is the deployment's exact
+// ledger before any synchronous client-bound builder can be used.
+await client.miso.ready();
 
 // The permissionless protocol SDK is part of the same facade.
 const release = await client.miso.protocol.getReleaseById(releaseId);
@@ -215,11 +221,12 @@ them from stale pricing-mode changes as well as amount changes.
 
 ### Vault fund settlement
 
-`settleAndDistributeReleaseRevenue`, `settleCompositionRoyaltyPool`, and
-`settleRecordingRoyaltyPool` read the amount from the framework's
-`balance::settled_funds_value` and pass that command result directly to the
-plugin's exact-value redemption call. The caller never supplies or estimates a
-`u64`. The lower-level `redeemAndDistributeReleaseRevenue`,
+`settleAndDistributeReleaseRevenue` invokes the fixed release plugin with the
+framework `AccumulatorRoot` (`0xacc`); the plugin redeems the whole settled
+snapshot and exposes no amount argument. `settleCompositionRoyaltyPool` and
+`settleRecordingRoyaltyPool` read `balance::settled_funds_value` and pass that
+command result directly to their exact-value plugin calls. The lower-level raw
+Action `redeemAndDistributeReleaseRevenue` and the plugin helpers
 `redeemAndDepositCompositionRoyaltyPool`, and
 `redeemAndDepositRecordingRoyaltyPool` remain available when an earlier PTB
 command already produced the exact value.
@@ -267,7 +274,9 @@ The protocol, immutable Record and Record Shop packages, minato, and core
 `ReleaseRegistry` address all come from the deployment selected by the Sui
 client's network. Record sales have no Record Registry or Settings singleton.
 The deprecated `misoPlatform()` constructor still accepts those values manually
-for compatibility with existing integrations.
+for compatibility with existing integrations. It must also receive the exact
+`network` and `chainIdentifier`; call `await client.misoPlatform.ready()` before
+accessing its client-bound protocol or platform surfaces.
 
 For custom PTBs, the bare primitives (`disperseShares`, `finalizeComposition`,
 `finalizeRecording`) and the whole-graph orchestrator are exported standalone:
@@ -316,9 +325,11 @@ const thunk = publishReleaseGraph({
 
 `publishAtomicCatalog` owns the semantic publication transaction. Given
 pre-initialized share currencies, it creates every new Party, Composition,
-Recording, Track, and Release; applies all declared data extensions; installs
-and initializes Vault plugins; opens the Pressing and Listings; shares the new
-objects; and delivers only the selected direct admin cap or VaultAdminCap. The
+Recording, Track, and Release; applies all declared data extensions; composes
+raw-cap Actions through direct custody or a scoped Vault borrow; installs only
+the permissionless royalty/revenue crank plugins; opens the Pressing and
+Listings; shares the new objects; and delivers only the selected direct admin
+cap or VaultAdminCap. The
 entire catalog stage is one PTB, so none of it can land partially.
 
 Share allocation is explicit at the SDK boundary. Omitting
@@ -351,7 +362,7 @@ const publication = {
 // PTB exceeds the SDK's command/input safety limits or has an invalid graph.
 assertAtomicPublicationBounds(publication);
 
-const executed = await executeViaExecutor(
+const executed = await client.miso.executeViaExecutor(
   executor,
   publishAtomicCatalog(publication),
 );
@@ -360,9 +371,11 @@ const result = parseAtomicPublicationResult(publication, executed);
 
 Fresh raw PartyAdminCap, CompositionAdminCap, RecordingAdminCap, and
 ReleaseAdminCap values never leave the PTB when Vault custody is selected.
-Party Vaults install the Party Wallet plugin by default; royalty-pool,
-routed-stake, and release-revenue plugins are installed while each new Vault is
-still owned. Plugin witness construction remains inside the SDK bindings.
+Only the Composition royalty-pool, Recording royalty-pool, and Release revenue
+plugins are installable, while each new Vault is still owned. Party-wallet and
+Composition routed-stake operations remain raw Actions because they return
+caller-controlled assets. Plugin witness construction remains inside the SDK
+bindings.
 
 Share packages necessarily precede this stage: publish at most five per PTB,
 then initialize their currencies, then submit the atomic catalog PTB. The two
@@ -515,7 +528,7 @@ const cover = await getReleaseCover(
 // ({ kind: "blob", blobId } | { kind: "quiltPatch", quiltId, version, startIndex, endIndex })
 ```
 
-### Vault plugins (`vault.ts`)
+### Vault operations (`vault.ts`)
 
 `vault.ts` contains composable PTB builders for custody and plugin flows:
 `invokeWithAdminCap` safely sequences `borrow_as_admin → Move call → put_back`, and
@@ -528,9 +541,33 @@ installers construct their witnesses inside their Move package; callers supply n
 witness.
 
 It also builds Composition/Recording royalty-pool initialization and cranks,
-Release `redeem_and_distribute` / `receive_and_distribute`, and the full
-Composition routed-stake lifecycle. Receive flows take coin IDs and construct
-the required `vector<Receiving<Coin<Currency>>>` in the PTB.
+fixed Release settlement plus raw-admin amount composition, Party wallet
+Actions, and the full Composition routed-stake Action lifecycle. Receive flows
+take exact object references and construct the required
+`vector<Receiving<Coin<Currency>>>` in the PTB.
+
+The bundled legacy Testnet deployment marks `operations.status` as
+`"unavailable"`; its historical IDs are metadata only. Consequently
+zero-config clients expose no Vault, Action, or plugin call surface. A custom
+available deployment must provide one canonical Vault package and registry,
+five distinct raw Action packages, and three distinct suffixed plugin packages.
+
+### Migrating from 0.16
+
+Version 0.17 is a breaking deployment-safety release. Replace flat Vault,
+Action, and plugin package fields with the discriminated `operations` union;
+historical IDs belong only under unavailable `legacy` metadata. After client
+registration, call `await client.miso.ready()` before using synchronous
+`client.miso.tx`, `ids`, `call`, `vault`, or `party` surfaces. Platform reads
+and SDK execution helpers await the same memoized readiness check themselves.
+Standalone builders remain pure for offline composition, so their caller is
+responsible for completing this exact-chain validation lifecycle before
+execution.
+
+The Release revenue plugin crank is now fixed: call
+`redeemAllAndDistribute(vault, release, accumulatorRoot)` with no amount. The
+explicit-amount `redeemAndDistribute` Action remains available only for raw
+admin-cap composition.
 
 ### Extension types
 
@@ -607,7 +644,9 @@ only from that copy, avoiding writes to a developer's live source tree.
 `@misonetwork/sdk` is a required peer (`^0.10.0`), not a runtime dependency.
 This package imports its primitives, deployment configuration, protocol client,
 and Party client directly, then exposes them at `client.miso.protocol` and
-`client.miso.party`. The consuming
+`client.miso.party` only after `await client.miso.ready()` validates the exact
+ledger. Direct protocol reads, generated calls, package bindings, and nested
+Party APIs cannot be obtained before that gate. The consuming
 application installs one protocol SDK, preventing a platform tarball from
 silently nesting an older protocol ABI alongside the application's copy.
 `@mysten/sui` itself stays a peer dependency here, same as in

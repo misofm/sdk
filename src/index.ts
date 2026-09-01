@@ -29,7 +29,10 @@
 export {
   miso,
   misoPlatform,
+  MisoChainIdentifierMismatchError,
+  MisoClientNotReadyError,
   MisoClient,
+  MisoNetworkMismatchError,
   MisoPlatformClient,
 } from "./client.ts";
 export type {
