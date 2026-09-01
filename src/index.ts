@@ -46,6 +46,7 @@ export * from "./share-template.ts";
 export * from "./release-graph.ts";
 export * from "./publication.ts";
 export * from "./catalog.ts";
+export * from "./mix.ts";
 
 // High-level, JSON-safe platform projections used directly by clients and by
 // the thin HTTP read service. Namespaced because these composed view types are

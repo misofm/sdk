@@ -1,295 +1,339 @@
 // Copyright (c) Miso Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pressing — the record production line. A release has exactly ONE `Pressing`: an
-// uncapped sale run whose supply counts this implementation's sales. The singleton
-// Record Registry owns the canonical per-release number sequence across any future
-// sales-package replacement. There are no editions, supply caps, sold-out state, or
-// expiry — the run is `Scheduled → Active → Paused → Active`. Selling in a
-// currency is a `Listing<Currency>` derived off the pressing: one per currency, ever,
-// permanent, edited in place rather than replaced. A sale needs both switches open.
-//
-// EVERYTHING IS ADDRESS MATH. The pressing's UID derives off its release's, each
-// listing's off the pressing's. The core `ReleaseRegistry` owns release creation,
-// but there is no pressing registry or pointer to follow:
-// `derivePressingId`/`deriveListingId` answer "where is it" offline, which is why the
-// builders here take a RELEASE id and compute the rest. A caller cannot pass a
-// listing that belongs to some other pressing, because it never picks one.
+// Primary Record sales. `miso_record` owns concrete Records and edition-scoped
+// Pressings; immutable `miso_record_shop` owns per-currency Listings and payment.
 
 import type { ClientWithCoreApi } from "@mysten/sui/client";
-import { deriveObjectID, normalizeStructTag, normalizeSuiAddress, parseStructTag } from "@mysten/sui/utils";
+import {
+  deriveObjectID,
+  normalizeStructTag,
+  normalizeSuiAddress,
+  parseStructTag,
+} from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
 import { isNotFound } from "./queries.ts";
 import { asU64, type U64Input } from "./vault.ts";
-import * as listing from "./contracts/miso_pressing/listing.ts";
-import * as pressing from "./contracts/miso_pressing/pressing.ts";
+import * as pressingContract from "./contracts/miso_record/pressing.ts";
+import * as recordContract from "./contracts/miso_record/record.ts";
+import * as listingContract from "./contracts/miso_record_shop/listing.ts";
 
-/** Pricing policy: pay exactly `amount` (fixed) or at least `amount` (floor). */
-export type ListingPrice = {
-  kind: "fixed" | "floor";
-  amount: U64Input;
-};
+const MAX_U16 = 0xffff;
+const MAX_U32 = 0xffff_ffff;
+const UNIT_STRUCT_KEY_BYTES = new Uint8Array([0]);
 
-/** Whether a currency's listing takes payment. Below the pressing's own run state. */
+/** Fixed cross-client parity vector for the finalized Record/Record Shop
+ * derived-object ABI. Outputs are literals, not initialized through the
+ * derivation helpers they verify. */
+export const RECORD_SALES_DERIVATION_VECTOR_V1 = {
+  releaseId:
+    "0x3333333333333333333333333333333333333333333333333333333333333333",
+  edition: 2,
+  currencyType: "0x2::sui::SUI",
+  recordPackageId:
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  recordShopPackageId:
+    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  pressingId:
+    "0x3e74b7f16951f027684e3bc44dec1efa35a0754017417ad5d4d4131f92a20c16",
+  pressingAdminCapId:
+    "0xbaec8eab17a06cc3c3a5d13e4b5b636a210776bd60f86b423d245f70f8e965a6",
+  listingId:
+    "0x7fbf4cb7cce881a50bdc848ee65545299fec0887213524de29e039bed31e0e37",
+  recordNumber: 7,
+  recordId:
+    "0xd492af6fc9b88d71c6674e486ab7aeca911ab797f651bae891a1cf8e54f94f1a",
+} as const;
+
+export type ListingPrice = { kind: "fixed" | "floor"; amount: U64Input };
 export type ListingSwitch = "enabled" | "disabled";
 
-/**
- * The run's state, across every currency at once.
- *
- * `scheduled` is transitional: the first sale past `startTimestampMs` rewrites it to
- * `active` inside `mint_next`, and the start time leaves the object with it. "When was
- * this run scheduled for" is an event-log question once a run has sold anything.
- */
-export type PressingRunState =
-  | { kind: "scheduled"; startTimestampMs: U64Input }
-  | { kind: "active" }
-  | { kind: "paused" };
+function uint(label: string, value: number, max: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new RangeError(`${label} must be an integer from 0 to ${max}`);
+  }
+  return value;
+}
 
-// ============================================================================
-// Address math
-// ============================================================================
+function edition(value: number): number {
+  const out = uint("edition", value, MAX_U16);
+  if (out === 0) throw new RangeError("edition must be greater than zero");
+  return out;
+}
 
-/** Key bytes for Move unit structs (single `0x00` for `dummy_field: bool = false`). */
-const UNIT_STRUCT_KEY_BYTES = new Uint8Array([0x00]);
+function maxSupply(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  const out = uint("max supply", value, MAX_U32);
+  if (out === 0) throw new RangeError("max supply must be greater than zero");
+  return out;
+}
 
-/**
- * Where `releaseId`'s pressing lives — computable before it has been opened, and
- * stable forever after, because a release can only ever claim one.
- *
- * `misoPressingPackageId` must be the package's ORIGINAL (first-published) id, since
- * that is the address a Move type tag canonicalises to. `miso_pressing` is published
- * immutable, so its original and current ids are the same.
- */
 export function derivePressingId(
   releaseId: string,
-  misoPressingPackageId: string,
+  editionNumber: number,
+  recordPackageId: string,
 ): string {
+  const value = edition(editionNumber);
   return deriveObjectID(
     releaseId,
-    `${misoPressingPackageId}::pressing::PressingKey`,
-    UNIT_STRUCT_KEY_BYTES,
+    `${recordPackageId}::pressing::PressingKey`,
+    pressingContract.PressingKey.serialize([value]).toBytes(),
   );
 }
 
-/**
- * Where `pressingId`'s admin cap was minted. The cap is transferable, so this is not
- * where it lives — only where it came from.
- */
 export function derivePressingAdminCapId(
   pressingId: string,
-  misoPressingPackageId: string,
+  recordPackageId: string,
 ): string {
   return deriveObjectID(
     pressingId,
-    `${misoPressingPackageId}::pressing::PressingAdminCapKey`,
+    `${recordPackageId}::pressing::PressingAdminCapKey`,
     UNIT_STRUCT_KEY_BYTES,
   );
 }
 
-/**
- * Where `currencyType`'s listing on `pressingId` lives. The key is phantom-typed, so
- * the currency rides in the key's TYPE — one listing per (pressing, currency), ever.
- */
+export function deriveRecordId(
+  pressingId: string,
+  number: number,
+  recordPackageId: string,
+): string {
+  const value = uint("record number", number, MAX_U32);
+  if (value === 0)
+    throw new RangeError("record number must be greater than zero");
+  return deriveObjectID(
+    pressingId,
+    `${recordPackageId}::record::RecordKey`,
+    recordContract.RecordKey.serialize([value]).toBytes(),
+  );
+}
+
 export function deriveListingId(
   pressingId: string,
   currencyType: string,
-  misoPressingPackageId: string,
+  recordShopPackageId: string,
 ): string {
   return deriveObjectID(
     pressingId,
-    `${misoPressingPackageId}::listing::ListingKey<${normalizeStructTag(currencyType)}>`,
+    `${recordShopPackageId}::listing::ListingKey<${normalizeStructTag(currencyType)}>`,
     UNIT_STRUCT_KEY_BYTES,
   );
 }
 
-/** Both derived ids a sale needs, from the release id alone. */
 export function deriveSaleIds(
   releaseId: string,
+  editionNumber: number,
   currencyType: string,
-  misoPressingPackageId: string,
+  recordPackageId: string,
+  recordShopPackageId: string,
 ): { pressingId: string; listingId: string } {
-  const pressingId = derivePressingId(releaseId, misoPressingPackageId);
+  const pressingId = derivePressingId(
+    releaseId,
+    editionNumber,
+    recordPackageId,
+  );
   return {
     pressingId,
-    listingId: deriveListingId(pressingId, currencyType, misoPressingPackageId),
+    listingId: deriveListingId(pressingId, currencyType, recordShopPackageId),
   };
 }
 
-// ============================================================================
-// Term constructors (shared by the builders below)
-// ============================================================================
-
 type Tx = Parameters<TxThunk>[0];
 
-function priceArg(tx: Tx, misoPressingPackageId: string, price: ListingPrice) {
-  const make =
-    price.kind === "fixed" ? listing.newFixedPrice : listing.newFloorPrice;
+function priceArg(tx: Tx, packageId: string, price: ListingPrice) {
+  const fn =
+    price.kind === "fixed" ? listingContract.fixed : listingContract.floor;
   return tx.add(
-    make({ package: misoPressingPackageId, arguments: [asU64("listing price", price.amount)] }),
+    fn({
+      package: packageId,
+      arguments: [asU64("listing price", price.amount)],
+    }),
   );
 }
 
-function switchArg(
-  tx: Tx,
-  misoPressingPackageId: string,
-  state: ListingSwitch,
-) {
-  const make =
-    state === "enabled" ? listing.newEnabledState : listing.newDisabledState;
-  return tx.add(make({ package: misoPressingPackageId }));
+function stateArg(tx: Tx, packageId: string, state: ListingSwitch) {
+  const fn =
+    state === "enabled" ? listingContract.enabled : listingContract.disabled;
+  return tx.add(fn({ package: packageId }));
 }
 
-function runStateArg(
-  tx: Tx,
-  misoPressingPackageId: string,
-  state: PressingRunState,
-) {
-  const pkg = { package: misoPressingPackageId };
-  switch (state.kind) {
-    case "scheduled":
-      return tx.add(
-        pressing.newScheduledState({
-          ...pkg,
-          arguments: [asU64("pressing schedule timestamp", state.startTimestampMs)],
-        }),
-      );
-    case "active":
-      return tx.add(pressing.newActiveState(pkg));
-    case "paused":
-      return tx.add(pressing.newPausedState(pkg));
-  }
+function witnessType(recordShopPackageId: string): string {
+  return `${recordShopPackageId}::witness::Witness`;
 }
 
-// ============================================================================
-// Opening the run
-// ============================================================================
-
-/** One currency's offer, as `openPressing` takes it. */
 export interface ListingTerms {
-  /** The `Currency` type argument, e.g. `0x2::sui::SUI`. */
   currencyType: string;
   price: ListingPrice;
-  /** Defaults to `"enabled"` — a listing opened disabled takes no payment yet. */
   state?: ListingSwitch;
 }
 
 export interface OpenPressingParams {
-  /** The `Release` this run presses copies of — also the pressing's derivation parent. */
   releaseId: string;
-  /** The release's `ReleaseAdminCap`. Needed ONLY to open the run; every later change
-   *  authorizes against the `PressingAdminCap` this mints. */
   releaseAdminCapId: string;
-  /** Currencies to open the run in. May be empty — listings can be added later with
-   *  {@link openListing} — but a run with no listings sells nothing. */
-  listings: ListingTerms[];
-  /** Run state at open. Defaults to `active` (sell immediately); `scheduled` sets a
-   *  trustless opening time and needs no later transaction to open. */
-  state?: PressingRunState;
-  /** Where to send the minted `PressingAdminCap` (usually the artist or their vault). */
+  edition: number;
+  maxSupply?: number | null;
+  listings: readonly ListingTerms[];
   adminCapRecipient: string;
-  misoPressingPackageId: string;
+  recordPackageId: string;
+  recordShopPackageId: string;
 }
 
-/**
- * Opens a release's pressing and lists it, in ONE transaction.
- *
- * `pressing::new` hands the `Pressing` back UNSHARED precisely so the listings can be
- * claimed off it before `share` puts it on chain — that ordering is the whole reason
- * this is a single builder and not three. A release can only ever open one pressing,
- * so this call is once-per-release forever; changing price or currency afterwards is
- * an edit ({@link setListingPrice}, {@link openListing}), never a re-open.
- */
+/** Initial setup: create the Pressing, authorize Record Shop, open/share Listings,
+ * share the Pressing, and transfer its admin capability. */
 export function openPressing(p: OpenPressingParams): TxThunk {
   return (tx) => {
-    const pkg = p.misoPressingPackageId;
-    const [run, adminCap] = tx.add(
-      pressing._new({
-        package: pkg,
+    const [pressing, cap] = tx.add(
+      pressingContract._new({
+        package: p.recordPackageId,
         arguments: [
           p.releaseId,
           p.releaseAdminCapId,
-          runStateArg(tx, pkg, p.state ?? { kind: "active" }),
+          edition(p.edition),
+          maxSupply(p.maxSupply),
         ],
       }),
     );
+    tx.add(
+      pressingContract.authorizeDistributor({
+        package: p.recordPackageId,
+        arguments: [pressing!, cap!],
+        typeArguments: [witnessType(p.recordShopPackageId)],
+      }),
+    );
     for (const terms of p.listings) {
-      tx.add(
-        listing._new({
-          package: pkg,
+      const listing = tx.add(
+        listingContract._new({
+          package: p.recordShopPackageId,
           arguments: [
-            run!,
-            adminCap!,
-            priceArg(tx, pkg, terms.price),
-            switchArg(tx, pkg, terms.state ?? "enabled"),
+            pressing!,
+            cap!,
+            priceArg(tx, p.recordShopPackageId, terms.price),
           ],
           typeArguments: [terms.currencyType],
         }),
       );
+      if (terms.state === "disabled") {
+        tx.add(
+          listingContract.setState({
+            package: p.recordShopPackageId,
+            arguments: [
+              listing,
+              cap!,
+              stateArg(tx, p.recordShopPackageId, "disabled"),
+            ],
+            typeArguments: [terms.currencyType],
+          }),
+        );
+      }
+      tx.add(
+        listingContract.share({
+          package: p.recordShopPackageId,
+          arguments: [listing],
+          typeArguments: [terms.currencyType],
+        }),
+      );
     }
-    tx.add(pressing.share({ package: pkg, arguments: [run!] }));
-    tx.transferObjects([adminCap!], p.adminCapRecipient);
+    tx.add(
+      pressingContract.share({
+        package: p.recordPackageId,
+        arguments: [pressing!],
+      }),
+    );
+    tx.transferObjects([cap!], p.adminCapRecipient);
+  };
+}
+
+export interface PressingAdministrationParams {
+  pressingId: string;
+  pressingAdminCapId: string;
+  recordPackageId: string;
+  recordShopPackageId: string;
+}
+
+export function authorizeRecordShop(p: PressingAdministrationParams): TxThunk {
+  return (tx) => {
+    tx.add(
+      pressingContract.authorizeDistributor({
+        package: p.recordPackageId,
+        arguments: [p.pressingId, p.pressingAdminCapId],
+        typeArguments: [witnessType(p.recordShopPackageId)],
+      }),
+    );
+  };
+}
+
+export function revokeRecordShop(p: PressingAdministrationParams): TxThunk {
+  return (tx) => {
+    tx.add(
+      pressingContract.revokeDistributor({
+        package: p.recordPackageId,
+        arguments: [p.pressingId, p.pressingAdminCapId],
+        typeArguments: [witnessType(p.recordShopPackageId)],
+      }),
+    );
   };
 }
 
 export interface OpenListingParams {
-  /** The release whose pressing gains a currency. The pressing id derives from it. */
-  releaseId: string;
+  pressingId: string;
   pressingAdminCapId: string;
   terms: ListingTerms;
-  misoPressingPackageId: string;
+  recordShopPackageId: string;
 }
 
-/**
- * Adds a currency to a live pressing. Once per currency, ever — the slot is a derived
- * claim, so a second call for the same currency aborts. Everything after is an edit.
- */
+/** Add one permanent currency Listing. Authorization is deliberately separate. */
 export function openListing(p: OpenListingParams): TxThunk {
   return (tx) => {
-    const pkg = p.misoPressingPackageId;
-    tx.add(
-      listing._new({
-        package: pkg,
+    const listing = tx.add(
+      listingContract._new({
+        package: p.recordShopPackageId,
         arguments: [
-          derivePressingId(p.releaseId, pkg),
+          p.pressingId,
           p.pressingAdminCapId,
-          priceArg(tx, pkg, p.terms.price),
-          switchArg(tx, pkg, p.terms.state ?? "enabled"),
+          priceArg(tx, p.recordShopPackageId, p.terms.price),
         ],
+        typeArguments: [p.terms.currencyType],
+      }),
+    );
+    if (p.terms.state === "disabled") {
+      tx.add(
+        listingContract.setState({
+          package: p.recordShopPackageId,
+          arguments: [
+            listing,
+            p.pressingAdminCapId,
+            stateArg(tx, p.recordShopPackageId, "disabled"),
+          ],
+          typeArguments: [p.terms.currencyType],
+        }),
+      );
+    }
+    tx.add(
+      listingContract.share({
+        package: p.recordShopPackageId,
+        arguments: [listing],
         typeArguments: [p.terms.currencyType],
       }),
     );
   };
 }
 
-// ============================================================================
-// Editing the offer
-// ============================================================================
-
 export interface SetListingPriceParams {
-  releaseId: string;
+  pressingId: string;
   currencyType: string;
   pressingAdminCapId: string;
   price: ListingPrice;
-  misoPressingPackageId: string;
+  recordShopPackageId: string;
 }
 
-/**
- * Reprices one currency in place, keeping the listing's address and identity. Safe
- * against in-flight buys by construction: a `fixed` buyer pays exactly, so a stale
- * payment aborts against the new price, and a `floor` buyer never pays more than the
- * balance they sent.
- */
 export function setListingPrice(p: SetListingPriceParams): TxThunk {
   return (tx) => {
-    const pkg = p.misoPressingPackageId;
-    const { listingId } = deriveSaleIds(p.releaseId, p.currencyType, pkg);
     tx.add(
-      listing.setPrice({
-        package: pkg,
+      listingContract.setPrice({
+        package: p.recordShopPackageId,
         arguments: [
-          listingId,
+          deriveListingId(p.pressingId, p.currencyType, p.recordShopPackageId),
           p.pressingAdminCapId,
-          priceArg(tx, pkg, p.price),
+          priceArg(tx, p.recordShopPackageId, p.price),
         ],
         typeArguments: [p.currencyType],
       }),
@@ -298,25 +342,22 @@ export function setListingPrice(p: SetListingPriceParams): TxThunk {
 }
 
 export interface SetListingStateParams {
-  releaseId: string;
+  pressingId: string;
   currencyType: string;
   pressingAdminCapId: string;
   state: ListingSwitch;
-  misoPressingPackageId: string;
+  recordShopPackageId: string;
 }
 
-/** Stops or resumes ONE currency. The run's other currencies carry on. */
 export function setListingState(p: SetListingStateParams): TxThunk {
   return (tx) => {
-    const pkg = p.misoPressingPackageId;
-    const { listingId } = deriveSaleIds(p.releaseId, p.currencyType, pkg);
     tx.add(
-      listing.setState({
-        package: pkg,
+      listingContract.setState({
+        package: p.recordShopPackageId,
         arguments: [
-          listingId,
+          deriveListingId(p.pressingId, p.currencyType, p.recordShopPackageId),
           p.pressingAdminCapId,
-          switchArg(tx, pkg, p.state),
+          stateArg(tx, p.recordShopPackageId, p.state),
         ],
         typeArguments: [p.currencyType],
       }),
@@ -324,108 +365,39 @@ export function setListingState(p: SetListingStateParams): TxThunk {
   };
 }
 
-export interface SetPressingStateParams {
+export interface PurchaseRecordParams {
   releaseId: string;
-  pressingAdminCapId: string;
-  state: PressingRunState;
-  misoPressingPackageId: string;
-}
-
-/**
- * Moves the whole run between its three modes, over every currency at once. There is
- * no "end" — ending a campaign is `{ kind: "paused" }`.
- */
-export function setPressingState(p: SetPressingStateParams): TxThunk {
-  return (tx) => {
-    const pkg = p.misoPressingPackageId;
-    tx.add(
-      pressing.setState({
-        package: pkg,
-        arguments: [
-          derivePressingId(p.releaseId, pkg),
-          p.pressingAdminCapId,
-          runStateArg(tx, pkg, p.state),
-        ],
-      }),
-    );
-  };
-}
-
-// ============================================================================
-// Buying
-// ============================================================================
-
-export interface BuyRecordParams {
-  /**
-   * The `Release` being bought a copy of. The pressing and this currency's listing
-   * BOTH derive from it (see {@link deriveSaleIds}), so there is nothing to look up
-   * and no way to pair a listing with the wrong pressing.
-   */
-  releaseId: string;
-  /** Amount to pay in the currency's smallest unit (exact for `fixed`, ≥ for `floor`). */
-  amount: U64Input;
-  /** The listing's `Currency` type, e.g. `0x2::sui::SUI`. */
+  edition: number;
+  paymentAmount: U64Input;
+  expectedPricing: ListingPrice;
   currencyType: string;
-  /** Where to send the pressed `Record` (usually the buyer). */
   recipient: string;
-  /**
-   * The singleton `miso_record::record::RecordRegistry` that owns canonical
-   * Record IDs and per-release number sequences.
-   */
-  recordRegistryId: string;
-  /**
-   * The shared `miso_record::settings::Settings` object that authorizes this
-   * Pressing package's private `MintWitness` to create Records.
-   */
-  recordSettingsId: string;
-  misoPressingPackageId: string;
-  /**
-   * Set only when the buyer pays their OWN gas. Miso sponsors every purchase — the gas
-   * coin is the sponsor's, so drawing a payment out of it would spend the wrong
-   * wallet's money. Defaults to sponsored; bites only on SUI-priced listings.
-   */
-  useGasCoin?: boolean;
+  recordPackageId: string;
+  recordShopPackageId: string;
 }
 
-/**
- * Buys one record: sources the payment, calls `listing::buy`, and sends the pressed
- * `Record` to `recipient`. `buy` RETURNS the record rather than transferring it, so
- * the transfer here is not optional. The `Clock` is auto-supplied.
- *
- * ONE payment path, no coin picking. `tx.balance()` resolves the money at build time,
- * preferring the buyer's ADDRESS BALANCE — where value is assumed to live — and falling
- * back to coin objects inside the SDK if it must. Callers never enumerate coins: that
- * road showed a buyer their $1000 and then refused to spend a cent of it, because the
- * listing only saw `Coin<T>` objects and the money was in the address balance.
- *
- * `listing::buy` takes a bare `Balance<Currency>`, which is what makes that resolution
- * cheap: when the address balance covers the price, `tx.balance()` emits a single
- * `balance::redeem_funds` straight off the accumulator and no coin object is minted,
- * touched, or destroyed — leaving the sale free of any owned-object contention. Only
- * when it must fall back to coins does it merge, split, and `coin::into_balance`.
- */
-export function buyRecord(p: BuyRecordParams): TxThunk {
+export function purchaseRecord(p: PurchaseRecordParams): TxThunk {
   return (tx) => {
-    const pkg = p.misoPressingPackageId;
     const { pressingId, listingId } = deriveSaleIds(
       p.releaseId,
+      p.edition,
       p.currencyType,
-      pkg,
+      p.recordPackageId,
+      p.recordShopPackageId,
     );
     const payment = tx.balance({
+      balance: asU64("purchase amount", p.paymentAmount),
       type: p.currencyType,
-      balance: asU64("purchase amount", p.amount),
-      useGasCoin: p.useGasCoin ?? false,
+      useGasCoin: false,
     });
     const record = tx.add(
-      listing.buy({
-        package: pkg,
+      listingContract.purchase({
+        package: p.recordShopPackageId,
         arguments: [
           listingId,
           pressingId,
-          p.recordRegistryId,
           payment,
-          p.recordSettingsId,
+          priceArg(tx, p.recordShopPackageId, p.expectedPricing),
         ],
         typeArguments: [p.currencyType],
       }),
@@ -434,32 +406,36 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
   };
 }
 
-// ============================================================================
-// Reads
-// ============================================================================
-
-/** A parsed `Pressing` — the run itself. */
 export interface PressingView {
   id: string;
   releaseId: string;
-  state: PressingRunState & { startTimestampMs?: bigint };
-  /** Records sold through this Pressing. This is not the Registry's canonical
-   *  release supply and may diverge after a sales-package replacement. */
-  supply: bigint;
+  edition: number;
+  supply: number;
+  maxSupply: number | null;
+  distributors: string[];
 }
 
-/** A parsed `Listing<Currency>` — one currency's offer on the run. */
 export interface ListingView {
   id: string;
   releaseId: string;
   pressingId: string;
-  price: { kind: "fixed" | "floor"; amount: bigint };
+  pricing: { kind: "fixed" | "floor"; amount: string };
   state: ListingSwitch;
-  /** The exact normalized `Currency` type from the validated outer type tag. */
   currencyType: string;
 }
 
-/** Reads one object's BCS content + type, or `null` only when it does not exist. */
+export interface RecordView {
+  id: string;
+  releaseId: string;
+  pressingId: string;
+  edition: number;
+  number: number;
+  purchaseCurrency: string;
+  purchasePrice: string;
+  purchasedBy: string;
+  purchasedTimestampMs: string;
+}
+
 async function fetch(
   client: ClientWithCoreApi,
   objectId: string,
@@ -470,13 +446,12 @@ async function fetch(
       include: { content: true },
     });
     if (!object) return null;
-    if (!object.content || !object.type) {
+    if (!object.content || !object.type)
       throw new Error(`object ${objectId} has no BCS content or full type`);
-    }
     return { content: object.content, type: object.type };
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
   }
 }
 
@@ -485,233 +460,246 @@ function sameId(a: string, b: string): boolean {
 }
 
 function requireId(label: string, actual: string, expected: string): void {
-  if (!sameId(actual, expected)) {
+  if (!sameId(actual, expected))
     throw new Error(`${label} ${actual} does not match expected ${expected}`);
-  }
 }
 
-/** Require the exact configured package/module/struct outer tag. */
-function requirePressingType(type: string, misoPressingPackageId: string): void {
+function requireExactType(type: string, expected: string, label: string): void {
   const actual = normalizeStructTag(type);
-  const expected = normalizeStructTag(`${misoPressingPackageId}::pressing::Pressing`);
-  if (actual !== expected) {
-    throw new Error(`Pressing has type ${actual}, expected configured ${expected}`);
-  }
+  const normalizedExpected = normalizeStructTag(expected);
+  if (actual !== normalizedExpected)
+    throw new Error(
+      `${label} has type ${actual}, expected ${normalizedExpected}`,
+    );
 }
 
-/** Validate the whole Listing<CURRENCY> tag and return its normalized Currency. */
-function requireListingCurrency(type: string, misoPressingPackageId: string): string {
+function requireListingCurrency(
+  type: string,
+  recordShopPackageId: string,
+): string {
   const actual = normalizeStructTag(type);
   const tag = parseStructTag(actual);
   if (
-    tag.address !== normalizeSuiAddress(misoPressingPackageId) ||
+    tag.address !== normalizeSuiAddress(recordShopPackageId) ||
     tag.module !== "listing" ||
     tag.name !== "Listing" ||
     tag.typeParams.length !== 1
-  ) {
-    throw new Error(`Listing has type ${actual}, not a configured miso_pressing::listing::Listing<CURRENCY>`);
-  }
-  const currencyType = normalizeStructTag(tag.typeParams[0]!);
-  const expected = normalizeStructTag(
-    `${misoPressingPackageId}::listing::Listing<${currencyType}>`,
-  );
-  if (actual !== expected) {
-    throw new Error(`Listing has non-canonical type ${actual}, expected ${expected}`);
-  }
-  return currencyType;
+  )
+    throw new Error(
+      `Listing has type ${actual}, not the configured Record Shop Listing<Currency>`,
+    );
+  return normalizeStructTag(tag.typeParams[0]!);
 }
 
-// The generated `MoveEnum` parsers emit `{ $kind, <Variant>: … }`; older ones omitted
-// `$kind`. Both shapes are accepted so a codegen bump cannot silently mis-read a price.
-function variant<T extends string>(
-  v: { $kind?: string } & Record<string, unknown>,
-  ...names: T[]
-): T {
+function enumKind(
+  value: { $kind?: string } & Record<string, unknown>,
+  names: readonly string[],
+): string {
   for (const name of names)
-    if (v.$kind === name || v[name] != null) return name;
-  return names[0]!;
+    if (value.$kind === name || Object.hasOwn(value, name)) return name;
+  throw new Error(`unknown enum variant; expected ${names.join(" or ")}`);
 }
 
-/**
- * Fetches and parses a `Pressing`, or `null` if the release has never opened one.
- *
- * This deliberately deviates from the core-getter convention in `./queries.ts`
- * (throw on missing object). A Pressing's address is computable for any release, so
- * probing one that was never opened is a normal state, not a broken reference —
- * absence is `null` and only transport failures throw.
- */
-export async function getPressing(
-  client: ClientWithCoreApi,
-  pressingId: string,
-  misoPressingPackageId: string,
-): Promise<PressingView | null> {
-  const got = await fetch(client, pressingId);
-  if (!got) return null;
-  return parsePressing(pressingId, got.content, got.type, misoPressingPackageId);
+function parsePricing(value: unknown): ListingView["pricing"] {
+  if (!value || typeof value !== "object")
+    throw new Error("Listing has malformed pricing");
+  const v = value as { $kind?: string; Fixed?: string; Floor?: string };
+  const kind = enumKind(v as never, ["Fixed", "Floor"]);
+  const amount = kind === "Fixed" ? v.Fixed : v.Floor;
+  if (amount == null || BigInt(amount) <= 0n)
+    throw new Error("Listing has invalid pricing amount");
+  return { kind: kind === "Fixed" ? "fixed" : "floor", amount };
 }
 
 function parsePressing(
   pressingId: string,
   content: Uint8Array,
   type: string,
-  misoPressingPackageId: string,
+  recordPackageId: string,
 ): PressingView {
-  requirePressingType(type, misoPressingPackageId);
-  const parsed = pressing.Pressing.parse(content);
+  requireExactType(type, `${recordPackageId}::pressing::Pressing`, "Pressing");
+  const parsed = pressingContract.Pressing.parse(content);
   requireId("Pressing UID", parsed.id, pressingId);
   requireId(
     "Pressing derived id",
     pressingId,
-    derivePressingId(parsed.release_id, misoPressingPackageId),
+    derivePressingId(parsed.release_id, parsed.edition, recordPackageId),
   );
-  const s = parsed.state as {
-    $kind?: string;
-    Scheduled?: { start_timestamp_ms: string };
-  };
-  const kind = variant(s, "Scheduled", "Active", "Paused");
   return {
     id: pressingId,
     releaseId: parsed.release_id,
-    state:
-      kind === "Scheduled"
-        ? {
-            kind: "scheduled",
-            startTimestampMs: BigInt(s.Scheduled?.start_timestamp_ms ?? "0"),
-          }
-        : kind === "Paused"
-          ? { kind: "paused" }
-          : { kind: "active" },
-    supply: BigInt(parsed.supply),
+    edition: parsed.edition,
+    supply: parsed.supply,
+    maxSupply: parsed.max_supply,
+    distributors: parsed.distributors.contents.map((item) =>
+      normalizeStructTag(item.name),
+    ),
   };
-}
-
-/** Fetches and parses a `Listing<Currency>`, or `null` if that currency is not listed. */
-export async function getListing(
-  client: ClientWithCoreApi,
-  listingId: string,
-  misoPressingPackageId: string,
-): Promise<ListingView | null> {
-  const got = await fetch(client, listingId);
-  if (!got) return null;
-  return parseListing(listingId, got.content, got.type, misoPressingPackageId);
 }
 
 function parseListing(
   listingId: string,
   content: Uint8Array,
   type: string,
-  misoPressingPackageId: string,
+  recordShopPackageId: string,
 ): ListingView {
-  const currencyType = requireListingCurrency(type, misoPressingPackageId);
-  const parsed = listing.Listing.parse(content);
+  const currencyType = requireListingCurrency(type, recordShopPackageId);
+  const parsed = listingContract.Listing.parse(content);
   requireId("Listing UID", parsed.id, listingId);
-  requireId(
-    "Listing pressing",
-    parsed.pressing_id,
-    derivePressingId(parsed.release_id, misoPressingPackageId),
-  );
   requireId(
     "Listing derived id",
     listingId,
-    deriveListingId(parsed.pressing_id, currencyType, misoPressingPackageId),
+    deriveListingId(parsed.pressing_id, currencyType, recordShopPackageId),
   );
-  const p = parsed.price as {
-    $kind?: string;
-    Fixed?: { amount: string };
-    Floor?: { amount: string };
-  };
-  const priceKind = variant(p, "Fixed", "Floor");
-  const st = parsed.state as {
-    $kind?: string;
-    Enabled?: unknown;
-    Disabled?: unknown;
-  };
+  const state = enumKind(parsed.state as never, ["Enabled", "Disabled"]);
   return {
     id: listingId,
     releaseId: parsed.release_id,
     pressingId: parsed.pressing_id,
-    price: {
-      kind: priceKind === "Fixed" ? "fixed" : "floor",
-      amount: BigInt(
-        (priceKind === "Fixed" ? p.Fixed?.amount : p.Floor?.amount) ?? "0",
-      ),
-    },
-    state:
-      variant(st, "Enabled", "Disabled") === "Enabled" ? "enabled" : "disabled",
+    pricing: parsePricing(parsed.pricing),
+    state: state === "Enabled" ? "enabled" : "disabled",
     currencyType,
   };
 }
 
-export interface GetSaleParams {
-  /** The release to resolve a sale for. */
-  releaseId: string;
-  /** The currency the buyer intends to pay in. */
-  currencyType: string;
-  misoPressingPackageId: string;
+function parseRecord(
+  recordId: string,
+  content: Uint8Array,
+  type: string,
+  recordPackageId: string,
+): RecordView {
+  requireExactType(type, `${recordPackageId}::record::Record`, "Record");
+  const parsed = recordContract.Record.parse(content);
+  requireId("Record UID", parsed.id, recordId);
+  requireId(
+    "Record derived id",
+    recordId,
+    deriveRecordId(parsed.pressing_id, parsed.number, recordPackageId),
+  );
+  return {
+    id: recordId,
+    releaseId: parsed.release_id,
+    pressingId: parsed.pressing_id,
+    edition: parsed.edition,
+    number: parsed.number,
+    purchaseCurrency: normalizeStructTag(parsed.purchase_currency.name),
+    purchasePrice: parsed.purchase_price,
+    purchasedBy: parsed.purchased_by,
+    purchasedTimestampMs: parsed.purchased_timestamp_ms,
+  };
 }
 
-/**
- * Resolves a release's run AND one currency's offer in a single round trip, by pure
- * address math — no registry, no pointer, no event scan. `pressing: null` means the
- * release has never opened one; `listing: null` means it does not sell in that
- * currency (the other currencies, if any, are unaffected).
- */
+export async function getPressing(
+  client: ClientWithCoreApi,
+  pressingId: string,
+  recordPackageId: string,
+): Promise<PressingView | null> {
+  const got = await fetch(client, pressingId);
+  return got
+    ? parsePressing(pressingId, got.content, got.type, recordPackageId)
+    : null;
+}
+
+export async function getListing(
+  client: ClientWithCoreApi,
+  listingId: string,
+  recordShopPackageId: string,
+): Promise<ListingView | null> {
+  const got = await fetch(client, listingId);
+  return got
+    ? parseListing(listingId, got.content, got.type, recordShopPackageId)
+    : null;
+}
+
+export async function getRecord(
+  client: ClientWithCoreApi,
+  recordId: string,
+  recordPackageId: string,
+): Promise<RecordView | null> {
+  const got = await fetch(client, recordId);
+  return got
+    ? parseRecord(recordId, got.content, got.type, recordPackageId)
+    : null;
+}
+
+export interface GetSaleParams {
+  releaseId: string;
+  edition: number;
+  currencyType: string;
+  recordPackageId: string;
+  recordShopPackageId: string;
+}
+
 export async function getSale(
   client: ClientWithCoreApi,
   p: GetSaleParams,
 ): Promise<{ pressing: PressingView | null; listing: ListingView | null }> {
   const { pressingId, listingId } = deriveSaleIds(
     p.releaseId,
+    p.edition,
     p.currencyType,
-    p.misoPressingPackageId,
+    p.recordPackageId,
+    p.recordShopPackageId,
   );
   const { objects } = await client.core.getObjects({
     objectIds: [pressingId, listingId],
     include: { content: true },
   });
-  const pressingObject = objects[0];
-  const listingObject = objects[1];
-  if (pressingObject instanceof Error && !isNotFound(pressingObject)) {
+  const [pressingObject, listingObject] = objects;
+  if (pressingObject instanceof Error && !isNotFound(pressingObject))
     throw pressingObject;
-  }
-  if (listingObject instanceof Error && !isNotFound(listingObject)) {
+  if (listingObject instanceof Error && !isNotFound(listingObject))
     throw listingObject;
-  }
-  const parsedPressing =
+  const pressing =
     !pressingObject || pressingObject instanceof Error
       ? null
-      : parseBatchPressing(pressingId, pressingObject.content, pressingObject.type, p.misoPressingPackageId);
-  const parsedListing =
+      : parseBatchPressing(
+          pressingId,
+          pressingObject.content,
+          pressingObject.type,
+          p.recordPackageId,
+        );
+  const listing =
     !listingObject || listingObject instanceof Error
       ? null
-      : parseBatchListing(listingId, listingObject.content, listingObject.type, p.misoPressingPackageId);
-  if (parsedPressing) requireId("Sale pressing release", parsedPressing.releaseId, p.releaseId);
-  if (parsedListing) {
-    requireId("Sale listing release", parsedListing.releaseId, p.releaseId);
-    requireId("Sale listing pressing", parsedListing.pressingId, pressingId);
-    if (parsedListing.currencyType !== normalizeStructTag(p.currencyType)) {
-      throw new Error(`Sale listing currency ${parsedListing.currencyType} does not match requested ${normalizeStructTag(p.currencyType)}`);
+      : parseBatchListing(
+          listingId,
+          listingObject.content,
+          listingObject.type,
+          p.recordShopPackageId,
+        );
+  if (pressing)
+    requireId("Sale pressing release", pressing.releaseId, p.releaseId);
+  if (listing) {
+    requireId("Sale listing release", listing.releaseId, p.releaseId);
+    requireId("Sale listing pressing", listing.pressingId, pressingId);
+    if (listing.currencyType !== normalizeStructTag(p.currencyType)) {
+      throw new Error(
+        `Sale listing currency ${listing.currencyType} does not match requested ${normalizeStructTag(p.currencyType)}`,
+      );
     }
   }
-  return { pressing: parsedPressing, listing: parsedListing };
+  return { pressing, listing };
 }
 
 function parseBatchPressing(
-  pressingId: string,
+  id: string,
   content: Uint8Array | undefined,
   type: string | undefined,
-  misoPressingPackageId: string,
+  packageId: string,
 ): PressingView {
-  if (!content || !type) throw new Error(`Pressing ${pressingId} has no BCS content or full type`);
-  return parsePressing(pressingId, content, type, misoPressingPackageId);
+  if (!content || !type)
+    throw new Error(`Pressing ${id} has no BCS content or full type`);
+  return parsePressing(id, content, type, packageId);
 }
 
 function parseBatchListing(
-  listingId: string,
+  id: string,
   content: Uint8Array | undefined,
   type: string | undefined,
-  misoPressingPackageId: string,
+  packageId: string,
 ): ListingView {
-  if (!content || !type) throw new Error(`Listing ${listingId} has no BCS content or full type`);
-  return parseListing(listingId, content, type, misoPressingPackageId);
+  if (!content || !type)
+    throw new Error(`Listing ${id} has no BCS content or full type`);
+  return parseListing(id, content, type, packageId);
 }

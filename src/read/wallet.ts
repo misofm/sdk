@@ -20,8 +20,11 @@ import {
   isNotFound,
 } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
-import { int, msOrNull, u64, u64OrNull } from "./internal/scalars.ts";
+import { int, u64 } from "./internal/scalars.ts";
 import * as vaultContract from "../contracts/vault/vault.ts";
+import * as recordContract from "../contracts/miso_record/record.ts";
+import { deriveRecordId } from "../pressing.ts";
+import { requireRecordSalesDeployment } from "../deployments.ts";
 import type {
   Balance,
   OwnedParty,
@@ -152,18 +155,6 @@ function isCanonicalRecordType(
   return true;
 }
 
-function readNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function readTypeName(value: unknown): string | null {
-  if (typeof value === "string") return readNonEmptyString(value);
-  if (value !== null && typeof value === "object") {
-    return readNonEmptyString((value as Record<string, unknown>).name);
-  }
-  return null;
-}
-
 /**
  * The records `owner` holds. Ownership is DIRECT — a record is an address-owned
  * `<miso_record>::record::Record` with no pressing/license/receipt intermediary.
@@ -173,7 +164,8 @@ function readTypeName(value: unknown): string | null {
 export async function getOwnedRecords(client: MisoClient, owner: string): Promise<OwnedRecord[]> {
   const out: OwnedRecord[] = [];
   let cursor: string | null = null;
-  const recordType = `${client.config.protocol.record}::record::Record`;
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
+  const recordType = `${sales.recordPackageId}::record::Record`;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // Annotated: `cursor` is both an input and assigned from the result, which
@@ -184,24 +176,32 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
         type: recordType,
         cursor,
         limit: 50,
-        include: { json: true },
+        include: { content: true },
       });
     for (const obj of res.objects) {
-      if (!isCanonicalRecordType(obj.type, client.config.protocol.record)) {
+      if (!isCanonicalRecordType(obj.type, sales.recordPackageId)) {
         continue;
       }
-      const json = (obj.json ?? {}) as Record<string, unknown>;
+      if (!obj.content) throw new Error(`Record ${obj.objectId} has no BCS content`);
+      const record = recordContract.Record.parse(obj.content);
+      if (normalizeSuiAddress(record.id) !== normalizeSuiAddress(obj.objectId)) {
+        throw new Error(`Record ${obj.objectId} has mismatched embedded UID ${record.id}`);
+      }
+      const derived = deriveRecordId(record.pressing_id, record.number, sales.recordPackageId);
+      if (normalizeSuiAddress(derived) !== normalizeSuiAddress(obj.objectId)) {
+        throw new Error(`Record ${obj.objectId} is not derived from its Pressing and number`);
+      }
       out.push({
         id: obj.objectId,
         type: obj.type,
-        releaseId: readNonEmptyString(json.release_id),
-        registryId: readNonEmptyString(json.registry_id),
-        number: u64OrNull(json.number as bigint | number | string | null | undefined),
-        createdAtMs: msOrNull(
-          json.created_at_ms as bigint | number | string | null | undefined,
-        ),
-        purchaseCurrency: readTypeName(json.purchase_currency),
-        purchasedBy: readNonEmptyString(json.purchased_by),
+        releaseId: record.release_id,
+        pressingId: record.pressing_id,
+        edition: record.edition,
+        number: record.number,
+        purchaseCurrency: normalizeStructTag(record.purchase_currency.name),
+        purchasePrice: record.purchase_price,
+        purchasedBy: record.purchased_by,
+        purchasedTimestampMs: record.purchased_timestamp_ms,
       });
     }
     if (!res.hasNextPage) break;

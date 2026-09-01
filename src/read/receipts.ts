@@ -3,9 +3,9 @@
 //
 // What one record sale actually was, read back from its transaction.
 //
-// The transaction digest is the receipt's identity: everything shown is
+// The transaction digest plus Record ID is the receipt's identity: everything shown is
 // re-derived from chain state, so a receipt link survives a refresh, a deep link,
-// or a share to another device. `listing::buy` emits ONE `RecordSoldEvent` carrying
+// or a share to another device. `listing::purchase` emits `RecordSoldEvent` carrying
 // the copy that was minted, its number in the run, and what the buyer paid.
 //
 // Two reads, in order, because a receipt is opened at two very different ages:
@@ -14,13 +14,13 @@
 //   indexer   the old path — GraphQL keeps transactions the fullnode has pruned.
 //             This is what makes a months-old receipt link still open.
 //
-// Where the money goes is PRESENTATIONAL, not a second on-chain fact: `buy`
+// Where the money goes is PRESENTATIONAL, not a second on-chain fact: `purchase`
 // forwards the whole payment to the release's funds accumulator (there is no
 // platform fee), and the royalty layer splits it downstream by the same terms this
 // read walks. We show the buyer that arithmetic, in the same truncating integer
 // math the chain does.
 
-import * as listingContract from "../contracts/miso_pressing/listing.ts";
+import * as listingContract from "../contracts/miso_record_shop/listing.ts";
 import {
   extractTypeParams2,
   getCompositionsByIds,
@@ -28,13 +28,14 @@ import {
 import { normalizeStructTag, normalizeSuiAddress } from "@mysten/sui/utils";
 import { getPressingDetail } from "./catalog.ts";
 import type { MisoClient } from "./client.ts";
-import { int, ms, msOrNull, u64 } from "./internal/scalars.ts";
+import { int } from "./internal/scalars.ts";
+import { requireRecordSalesDeployment } from "../deployments.ts";
 import type { Price, PressingDetail, PurchaseReceipt, RecordSale, TrackRoyalty } from "./types.ts";
 import { getWorkAddressesByShareTypes } from "./works.ts";
 
 const BPS = 10_000n;
 
-/** `miso_pressing::listing::RecordSoldEvent<Currency>` — emitted by `listing::buy`. */
+/** `miso_record_shop::listing::RecordSoldEvent<Currency>`. */
 const RECORD_SOLD_EVENT_NAME = "listing::RecordSoldEvent";
 
 /**
@@ -43,6 +44,10 @@ const RECORD_SOLD_EVENT_NAME = "listing::RecordSoldEvent";
  * digest the node genuinely doesn't have.
  */
 const FULLNODE_WAIT_MS = 5_000;
+
+export class MalformedRecordSoldEventError extends Error {
+  override readonly name = "MalformedRecordSoldEventError";
+}
 
 /** Composition royalty rate (bps) per recording id. Sparse — an unresolved parent has no entry. */
 type CompositionRates = Record<string, number | undefined>;
@@ -58,18 +63,45 @@ function priceFromUnknown(value: unknown): Price | null {
   if (!value || typeof value !== "object") return null;
   const variants = value as {
     $kind?: string;
-    Fixed?: { amount?: unknown };
-    Floor?: { amount?: unknown };
-    fixed?: { amount?: unknown };
-    floor?: { amount?: unknown };
+    Fixed?: unknown;
+    Floor?: unknown;
   };
-  const fixed = variants.$kind === "Fixed" || variants.Fixed != null || variants.fixed != null;
-  const amount = coerceBigInt(
-    fixed
-      ? (variants.Fixed ?? variants.fixed)?.amount
-      : (variants.Floor ?? variants.floor)?.amount,
-  );
-  return amount == null ? null : { kind: fixed ? "fixed" : "floor", amount: amount.toString() };
+  const fixed = variants.$kind === "Fixed" || Object.hasOwn(variants, "Fixed");
+  const floor = variants.$kind === "Floor" || Object.hasOwn(variants, "Floor");
+  if (fixed === floor) return null;
+  const amount = coerceBigInt(fixed ? variants.Fixed : variants.Floor);
+  return amount == null || amount <= 0n
+    ? null
+    : { kind: fixed ? "fixed" : "floor", amount: amount.toString() };
+}
+
+function typeName(value: unknown): string | null {
+  const raw = typeof value === "string"
+    ? value
+    : value && typeof value === "object"
+      ? (value as Record<string, unknown>).name
+      : null;
+  if (typeof raw !== "string" || !raw) return null;
+  try { return normalizeStructTag(raw); } catch { return null; }
+}
+
+function positiveU32(value: unknown): number | null {
+  const bigint = coerceBigInt(value);
+  return bigint == null || bigint <= 0n || bigint > 0xffff_ffffn
+    ? null
+    : Number(bigint);
+}
+
+function positiveU16(value: unknown): number | null {
+  const number = positiveU32(value);
+  return number == null || number > 0xffff ? null : number;
+}
+
+function validPricingRelationship(purchasePrice: bigint, pricing: Price): boolean {
+  const configured = BigInt(pricing.amount);
+  return pricing.kind === "fixed"
+    ? purchasePrice === configured
+    : purchasePrice >= configured;
 }
 
 /**
@@ -80,29 +112,39 @@ function saleFromJson(
   json: Record<string, unknown>,
   currencyType: string,
 ): RecordSale | null {
-  const number = coerceBigInt(json.number);
-  const paid = coerceBigInt(json.paid);
-  const createdAtMs = msOrNull(json.created_at_ms as bigint | number | string | null | undefined);
+  const edition = positiveU16(json.edition);
+  const number = positiveU32(json.number);
+  const purchasePrice = coerceBigInt(json.purchase_price);
+  const purchasedTimestampMs = coerceBigInt(json.purchased_timestamp_ms);
   const recordId = json.record_id;
-  const price = priceFromUnknown(json.price);
+  const pricing = priceFromUnknown(json.pricing);
+  const embeddedCurrency = typeName(json.purchase_currency);
   if (
+    edition == null ||
     number == null ||
-    paid == null ||
-    createdAtMs == null ||
-    !price ||
-    typeof recordId !== "string"
+    purchasePrice == null || purchasePrice <= 0n ||
+    purchasedTimestampMs == null ||
+    !pricing || !validPricingRelationship(purchasePrice, pricing) ||
+    embeddedCurrency !== currencyType ||
+    typeof recordId !== "string" || !recordId ||
+    typeof json.listing_id !== "string" || !json.listing_id ||
+    typeof json.pressing_id !== "string" || !json.pressing_id ||
+    typeof json.release_id !== "string" || !json.release_id ||
+    typeof json.purchased_by !== "string" || !json.purchased_by
   ) return null;
   return {
-    listingId: typeof json.listing_id === "string" ? json.listing_id : "",
-    pressingId: typeof json.pressing_id === "string" ? json.pressing_id : "",
-    releaseId: typeof json.release_id === "string" ? json.release_id : "",
+    listingId: json.listing_id,
+    pressingId: json.pressing_id,
+    releaseId: json.release_id,
     recordId,
-    number: number.toString(),
-    paid: paid.toString(),
-    price,
+    edition,
+    number,
+    purchaseCurrency: embeddedCurrency,
+    purchasePrice: purchasePrice.toString(),
+    pricing,
     currencyType,
-    buyer: typeof json.buyer === "string" ? json.buyer : "",
-    createdAtMs,
+    purchasedBy: json.purchased_by,
+    purchasedTimestampMs: purchasedTimestampMs.toString(),
   };
 }
 
@@ -113,9 +155,9 @@ function saleFromJson(
  * be decoded as a Miso sale. Normalize both package/type tags and require exactly
  * one (possibly nested) currency type argument.
  */
-function recordSoldCurrencyType(
+export function recordSoldCurrencyType(
   eventType: string,
-  misoPressingPackageId: string,
+  recordShopPackageId: string,
 ): string | null {
   let tag: string;
   try {
@@ -124,7 +166,7 @@ function recordSoldCurrencyType(
     return null;
   }
 
-  const prefix = `${normalizeSuiAddress(misoPressingPackageId)}::${RECORD_SOLD_EVENT_NAME}`;
+  const prefix = `${normalizeSuiAddress(recordShopPackageId)}::${RECORD_SOLD_EVENT_NAME}`;
   if (!tag.startsWith(`${prefix}<`) || !tag.endsWith(">")) return null;
 
   const typeArgument = tag.slice(prefix.length + 1, -1);
@@ -144,57 +186,86 @@ function recordSoldCurrencyType(
 
 export function isRecordSoldEventType(
   eventType: string,
-  misoPressingPackageId: string,
+  recordShopPackageId: string,
 ): boolean {
-  return recordSoldCurrencyType(eventType, misoPressingPackageId) !== null;
+  return recordSoldCurrencyType(eventType, recordShopPackageId) !== null;
 }
 
 /**
  * The sale a transaction recorded, or null if it emitted none. BCS is the stable
  * shape (a JSON projection's field names vary by transport), so it is tried first.
  */
-export function findRecordSale(
+export function findRecordSales(
   events: {
     eventType: string;
     bcs: Uint8Array;
     json: Record<string, unknown> | null;
   }[],
-  misoPressingPackageId: string,
-): RecordSale | null {
+  recordShopPackageId: string,
+): RecordSale[] {
+  const sales: RecordSale[] = [];
   for (const e of events) {
     const currencyType = recordSoldCurrencyType(
       e.eventType,
-      misoPressingPackageId,
+      recordShopPackageId,
     );
     if (!currencyType) continue;
     try {
       // The generated struct decodes addresses to 0x-hex and u64s to decimal strings.
       const s = listingContract.RecordSoldEvent.parse(e.bcs);
-      const price = priceFromUnknown(s.price);
-      if (!price) continue;
-      return {
+      const pricing = priceFromUnknown(s.pricing);
+      const embeddedCurrency = typeName(s.purchase_currency);
+      const purchasePrice = BigInt(s.purchase_price);
+      if (
+        !pricing || embeddedCurrency !== currencyType ||
+        !validPricingRelationship(purchasePrice, pricing) ||
+        s.edition <= 0 || s.number <= 0
+      ) throw new MalformedRecordSoldEventError("malformed canonical RecordSoldEvent");
+      sales.push({
         listingId: s.listing_id,
         pressingId: s.pressing_id,
         releaseId: s.release_id,
         recordId: s.record_id,
-        number: u64(s.number),
-        paid: u64(s.paid),
-        price,
+        edition: s.edition,
+        number: s.number,
+        purchaseCurrency: embeddedCurrency,
+        purchasePrice: s.purchase_price,
+        pricing,
         currencyType,
-        buyer: s.buyer,
-        createdAtMs: ms(s.created_at_ms),
-      };
-    } catch {
-      // Unparseable BCS (or none surfaced) — fall through to the JSON view.
+        purchasedBy: s.purchased_by,
+        purchasedTimestampMs: s.purchased_timestamp_ms,
+      });
+      continue;
+    } catch (error) {
+      // Never reinterpret malformed canonical BCS through a looser JSON view.
+      if (e.bcs.length > 0) {
+        if (error instanceof MalformedRecordSoldEventError) throw error;
+        throw new MalformedRecordSoldEventError(
+          `malformed canonical RecordSoldEvent BCS: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
     const fromJson = e.json && saleFromJson(e.json, currencyType);
-    if (fromJson) return fromJson;
+    if (!fromJson) throw new MalformedRecordSoldEventError("malformed canonical RecordSoldEvent JSON");
+    sales.push(fromJson);
   }
-  return null;
+  return sales;
 }
 
-/** The sale, read from the fullnode. */
-async function saleFromFullnode(client: MisoClient, txDigest: string): Promise<RecordSale> {
+/** Select one canonical sale by its Record ID. Selection is always explicit. */
+export function findRecordSale(
+  events: Parameters<typeof findRecordSales>[0],
+  recordShopPackageId: string,
+  recordId: string,
+): RecordSale | null {
+  const sales = findRecordSales(events, recordShopPackageId);
+  return sales.find(
+    (sale) => normalizeSuiAddress(sale.recordId) === normalizeSuiAddress(recordId),
+  ) ?? null;
+}
+
+/** Every canonical sale, read from the fullnode in event order. */
+async function salesFromFullnode(client: MisoClient, txDigest: string): Promise<RecordSale[]> {
   const result = await client.sui.waitForTransaction({
     digest: txDigest,
     include: { events: true },
@@ -203,12 +274,13 @@ async function saleFromFullnode(client: MisoClient, txDigest: string): Promise<R
   if (result.$kind !== "Transaction" || !result.Transaction.status.success) {
     throw new Error(`Transaction did not succeed: ${txDigest}`);
   }
-  const sale = findRecordSale(
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
+  const found = findRecordSales(
     result.Transaction.events,
-    client.config.protocol.pressing,
+    sales.recordShopPackageId,
   );
-  if (!sale) throw new Error(`No record purchase in transaction ${txDigest}`);
-  return sale;
+  if (found.length === 0) throw new Error(`No record purchase in transaction ${txDigest}`);
+  return found;
 }
 
 const TX_EVENTS_QUERY = `query TransactionEvents($digest: String!) {
@@ -229,8 +301,8 @@ interface TxEventsResult {
   } | null;
 }
 
-/** The sale, read from the GraphQL indexer — the path for a pruned transaction. */
-async function saleFromIndexer(client: MisoClient, txDigest: string): Promise<RecordSale> {
+/** Every canonical sale, read from the GraphQL indexer in event order. */
+async function salesFromIndexer(client: MisoClient, txDigest: string): Promise<RecordSale[]> {
   const { data, errors } = await client.graphqlRaw.query<TxEventsResult, { digest: string }>({
     query: TX_EVENTS_QUERY,
     variables: { digest: txDigest },
@@ -241,21 +313,32 @@ async function saleFromIndexer(client: MisoClient, txDigest: string): Promise<Re
   if (!effects) throw new Error(`Transaction not found: ${txDigest}`);
   if (effects.status !== "SUCCESS") throw new Error(`Transaction did not succeed: ${txDigest}`);
 
+  const salesDeployment = requireRecordSalesDeployment(client.config.recordSales);
+  const sales: RecordSale[] = [];
   for (const node of effects.events?.nodes ?? []) {
     const contents = node.contents;
     if (!contents) continue;
     const currencyType = recordSoldCurrencyType(
       contents.type.repr,
-      client.config.protocol.pressing,
+      salesDeployment.recordShopPackageId,
     );
     if (!currencyType) continue;
     const sale =
       typeof contents.json === "object" && contents.json !== null
         ? saleFromJson(contents.json as Record<string, unknown>, currencyType)
         : null;
-    if (sale) return sale;
+    if (!sale) throw new MalformedRecordSoldEventError("malformed canonical RecordSoldEvent JSON");
+    sales.push(sale);
   }
+  if (sales.length > 0) return sales;
   throw new Error(`No record purchase in transaction ${txDigest}`);
+}
+
+async function salesFromChain(client: MisoClient, txDigest: string): Promise<RecordSale[]> {
+  return salesFromFullnode(client, txDigest).catch((error) => {
+    if (error instanceof MalformedRecordSoldEventError) throw error;
+    return salesFromIndexer(client, txDigest);
+  });
 }
 
 /**
@@ -340,13 +423,10 @@ export function breakdown(
  * The sale identifies the Pressing before its detail is fetched. `null` only when
  * that immutable Pressing cannot be read; it is never superseded or destroyed.
  */
-export async function getPurchaseReceipt(
+async function hydratePurchaseReceipt(
   client: MisoClient,
-  txDigest: string,
+  sale: RecordSale,
 ): Promise<PurchaseReceipt | null> {
-  const sale = await saleFromFullnode(client, txDigest).catch(() =>
-    saleFromIndexer(client, txDigest),
-  );
   const detail = await getPressingDetail(client, sale.pressingId);
   if (!detail) return null;
 
@@ -359,7 +439,33 @@ export async function getPurchaseReceipt(
   return {
     sale,
     detail,
-    price: sale.price.amount,
-    tracks: breakdown(detail.release.tracks, sale.paid, rates),
+    price: sale.pricing.amount,
+    tracks: breakdown(detail.release.tracks, sale.purchasePrice, rates),
   };
+}
+
+/** Read and hydrate every canonical Record sale in transaction event order. */
+export async function getPurchaseReceipts(
+  client: MisoClient,
+  txDigest: string,
+): Promise<PurchaseReceipt[]> {
+  const sales = await salesFromChain(client, txDigest);
+  const hydrated = await Promise.all(sales.map((sale) => hydratePurchaseReceipt(client, sale)));
+  if (hydrated.some((receipt) => receipt === null)) {
+    throw new Error(`A canonical Record sale in transaction ${txDigest} references an unreadable Pressing`);
+  }
+  return hydrated as PurchaseReceipt[];
+}
+
+/** Read one canonical receipt selected by its Record ID. Selection is mandatory:
+ * one transaction may purchase multiple Records from the same Pressing. */
+export async function getPurchaseReceipt(
+  client: MisoClient,
+  txDigest: string,
+  recordId: string,
+): Promise<PurchaseReceipt | null> {
+  const sales = await salesFromChain(client, txDigest);
+  const wanted = normalizeSuiAddress(recordId);
+  const sale = sales.find((candidate) => normalizeSuiAddress(candidate.recordId) === wanted);
+  return sale ? hydratePurchaseReceipt(client, sale) : null;
 }

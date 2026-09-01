@@ -1,29 +1,63 @@
 // Copyright (c) Miso Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-//
-// The owned-records scan, against a fake client. Ported from miso-app's
-// `src/lib/records.test.ts` — the logic moved here, so its coverage did too.
 
 import { describe, expect, test } from "bun:test";
-import { getBalance, getOwnedRecords } from "../../src/read/wallet.ts";
+import * as recordContract from "../../src/contracts/miso_record/record.ts";
+import { deriveRecordId } from "../../src/pressing.ts";
 import type { MisoClient } from "../../src/read/client.ts";
+import { getBalance, getOwnedRecords } from "../../src/read/wallet.ts";
 
-type Obj = { objectId: string; type: string; json?: Record<string, unknown> | null };
+type Obj = { objectId: string; type: string; content?: Uint8Array | null };
 type Page = { objects: Obj[]; hasNextPage: boolean; cursor: string | null };
 
-/** A client whose `listOwnedObjects` serves the given pages in order. */
-const RECORD_PACKAGE = "0x" + "ab".repeat(32);
-const PRESSING_PACKAGE = "0x" + "ef".repeat(32);
-const WRONG_RECORD_PACKAGE = "0x" + "cd".repeat(32);
-const CERTIFICATE_TYPE = `${PRESSING_PACKAGE}::certificate::Certificate`;
-const RECORD_TYPE_FILTER = `${RECORD_PACKAGE}::record::Record`;
-const RECORD_TYPE = RECORD_TYPE_FILTER;
-const WRONG_RECORD_TYPE = `${WRONG_RECORD_PACKAGE}::record::Record`;
+const RECORD_PACKAGE = `0x${"ab".repeat(32)}`;
+const RECORD_SHOP_PACKAGE = `0x${"ac".repeat(32)}`;
+const WRONG_RECORD_PACKAGE = `0x${"cd".repeat(32)}`;
+const PRESSING_ID = `0x${"ef".repeat(32)}`;
+const RELEASE_ID = `0x${"12".repeat(32)}`;
+const BUYER = `0x${"34".repeat(32)}`;
+const CURRENCY = "0x2::sui::SUI";
+const NORMALIZED_CURRENCY = `0x${"0".repeat(63)}2::sui::SUI`;
+const RECORD_TYPE = `${RECORD_PACKAGE}::record::Record`;
 
+function recordObject(
+  number: number,
+  options: {
+    objectId?: string;
+    embeddedId?: string;
+    type?: string;
+    purchaseCurrency?: string;
+  } = {},
+): Obj {
+  const objectId = options.objectId ?? deriveRecordId(PRESSING_ID, number, RECORD_PACKAGE);
+  return {
+    objectId,
+    type: options.type ?? RECORD_TYPE,
+    content: recordContract.Record.serialize({
+      id: options.embeddedId ?? objectId,
+      release_id: RELEASE_ID,
+      pressing_id: PRESSING_ID,
+      edition: 2,
+      number,
+      purchase_currency: { name: options.purchaseCurrency ?? CURRENCY },
+      purchase_price: "2500",
+      purchased_by: BUYER,
+      purchased_timestamp_ms: "1234",
+    }).toBytes(),
+  };
+}
+
+/** A client whose `listOwnedObjects` serves the given pages in order. */
 function fakeClient(pages: Page[]): { client: MisoClient; calls: number; types: string[] } {
   const state = { calls: 0, types: [] as string[] };
   const client = {
-    config: { protocol: { record: RECORD_PACKAGE, pressing: PRESSING_PACKAGE } },
+    config: {
+      recordSales: {
+        status: "available",
+        recordPackageId: RECORD_PACKAGE,
+        recordShopPackageId: RECORD_SHOP_PACKAGE,
+      },
+    },
     protocol: {
       core: {
         listOwnedObjects: async ({ type }: { type?: string }) => {
@@ -47,192 +81,121 @@ function fakeClient(pages: Page[]): { client: MisoClient; calls: number; types: 
 }
 
 describe("getOwnedRecords", () => {
-  test("matches only the configured fresh record package", async () => {
-    const fake = fakeClient([
-      {
-        objects: [
-          {
-            objectId: "0x1",
-            type: RECORD_TYPE,
-            json: {
-              release_id: "0xrel",
-              registry_id: "0xregistry",
-              number: "18446744073709551615",
-              created_at_ms: "1234",
-              purchase_currency: { name: "0x2::sui::SUI" },
-              purchased_by: "0xbuyer",
-            },
-          },
-          { objectId: "0x2", type: WRONG_RECORD_TYPE, json: { release_id: "0xrel", number: 4 } },
-        ],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const records = await getOwnedRecords(fake.client, "0xowner");
-    expect(records).toEqual([{
-      id: "0x1",
-      type: RECORD_TYPE,
-      releaseId: "0xrel",
-      registryId: "0xregistry",
-      number: "18446744073709551615",
-      createdAtMs: 1234,
-      purchaseCurrency: "0x2::sui::SUI",
-      purchasedBy: "0xbuyer",
+  test("projects exact finalized Record purchase provenance", async () => {
+    const record = recordObject(7);
+    const fake = fakeClient([{
+      objects: [
+        record,
+        recordObject(8, { type: `${WRONG_RECORD_PACKAGE}::record::Record` }),
+      ],
+      hasNextPage: false,
+      cursor: null,
     }]);
-    expect(fake.types).toEqual([RECORD_TYPE_FILTER]);
+
+    await expect(getOwnedRecords(fake.client, "0xowner")).resolves.toEqual([{
+      id: record.objectId,
+      type: RECORD_TYPE,
+      releaseId: RELEASE_ID,
+      pressingId: PRESSING_ID,
+      edition: 2,
+      number: 7,
+      purchaseCurrency: NORMALIZED_CURRENCY,
+      purchasePrice: "2500",
+      purchasedBy: BUYER,
+      purchasedTimestampMs: "1234",
+    }]);
+    expect(fake.types).toEqual([RECORD_TYPE]);
   });
 
-  test("skips objects that are not records", async () => {
-    const { client } = fakeClient([
-      {
-        objects: [
-          { objectId: "0xcoin", type: "0x2::coin::Coin<0x2::sui::SUI>", json: {} },
-          { objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xrel" } },
-        ],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const records = await getOwnedRecords(client, "0xowner");
-    expect(records).toHaveLength(1);
-    expect(records[0]!.id).toBe("0x1");
-  });
-
-  test("does not infer Pressing provenance from stale embedded fields", async () => {
-    const { client } = fakeClient([
-      {
-        objects: [
-          {
-            objectId: "0x1",
-            type: RECORD_TYPE,
-            json: { release_id: "0xa", certificate: { number: "7" } },
-          },
-        ],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const records = await getOwnedRecords(client, "0xowner");
-    expect(records[0]!.number).toBeNull();
-  });
-
-  test("rejects non-canonical generic Record specializations", async () => {
-    const arbitraryCertificate = `0x${"12".repeat(32)}::certificate::Certificate`;
-    const { client } = fakeClient([
-      {
-        objects: [
-          { objectId: "0xtrusted", type: RECORD_TYPE, json: { release_id: "0xa" } },
-          {
-            objectId: "0xarbitrary",
-            type: `${RECORD_TYPE_FILTER}<${arbitraryCertificate}>`,
-            json: { release_id: "0xb", certificate: { number: 2 } },
-          },
-          {
-            objectId: "0xmalformed",
-            type: `${RECORD_TYPE_FILTER}<${CERTIFICATE_TYPE}, ${CERTIFICATE_TYPE}>`,
-            json: { release_id: "0xc", certificate: { number: 3 } },
-          },
-        ],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
+  test("rejects generic and foreign Record types", async () => {
+    const trusted = recordObject(1);
+    const { client } = fakeClient([{
+      objects: [
+        trusted,
+        recordObject(2, { type: `${RECORD_TYPE}<${CURRENCY}>` }),
+        recordObject(3, { type: `${WRONG_RECORD_PACKAGE}::record::Record` }),
+        recordObject(4, { type: `${RECORD_PACKAGE}::record::Record<${CURRENCY},${CURRENCY}>` }),
+      ],
+      hasNextPage: false,
+      cursor: null,
+    }]);
 
     const records = await getOwnedRecords(client, "0xowner");
-    expect(records.map((item) => item.id)).toEqual(["0xtrusted"]);
+    expect(records.map(({ id }) => id)).toEqual([trusted.objectId]);
   });
 
-  test("reads the Registry-allocated top-level number field", async () => {
-    const { client } = fakeClient([
-      {
-        objects: [{ objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", number: 7 } }],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const records = await getOwnedRecords(client, "0xowner");
-    expect(records[0]!.number).toBe("7");
+  test("fails closed when an exact Record has no BCS content", async () => {
+    const { client } = fakeClient([{
+      objects: [{ objectId: "0x1", type: RECORD_TYPE }],
+      hasNextPage: false,
+      cursor: null,
+    }]);
+
+    await expect(getOwnedRecords(client, "0xowner")).rejects.toThrow(/no BCS content/);
   });
 
-  test("fails malformed and unsafe provenance fields closed", async () => {
-    const { client } = fakeClient([
-      {
-        objects: [{
-          objectId: "0x1",
-          type: RECORD_TYPE,
-          json: {
-            release_id: "",
-            registry_id: 7,
-            number: Number.MAX_SAFE_INTEGER + 1,
-            created_at_ms: "18446744073709551615",
-            purchase_currency: { name: 9 },
-            purchased_by: null,
-          },
-        }],
-        hasNextPage: false,
-        cursor: null,
-      },
-    ]);
-    const [record] = await getOwnedRecords(client, "0xowner");
-    expect(record).toMatchObject({
-      releaseId: null,
-      registryId: null,
-      number: null,
-      createdAtMs: null,
-      purchaseCurrency: null,
-      purchasedBy: null,
-    });
+  test("fails closed when the embedded UID disagrees with the object id", async () => {
+    const object = recordObject(5, { embeddedId: `0x${"56".repeat(32)}` });
+    const { client } = fakeClient([{ objects: [object], hasNextPage: false, cursor: null }]);
+
+    await expect(getOwnedRecords(client, "0xowner")).rejects.toThrow(/mismatched embedded UID/);
+  });
+
+  test("fails closed when the Record identity is not derived from its Pressing and number", async () => {
+    const arbitraryId = `0x${"78".repeat(32)}`;
+    const object = recordObject(6, { objectId: arbitraryId, embeddedId: arbitraryId });
+    const { client } = fakeClient([{ objects: [object], hasNextPage: false, cursor: null }]);
+
+    await expect(getOwnedRecords(client, "0xowner")).rejects.toThrow(/not derived/);
   });
 
   test("follows pagination until the last page", async () => {
-    const page = (id: string, hasNext: boolean, cursor: string | null): Page => ({
-      objects: [{ objectId: id, type: RECORD_TYPE, json: { release_id: "0xrel" } }],
+    const page = (number: number, hasNext: boolean, cursor: string | null): Page => ({
+      objects: [recordObject(number)],
       hasNextPage: hasNext,
       cursor,
     });
-    const fake = fakeClient([page("0x1", true, "c1"), page("0x2", true, "c2"), page("0x3", false, null)]);
+    const fake = fakeClient([page(1, true, "c1"), page(2, true, "c2"), page(3, false, null)]);
+
     const records = await getOwnedRecords(fake.client, "0xowner");
-    expect(records.map((r) => r.id)).toEqual(["0x1", "0x2", "0x3"]);
+    expect(records.map(({ id }) => id)).toEqual([
+      deriveRecordId(PRESSING_ID, 1, RECORD_PACKAGE),
+      deriveRecordId(PRESSING_ID, 2, RECORD_PACKAGE),
+      deriveRecordId(PRESSING_ID, 3, RECORD_PACKAGE),
+    ]);
     expect(fake.calls).toBe(3);
   });
 
-  test("stops at the page cap so a huge wallet can't spin forever", async () => {
-    const endless: Page[] = Array.from({ length: 50 }, (_, i) => ({
-      objects: [{ objectId: `0x${i}`, type: RECORD_TYPE, json: {} }],
+  test("stops at the page cap so a huge wallet cannot spin forever", async () => {
+    const endless: Page[] = Array.from({ length: 50 }, (_, index) => ({
+      objects: [recordObject(index + 1)],
       hasNextPage: true,
-      cursor: `c${i}`,
+      cursor: `c${index}`,
     }));
     const fake = fakeClient(endless);
+
     const records = await getOwnedRecords(fake.client, "0xowner");
     expect(fake.calls).toBe(20);
     expect(records).toHaveLength(20);
   });
 
   test("stops when the node claims another page but returns no cursor", async () => {
-    const fake = fakeClient([
-      { objects: [{ objectId: "0x1", type: RECORD_TYPE, json: {} }], hasNextPage: true, cursor: null },
-    ]);
-    const records = await getOwnedRecords(fake.client, "0xowner");
-    expect(records).toHaveLength(1);
+    const fake = fakeClient([{
+      objects: [recordObject(1)],
+      hasNextPage: true,
+      cursor: null,
+    }]);
+
+    await expect(getOwnedRecords(fake.client, "0xowner")).resolves.toHaveLength(1);
     expect(fake.calls).toBe(1);
   });
 
-  test("a record with no parsable fields is still listed", async () => {
-    const { client } = fakeClient([
-      { objects: [{ objectId: "0x1", type: RECORD_TYPE, json: null }], hasNextPage: false, cursor: null },
-    ]);
-    const [record] = await getOwnedRecords(client, "0xowner");
-    expect(record).toEqual({
-      id: "0x1",
-      type: RECORD_TYPE,
-      releaseId: null,
-      registryId: null,
-      number: null,
-      createdAtMs: null,
-      purchaseCurrency: null,
-      purchasedBy: null,
-    });
+  test("fails closed when Record sales are unavailable", async () => {
+    const client = {
+      config: { recordSales: { status: "unavailable", reason: "legacy deployment" } },
+    } as unknown as MisoClient;
+
+    await expect(getOwnedRecords(client, "0xowner")).rejects.toThrow(/unavailable: legacy deployment/);
   });
 });
 

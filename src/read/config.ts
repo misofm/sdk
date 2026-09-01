@@ -12,7 +12,7 @@
 // deployment is bundled for it.
 
 import type { MisoDeployment } from "@misonetwork/sdk/deployments";
-import { getMisoPlatformDeployment } from "../deployments.ts";
+import { getMisoPlatformDeployment, type RecordSalesDeployment } from "../deployments.ts";
 
 export type Network = "testnet" | "mainnet";
 
@@ -25,10 +25,6 @@ export function networkFrom(value: string | undefined): Network {
 
 /** Package ids for the miso protocol core and the extensions the read layer touches. */
 export interface ProtocolIds {
-  /** `miso_pressing` — permanent Pressing runs and per-currency Listings. */
-  pressing: string;
-  /** `miso_record` package — the exact owner/type namespace for `record::Record`. */
-  record: string;
   /** `vault` — shared custody for protocol admin capabilities. */
   vault: string;
   /** `release_cover_art` — the release cover extension. */
@@ -37,6 +33,8 @@ export interface ProtocolIds {
   releaseKind: string;
   /** `recording_master_reference` — optional Walrus master pointers. */
   recordingMasterReference: string;
+  /** `release_mix_reference` — optional per-track delivery descriptor pointers. */
+  releaseMixReference?: string;
   /** `composition_credits` / `recording_credits` / `release_credits` extensions. */
   compositionCredits: string;
   recordingCredits: string;
@@ -57,6 +55,8 @@ export interface MisoConfig {
   /** Complete package set used by the integrated `client.miso` SDK. */
   deployment: MisoDeployment;
   protocol: ProtocolIds;
+  /** Final Record/Record Shop deployment, or an explicit unavailable legacy state. */
+  recordSales: RecordSalesDeployment;
   money: MoneyIds;
   /** Sui gRPC-web endpoint the data plane reads through. */
   grpcUrl: string;
@@ -81,6 +81,7 @@ export interface MisoConfig {
 /** One release/currency pair to resolve by Pressing and Listing derived address. */
 export interface DiscoverSale {
   releaseId: string;
+  edition: number;
   currencyType: string;
 }
 
@@ -95,9 +96,8 @@ export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}
   const config: MisoConfig = {
     network,
     deployment: platform.protocol,
+    recordSales: platform.recordSales,
     protocol: {
-      pressing: platform.packages.pressing,
-      record: platform.packages.record,
       vault: platform.packages.vault,
       releaseCoverArt: platform.packages.releaseCoverArt,
       releaseKind: platform.packages.releaseKind,

@@ -14,10 +14,12 @@ import {
   deriveListingId,
   getListing,
   getPressing,
+  getRecord,
   getSale,
   type ListingView as ContractListingView,
   type PressingView as ContractPressingView,
 } from "../pressing.ts";
+import { requireRecordSalesDeployment } from "../deployments.ts";
 import {
   getReleaseCoversByIds,
   parseReleaseCoverContent,
@@ -36,12 +38,16 @@ import {
   releaseKindFieldId,
 } from "../release-extensions.ts";
 import { getRecordingMasterReferencesByIds } from "../recording-extensions.ts";
+import {
+  getReleaseMixReferences,
+  walrusBlobIdFromU256,
+} from "../mix.ts";
 import { getTrackCreditsByRecordingIds } from "../catalog.ts";
 import { getReleaseById, getReleasesByIds, isNotFound } from "@misonetwork/sdk";
 import type { Release } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
 import { getRecordingTitles, parseReleaseObject } from "./works.ts";
-import { int, u64 } from "./internal/scalars.ts";
+import { int } from "./internal/scalars.ts";
 import {
   quiltPatchId,
   u256ToB64Url,
@@ -122,29 +128,23 @@ function toPressingView(pressing: ContractPressingView): PressingView {
   return {
     id: pressing.id,
     releaseId: pressing.releaseId,
-    state:
-      pressing.state.kind === "scheduled"
-        ? {
-            kind: "scheduled",
-            startTimestampMs: Number(pressing.state.startTimestampMs ?? 0n),
-          }
-        : pressing.state.kind === "paused"
-          ? { kind: "paused" }
-          : { kind: "active" },
-    supply: u64(pressing.supply),
+    edition: pressing.edition,
+    supply: pressing.supply,
+    maxSupply: pressing.maxSupply,
+    distributors: [...pressing.distributors],
   };
 }
 
 function toListingView(listing: ContractListingView): ListingView {
   const price: Price = {
-    kind: listing.price.kind,
-    amount: u64(listing.price.amount),
+    kind: listing.pricing.kind,
+    amount: listing.pricing.amount,
   };
   return {
     id: listing.id,
     pressingId: listing.pressingId,
     releaseId: listing.releaseId,
-    price,
+    pricing: price,
     currency: currencyInfo(listing.currencyType),
     state: listing.state,
   };
@@ -162,10 +162,11 @@ export async function getPressingView(
   client: MisoClient,
   pressingId: string,
 ): Promise<PressingView | null> {
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
   const pressing = await getPressing(
     client.protocol,
     pressingId,
-    client.config.protocol.pressing,
+    sales.recordPackageId,
   );
   return pressing ? toPressingView(pressing) : null;
 }
@@ -176,9 +177,9 @@ export async function getListingView(
   pressingId: string,
   currencyType: string,
 ): Promise<ListingView | null> {
-  const packageId = client.config.protocol.pressing;
-  const listingId = deriveListingId(pressingId, currencyType, packageId);
-  const listing = await getListing(client.protocol, listingId, packageId);
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
+  const listingId = deriveListingId(pressingId, currencyType, sales.recordShopPackageId);
+  const listing = await getListing(client.protocol, listingId, sales.recordShopPackageId);
   return listing ? toListingView(listing) : null;
 }
 
@@ -207,13 +208,15 @@ export function primaryArtistNames(credits: Credit[]): string[] {
  * Number the protocol's flat tracklist. Display grouping such as discs belongs
  * to metadata extensions and can be layered onto this projection later.
  */
-function toTracks(
+export function toTracks(
   release: Release,
   titles: Record<string, string>,
   masterBlobIds: Partial<Record<string, string>>,
+  mixBlobIds: Partial<Record<number, string>> = {},
 ): TrackView[] {
   return release.tracks.map((track, index) => {
     const masterBlobId = masterBlobIds[track.recordingId];
+    const mixBlobId = mixBlobIds[index];
     return {
       no: `${index + 1}`,
       title: titles[track.recordingId] ?? "Untitled",
@@ -222,6 +225,7 @@ function toTracks(
       splitBps: int(track.splitBps.value),
       disc: 1,
       ...(masterBlobId ? { masterBlobId } : {}),
+      ...(mixBlobId ? { mixBlobId } : {}),
     };
   });
 }
@@ -369,7 +373,8 @@ export async function getReleaseDetail(
   );
 
   const recordingIds = release.tracks.map((track) => track.recordingId);
-  const [titles, masterReferences, trackCredits] = await Promise.all([
+  const mixPackageId = client.config.protocol.releaseMixReference;
+  const [titles, masterReferences, mixReferences, trackCredits] = await Promise.all([
     getRecordingTitles(
       client.protocol,
       client.graphql,
@@ -381,6 +386,9 @@ export async function getReleaseDetail(
       recordingIds,
       client.config.protocol.recordingMasterReference,
     ).catch(() => ({})),
+    mixPackageId
+      ? getReleaseMixReferences(client.protocol, releaseId, mixPackageId).catch(() => null)
+      : Promise.resolve(null),
     options.include?.includes("trackCredits")
       ? getTrackCreditsForRecordingIds(client, recordingIds)
       : Promise.resolve(undefined),
@@ -388,6 +396,11 @@ export async function getReleaseDetail(
   const masterBlobIds: Record<string, string> = {};
   for (const [recordingId, blobId] of Object.entries(masterReferences)) {
     if (blobId) masterBlobIds[recordingId] = u256ToB64Url(blobId);
+  }
+  const mixBlobIds: Record<number, string> = {};
+  for (let index = 0; index < (mixReferences?.length ?? 0); index += 1) {
+    const reference = mixReferences?.[index];
+    if (reference) mixBlobIds[index] = walrusBlobIdFromU256(reference.blobId);
   }
 
   const creditViews = credits ?? [];
@@ -403,7 +416,7 @@ export async function getReleaseDetail(
     credits: creditViews,
     primaryArtists: primaryArtistNames(creditViews),
     discCount: release.tracks.length > 0 ? 1 : 0,
-    tracks: toTracks(release, titles, masterBlobIds),
+    tracks: toTracks(release, titles, masterBlobIds, mixBlobIds),
     ...(trackCredits !== undefined ? { trackCredits } : {}),
   };
 }
@@ -511,8 +524,9 @@ export async function getPressingPreview(
     title: release.title,
     subtitle: null,
     coverUrl: cover?.still.url ?? null,
-    state: pressing.state,
+    edition: pressing.edition,
     supply: pressing.supply,
+    maxSupply: pressing.maxSupply,
     trackCount: release.tracks.length,
   };
 }
@@ -525,13 +539,17 @@ export async function getPressingPreview(
 export async function getSaleDetail(
   client: MisoClient,
   releaseId: string,
+  edition: number,
   currencyType: string,
   options: GetReleaseOptions = {},
 ): Promise<SaleDetail | null> {
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
   const sale = await getSale(client.protocol, {
     releaseId,
+    edition,
     currencyType,
-    misoPressingPackageId: client.config.protocol.pressing,
+    recordPackageId: sales.recordPackageId,
+    recordShopPackageId: sales.recordShopPackageId,
   });
   if (!sale.pressing || !sale.listing) return null;
   const release = await getReleaseDetail(client, sale.pressing.releaseId, options);
@@ -543,20 +561,20 @@ export async function getSaleDetail(
 /**
  * The records currently on sale.
  *
- * Configured by release + currency: Pressing and Listing ids are deterministic,
- * permanent derived addresses. There is no mutable Pressing pointer or edition
- * replacement in the current ABI.
+ * Configured by release + edition + currency: both addresses are deterministic.
  */
 export async function getDiscoverShelf(
   client: MisoClient,
 ): Promise<DiscoverItem[]> {
   const configuredSales = [...client.config.discoverSales];
+  const sales = requireRecordSalesDeployment(client.config.recordSales);
   const settled = await Promise.all(
     configuredSales.map(async (configured) => ({
       configured,
       result: await getSale(client.protocol, {
         ...configured,
-        misoPressingPackageId: client.config.protocol.pressing,
+        recordPackageId: sales.recordPackageId,
+        recordShopPackageId: sales.recordShopPackageId,
       }),
     })),
   );
@@ -620,13 +638,10 @@ export async function getRecordAlbum(
   options: GetRecordAlbumOptions = {},
 ): Promise<RecordAlbum | null> {
   try {
-    const { object } = await client.protocol.core.getObject({
-      objectId: recordId,
-      include: { json: true },
-    });
-    const json = (object?.json ?? {}) as Record<string, unknown>;
-    const raw = json.release_id;
-    const releaseId = typeof raw === "string" && raw ? raw : null;
+    const sales = requireRecordSalesDeployment(client.config.recordSales);
+    const record = await getRecord(client.protocol, recordId, sales.recordPackageId);
+    if (!record) return null;
+    const releaseId = record.releaseId;
     const includeRelease =
       options.include?.some(
         (part) => part === "release" || part === "trackCredits",

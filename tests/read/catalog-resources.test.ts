@@ -4,35 +4,41 @@
 import { expect, test } from "bun:test";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { deriveSaleIds } from "../../src/pressing.ts";
-import * as listing from "../../src/contracts/miso_pressing/listing.ts";
-import * as pressing from "../../src/contracts/miso_pressing/pressing.ts";
+import * as listing from "../../src/contracts/miso_record_shop/listing.ts";
+import * as pressing from "../../src/contracts/miso_record/pressing.ts";
 import {
   getListingView,
   getPressingView,
+  toTracks,
 } from "../../src/read/catalog.ts";
 import type { MisoClient } from "../../src/read/client.ts";
 
 const RELEASE = `0x${"33".repeat(32)}`;
 const CURRENCY = "0x2::sui::SUI";
-const PACKAGE = "0xa";
+const RECORD_PACKAGE = `0x${"aa".repeat(32)}`;
+const SHOP_PACKAGE = `0x${"bb".repeat(32)}`;
 const { pressingId: PRESSING, listingId: LISTING } = deriveSaleIds(
   RELEASE,
+  1,
   CURRENCY,
-  PACKAGE,
+  RECORD_PACKAGE,
+  SHOP_PACKAGE,
 );
 
 const pressingBytes = pressing.Pressing.serialize({
   id: PRESSING,
   release_id: RELEASE,
-  state: { Scheduled: { start_timestamp_ms: "1234" } },
-  supply: "7",
+  edition: 1,
+  supply: 7,
+  max_supply: 100,
+  distributors: { contents: [] },
 }).toBytes();
 
 const listingBytes = listing.Listing.serialize({
   id: LISTING,
   release_id: RELEASE,
   pressing_id: PRESSING,
-  price: { Floor: { amount: "2500" } },
+  pricing: { Floor: "2500" },
   state: { Enabled: true },
 }).toBytes();
 
@@ -42,11 +48,14 @@ function fixtureClient(): MisoClient {
       getObject: async ({ objectId }: { objectId: string }) => ({
         object:
           objectId === PRESSING
-            ? { content: pressingBytes, type: `${PACKAGE}::pressing::Pressing` }
+            ? {
+                content: pressingBytes,
+                type: `${RECORD_PACKAGE}::pressing::Pressing`,
+              }
             : objectId === LISTING
               ? {
                   content: listingBytes,
-                  type: `${PACKAGE}::listing::Listing<${CURRENCY}>`,
+                  type: `${SHOP_PACKAGE}::listing::Listing<${CURRENCY}>`,
                 }
               : undefined,
       }),
@@ -54,7 +63,13 @@ function fixtureClient(): MisoClient {
   } as unknown as ClientWithCoreApi;
 
   return {
-    config: { protocol: { pressing: PACKAGE } },
+    config: {
+      recordSales: {
+        status: "available",
+        recordPackageId: RECORD_PACKAGE,
+        recordShopPackageId: SHOP_PACKAGE,
+      },
+    },
     protocol,
   } as unknown as MisoClient;
 }
@@ -64,8 +79,9 @@ test("projects an atomic pressing to JSON-safe values", async () => {
   expect(view).toMatchObject({
     id: PRESSING,
     releaseId: RELEASE,
-    state: { kind: "scheduled", startTimestampMs: 1234 },
-    supply: "7",
+    edition: 1,
+    supply: 7,
+    maxSupply: 100,
   });
   expect(() => JSON.stringify(view)).not.toThrow();
 });
@@ -76,9 +92,34 @@ test("projects a derived listing to JSON-safe values", async () => {
     id: LISTING,
     pressingId: PRESSING,
     releaseId: RELEASE,
-    price: { kind: "floor", amount: "2500" },
+    pricing: { kind: "floor", amount: "2500" },
     currency: { symbol: "SUI", decimals: 9 },
     state: "enabled",
   });
   expect(() => JSON.stringify(view)).not.toThrow();
+});
+
+test("projects the optional per-track canonical mix descriptor blob id", () => {
+  const tracks = toTracks(
+    {
+      id: RELEASE,
+      title: "Mix release",
+      state: { type: "Initialized" },
+      tracks: [
+        {
+          state: "Assigned",
+          compositionId: `0x${"44".repeat(32)}`,
+          recordingId: `0x${"55".repeat(32)}`,
+          splitBps: { value: 10_000 },
+        },
+      ],
+    } as never,
+    {},
+    {},
+    { 0: "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+  );
+  expect(tracks[0]?.mixBlobId).toBe(
+    "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  );
+  expect(tracks[0]?.mixBlobId).toHaveLength(43);
 });

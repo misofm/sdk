@@ -24,6 +24,7 @@ import {
 } from "@mysten/sui/utils";
 import { getReleaseById, isNotFound } from "@misonetwork/sdk";
 import { WalrusData } from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
+import * as recordContract from "./contracts/miso_record/record.ts";
 import type { TxThunk } from "./transactions.ts";
 import {
   invokeWithAdminCap,
@@ -429,19 +430,52 @@ export function inspectEngineSessionKey(
 
 // ── Direct on-chain graph ───────────────────────────────────────────────────
 
-const RecordBcs = bcs.struct("Record", {
-  id: bcs.Address,
-  release_id: bcs.Address,
-});
 const EngineSessionField = bcs.struct("Field", {
   id: bcs.Address,
   name: bcs.tuple([bcs.bool()]),
   value: bcs.struct("EngineSession", { reference: WalrusData }),
 });
 const ENGINE_SESSION_KEY_BYTES = new Uint8Array([0]);
+const ReleaseMixReferenceField = bcs.struct("Field", {
+  id: bcs.Address,
+  name: bcs.tuple([bcs.bool()]),
+  value: bcs.tuple([bcs.vector(bcs.option(WalrusData))]),
+});
 
 export interface RecordingEngineSessionReference {
   readonly blobId: bigint;
+}
+
+export interface ReleaseMixReference {
+  readonly blobId: bigint;
+}
+
+/** Read the release-aligned optional descriptor references in track order. */
+export async function getReleaseMixReferences(
+  client: ClientWithCoreApi,
+  releaseId: string,
+  packageId: string,
+): Promise<Array<ReleaseMixReference | null> | null> {
+  const fieldId = deriveDynamicFieldID(
+    releaseId,
+    `${packageId}::release_mix_reference::ExtensionKey`,
+    new Uint8Array([0]),
+  );
+  try {
+    const { object } = await client.core.getObject({ objectId: fieldId, include: { content: true } });
+    if (!object?.content) throw new Error("Release mix-reference field is missing BCS content");
+    const [entries] = ReleaseMixReferenceField.parse(object.content).value;
+    return entries.map((entry) => {
+      if (entry == null) return null;
+      if (entry.$kind !== "Blob" || entry.Blob[1].$kind !== "Unencrypted") {
+        throw new Error("Release mix reference is not a plaintext standalone Walrus blob");
+      }
+      return { blobId: BigInt(entry.Blob[0]) };
+    });
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
 }
 
 export function recordingEngineSessionFieldId(
@@ -511,7 +545,11 @@ export async function getRecordReleaseId(
     throw new Error("recordId is not the configured concrete Miso Record type");
   }
   if (!object.content) throw new Error("Record is missing BCS content");
-  return normalizeSuiObjectId(RecordBcs.parse(object.content).release_id);
+  const record = recordContract.Record.parse(object.content);
+  if (normalizeSuiObjectId(record.id) !== normalizeSuiObjectId(recordId)) {
+    throw new Error("Record UID does not match recordId");
+  }
+  return normalizeSuiObjectId(record.release_id);
 }
 
 export interface ResolvedRecordEngineSession {

@@ -1,0 +1,11 @@
+/**************************************************************
+ * THIS FILE IS GENERATED AND SHOULD NOT BE MANUALLY MODIFIED *
+ **************************************************************/
+
+
+/** Module-controlled authority used by the Miso Record Shop to mint Records. */
+
+import { MoveTuple } from '../utils/index.js';
+import { bcs } from '@mysten/sui/bcs';
+const $moduleName = '@local-pkg/miso_record_shop::witness';
+export const Witness = new MoveTuple({ name: `${$moduleName}::Witness`, fields: [bcs.bool()] });

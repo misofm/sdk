@@ -11,9 +11,8 @@ describe("misoConfig", () => {
     const config = misoConfig("testnet");
 
     expect(config.deployment).toBe(deployment.protocol);
+    expect(config.recordSales).toBe(deployment.recordSales);
     expect(config.protocol).toEqual({
-      pressing: deployment.packages.pressing,
-      record: deployment.packages.record,
       vault: deployment.packages.vault,
       releaseCoverArt: deployment.packages.releaseCoverArt,
       releaseKind: deployment.packages.releaseKind,
@@ -32,6 +31,7 @@ describe("misoConfig", () => {
       discoverSales: [
         {
           releaseId: "0x1",
+          edition: 1,
           currencyType: "0x2::sui::SUI",
         },
       ],
@@ -40,7 +40,7 @@ describe("misoConfig", () => {
     expect(config.grpcUrl).toBe("https://example.test");
     expect(config.graphqlUrl).toBe("https://graphql.testnet.sui.io/graphql");
     expect(config.discoverSales).toEqual([
-      { releaseId: "0x1", currencyType: "0x2::sui::SUI" },
+      { releaseId: "0x1", edition: 1, currencyType: "0x2::sui::SUI" },
     ]);
   });
 

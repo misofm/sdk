@@ -2,110 +2,117 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import * as listing from "../../src/contracts/miso_pressing/listing.ts";
+import * as listing from "../../src/contracts/miso_record_shop/listing.ts";
 import {
+  MalformedRecordSoldEventError,
   findRecordSale,
+  findRecordSales,
   isRecordSoldEventType,
 } from "../../src/read/receipts.ts";
 
-const PRESSING_PACKAGE = "0xa";
+const SHOP_PACKAGE = "0xa";
 const CURRENCY = "0x2::sui::SUI";
 const IDS = {
-  listing: "0x" + "11".repeat(32),
-  pressing: "0x" + "22".repeat(32),
-  release: "0x" + "33".repeat(32),
-  record: "0x" + "44".repeat(32),
-  buyer: "0x" + "55".repeat(32),
+  listing: `0x${"11".repeat(32)}`,
+  pressing: `0x${"22".repeat(32)}`,
+  release: `0x${"33".repeat(32)}`,
+  record: `0x${"44".repeat(32)}`,
+  secondRecord: `0x${"45".repeat(32)}`,
+  buyer: `0x${"55".repeat(32)}`,
 };
 
-function eventType(packageId: string): string {
-  return `${packageId}::listing::RecordSoldEvent<${CURRENCY}>`;
+function eventType(packageId = SHOP_PACKAGE, currency = CURRENCY): string {
+  return `${packageId}::listing::RecordSoldEvent<${currency}>`;
 }
 
-function bcsEvent(price: { Fixed: { amount: string } } | { Floor: { amount: string } }) {
+function bcsEvent(
+  pricing: { Fixed: string } | { Floor: string },
+  recordId = IDS.record,
+  purchaseCurrency = CURRENCY,
+) {
+  const configured = BigInt("Fixed" in pricing ? pricing.Fixed : pricing.Floor);
+  const purchasePrice = "Floor" in pricing ? configured + 50n : configured;
   return listing.RecordSoldEvent.serialize({
     listing_id: IDS.listing,
-    pressing_id: IDS.pressing,
+    record_id: recordId,
     release_id: IDS.release,
-    record_id: IDS.record,
-    number: "7",
-    price,
-    paid: "2500",
-    buyer: IDS.buyer,
-    created_at_ms: "1234",
+    pressing_id: IDS.pressing,
+    edition: 2,
+    number: recordId === IDS.record ? 7 : 8,
+    purchase_currency: { name: purchaseCurrency },
+    purchase_price: purchasePrice.toString(),
+    purchased_by: IDS.buyer,
+    purchased_timestamp_ms: "1234",
+    pricing,
   }).toBytes();
 }
 
-describe("record sale event identity", () => {
-  test("requires this pressing package, listing module, struct, and one currency", () => {
-    expect(isRecordSoldEventType(eventType("0xa"), PRESSING_PACKAGE)).toBe(true);
-    expect(isRecordSoldEventType(eventType("0xb"), PRESSING_PACKAGE)).toBe(false);
-    expect(
-      isRecordSoldEventType(
-        "0xa::listing::RecordSoldEvent<0x2::sui::SUI, 0x2::sui::SUI>",
-        PRESSING_PACKAGE,
-      ),
-    ).toBe(false);
-    expect(
-      isRecordSoldEventType(
-        "0xa::other::RecordSoldEvent<0x2::sui::SUI>",
-        PRESSING_PACKAGE,
-      ),
-    ).toBe(false);
+describe("Record Shop sale receipts", () => {
+  test("requires the exact shop event and one currency argument", () => {
+    expect(isRecordSoldEventType(eventType(), SHOP_PACKAGE)).toBeTrue();
+    expect(isRecordSoldEventType(eventType("0xb"), SHOP_PACKAGE)).toBeFalse();
+    expect(isRecordSoldEventType(
+      `${SHOP_PACKAGE}::listing::RecordSoldEvent<${CURRENCY},${CURRENCY}>`,
+      SHOP_PACKAGE,
+    )).toBeFalse();
   });
 
-  test("skips an earlier compatible spoof and decodes the current BCS Floor price", () => {
-    const sale = findRecordSale(
-      [
-        {
-          eventType: eventType("0xb"),
-          bcs: bcsEvent({ Fixed: { amount: "999" } }),
-          json: null,
-        },
-        {
-          eventType: eventType("0xa"),
-          bcs: bcsEvent({ Floor: { amount: "2500" } }),
-          json: null,
-        },
-      ],
-      PRESSING_PACKAGE,
-    );
+  test("preserves every canonical sale in event order and selects by Record ID", () => {
+    const events = [
+      { eventType: eventType(), bcs: bcsEvent({ Fixed: "99" }), json: null },
+      { eventType: eventType("0xb"), bcs: bcsEvent({ Fixed: "1" }), json: null },
+      { eventType: eventType(), bcs: bcsEvent({ Floor: "2500" }, IDS.secondRecord), json: null },
+    ];
+    const sales = findRecordSales(events, SHOP_PACKAGE);
+    expect(sales.map((sale) => sale.recordId)).toEqual([IDS.record, IDS.secondRecord]);
+    expect(sales.map((sale) => sale.pricing.kind)).toEqual(["fixed", "floor"]);
+    expect(sales[1]).toMatchObject({ edition: 2, number: 8, purchasePrice: "2550" });
+    expect(findRecordSale(events, SHOP_PACKAGE, IDS.secondRecord)?.recordId).toBe(IDS.secondRecord);
+  });
+
+  test("validates embedded TypeName and never falls back from malformed canonical BCS", () => {
+    const malformed = {
+      eventType: eventType(),
+      bcs: bcsEvent({ Fixed: "99" }, IDS.record, "0x2::other::OTHER"),
+      json: {
+        listing_id: IDS.listing,
+        record_id: IDS.record,
+        release_id: IDS.release,
+        pressing_id: IDS.pressing,
+        edition: 2,
+        number: 7,
+        purchase_currency: { name: CURRENCY },
+        purchase_price: "99",
+        purchased_by: IDS.buyer,
+        purchased_timestamp_ms: "1234",
+        pricing: { Fixed: "99" },
+      },
+    };
+    expect(() => findRecordSales([malformed], SHOP_PACKAGE)).toThrow(MalformedRecordSoldEventError);
+  });
+
+  test("accepts the exact JSON transport projection only when BCS is absent", () => {
+    const sale = findRecordSale([{
+      eventType: eventType(),
+      bcs: new Uint8Array(),
+      json: {
+        listing_id: IDS.listing,
+        record_id: IDS.record,
+        release_id: IDS.release,
+        pressing_id: IDS.pressing,
+        edition: 2,
+        number: 7,
+        purchase_currency: { name: CURRENCY },
+        purchase_price: "123",
+        purchased_by: IDS.buyer,
+        purchased_timestamp_ms: "5678",
+        pricing: { Floor: "100" },
+      },
+    }], SHOP_PACKAGE, IDS.record);
     expect(sale).toMatchObject({
-      pressingId: IDS.pressing,
-      price: { kind: "floor", amount: "2500" },
-      currencyType: "0x" + "0".repeat(63) + "2::sui::SUI",
-      createdAtMs: 1234,
+      pricing: { kind: "floor", amount: "100" },
+      purchasePrice: "123",
+      purchasedTimestampMs: "5678",
     });
-  });
-
-  test("decodes BCS Fixed and JSON floor Price variants", () => {
-    const fixed = findRecordSale(
-      [{ eventType: eventType("0xa"), bcs: bcsEvent({ Fixed: { amount: "99" } }), json: null }],
-      PRESSING_PACKAGE,
-    );
-    expect(fixed?.price).toEqual({ kind: "fixed", amount: "99" });
-
-    const floor = findRecordSale(
-      [
-        {
-          eventType: eventType("0xa"),
-          bcs: new Uint8Array(),
-          json: {
-            listing_id: IDS.listing,
-            pressing_id: IDS.pressing,
-            release_id: IDS.release,
-            record_id: IDS.record,
-            number: "7",
-            price: { floor: { amount: "123" } },
-            paid: "123",
-            buyer: IDS.buyer,
-            created_at_ms: "5678",
-          },
-        },
-      ],
-      PRESSING_PACKAGE,
-    );
-    expect(floor?.price).toEqual({ kind: "floor", amount: "123" });
-    expect(floor?.createdAtMs).toBe(5678);
   });
 });

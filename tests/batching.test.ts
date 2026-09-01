@@ -75,8 +75,10 @@ describe("bulk Core reads", () => {
     expect(
       await getSale(missingClient(saleCalls), {
         releaseId: "0x1",
+        edition: 1,
         currencyType: "0x2::sui::SUI",
-        misoPressingPackageId: "0xa",
+        recordPackageId: "0xa",
+        recordShopPackageId: "0xb",
       }),
     ).toEqual({ pressing: null, listing: null });
     expect(saleCalls).toHaveLength(1);

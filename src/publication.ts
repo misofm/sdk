@@ -59,6 +59,7 @@ import {
 import { setReleaseCover, setReleaseTrackCover } from "./cover.ts";
 import {
   custodyNewAdminCap,
+  deriveVaultAdminCapId,
   directAdminCap,
   disposeNewAdminCap,
   initializeCompositionRoyaltyPool,
@@ -79,11 +80,11 @@ import {
   derivePressingAdminCapId,
   derivePressingId,
   type ListingPrice,
-  type PressingRunState,
 } from "./pressing.ts";
+import { requireRecordSalesDeployment } from "./deployments.ts";
 import { allCreatedByType, createdByExactType, type PlatformExecResult } from "./execute.ts";
-import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
-import * as listingContract from "./contracts/miso_pressing/listing.ts";
+import * as pressingContract from "./contracts/miso_record/pressing.ts";
+import * as listingContract from "./contracts/miso_record_shop/listing.ts";
 
 const { composition, recording, release, track, party } = protocolContracts;
 
@@ -212,7 +213,10 @@ export interface PublicationRelease {
 }
 
 export interface PublicationPressing {
-  readonly state?: PressingRunState;
+  /** Positive edition number encoded as Move u16. */
+  readonly edition: number;
+  /** Immutable positive u32 ceiling, or null/omitted for an uncapped edition. */
+  readonly maxSupply?: number | null;
   readonly listings: {
     readonly currencyType: string;
     readonly price: ListingPrice;
@@ -264,7 +268,7 @@ function releaseCapType(p: AtomicPublicationParams): string {
 }
 
 function pressingCapType(p: AtomicPublicationParams): string {
-  return `${p.deployment.packages.pressing}::pressing::PressingAdminCap`;
+  return `${requireRecordSalesDeployment(p.deployment.recordSales).recordPackageId}::pressing::PressingAdminCap`;
 }
 
 function custody(
@@ -311,24 +315,27 @@ function walrusBlob(tx: Transaction, p: AtomicPublicationParams, blobId: bigint 
   });
 }
 
-function pressingState(tx: Transaction, p: AtomicPublicationParams, state: PressingRunState) {
-  const pkg = p.deployment.packages.pressing;
-  if (state.kind === "scheduled") {
-    return tx.add(pressingContract.newScheduledState({
-      package: pkg,
-      arguments: [BigInt(state.startTimestampMs)],
-    }));
-  }
-  if (state.kind === "paused") return tx.add(pressingContract.newPausedState({ package: pkg }));
-  return tx.add(pressingContract.newActiveState({ package: pkg }));
-}
-
 function listingPrice(tx: Transaction, p: AtomicPublicationParams, price: ListingPrice) {
-  const pkg = p.deployment.packages.pressing;
+  const pkg = requireRecordSalesDeployment(p.deployment.recordSales).recordShopPackageId;
   const args = { package: pkg, arguments: [BigInt(price.amount)] as [bigint] };
   return tx.add(price.kind === "fixed"
-    ? listingContract.newFixedPrice(args)
-    : listingContract.newFloorPrice(args));
+    ? listingContract.fixed(args)
+    : listingContract.floor(args));
+}
+
+function publicationEdition(value: number): number {
+  if (!Number.isInteger(value) || value <= 0 || value > 0xffff) {
+    throw new RangeError("pressing.edition must be an integer from 1 to 65535");
+  }
+  return value;
+}
+
+function publicationMaxSupply(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value <= 0 || value > 0xffff_ffff) {
+    throw new RangeError("pressing.maxSupply must be a positive u32 or null");
+  }
+  return value;
 }
 
 interface PublicationShareAllocation {
@@ -807,30 +814,50 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
 
     let pressingParts: { pressing: TransactionObjectArgument; adminCap: TransactionObjectArgument } | undefined;
     if (p.pressing && releaseObject && releaseAdminCap) {
+      const sales = requireRecordSalesDeployment(p.deployment.recordSales);
       const created = tx.add(pressingContract._new({
-        package: p.deployment.packages.pressing,
+        package: sales.recordPackageId,
         arguments: [
           releaseObject,
           releaseAdminCap,
-          pressingState(tx, p, p.pressing.state ?? { kind: "active" }),
+          publicationEdition(p.pressing.edition),
+          publicationMaxSupply(p.pressing.maxSupply),
         ],
       }));
       pressingParts = {
         pressing: requiredCommandResult(created, 0, "pressing::new"),
         adminCap: requiredCommandResult(created, 1, "pressing::new"),
       };
+      tx.add(pressingContract.authorizeDistributor({
+        package: sales.recordPackageId,
+        typeArguments: [`${sales.recordShopPackageId}::witness::Witness`],
+        arguments: [pressingParts.pressing, pressingParts.adminCap],
+      }));
       for (const listing of p.pressing.listings) {
-        tx.add(listingContract._new({
-          package: p.deployment.packages.pressing,
+        const createdListing = tx.add(listingContract._new({
+          package: sales.recordShopPackageId,
           typeArguments: [listing.currencyType],
           arguments: [
             pressingParts.pressing,
             pressingParts.adminCap,
             listingPrice(tx, p, listing.price),
-            tx.add(listing.enabled === false
-              ? listingContract.newDisabledState({ package: p.deployment.packages.pressing })
-              : listingContract.newEnabledState({ package: p.deployment.packages.pressing })),
           ],
+        }));
+        if (listing.enabled === false) {
+          tx.add(listingContract.setState({
+            package: sales.recordShopPackageId,
+            typeArguments: [listing.currencyType],
+            arguments: [
+              createdListing,
+              pressingParts.adminCap,
+              tx.add(listingContract.disabled({ package: sales.recordShopPackageId })),
+            ],
+          }));
+        }
+        tx.add(listingContract.share({
+          package: sales.recordShopPackageId,
+          typeArguments: [listing.currencyType],
+          arguments: [createdListing],
         }));
       }
     }
@@ -862,8 +889,9 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
     }
 
     if (p.pressing && pressingParts) {
+      const sales = requireRecordSalesDeployment(p.deployment.recordSales);
       tx.add(pressingContract.share({
-        package: p.deployment.packages.pressing,
+        package: sales.recordPackageId,
         arguments: [pressingParts.pressing],
       }));
       disposeNewAdminCap(tx, pressingParts.adminCap, custody(
@@ -932,14 +960,14 @@ function findByShareType(
   return matches[0]!.objectId;
 }
 
-function vaultsByCap(result: PlatformExecResult) {
+function vaultsByCap(result: PlatformExecResult, vaultPackageId: string) {
   const out = new Map<string, { vaultId: string; vaultAdminCapId: string }>();
   for (const event of result.events) {
     if (!event.eventType.includes("::vault::VaultCreatedEvent<")) continue;
     const parsed = parseVaultCreatedEvent(event.bcs);
     out.set(parsed.cap_id, {
       vaultId: parsed.vault_id,
-      vaultAdminCapId: parsed.vault_admin_cap_id,
+      vaultAdminCapId: deriveVaultAdminCapId(parsed.vault_id, vaultPackageId),
     });
   }
   return out;
@@ -964,7 +992,7 @@ export function parseAtomicPublicationResult(
   p: AtomicPublicationParams,
   result: PlatformExecResult,
 ): AtomicPublicationResult {
-  const vaults = vaultsByCap(result);
+  const vaults = vaultsByCap(result, p.deployment.packages.vault);
   const createdCompositions = allCreatedByType(result, "::composition::Composition<");
   const createdRecordings = allCreatedByType(result, "::recording::Recording<");
   const createdPools = allCreatedByType(result, "::pool::RoyaltyPool<");
@@ -1036,8 +1064,9 @@ export function parseAtomicPublicationResult(
 
   let pressingOut: AtomicPublicationResult["pressing"];
   if (p.pressing && releaseOut) {
-    const id = derivePressingId(releaseOut.id, p.deployment.packages.pressing);
-    const adminCapId = derivePressingAdminCapId(id, p.deployment.packages.pressing);
+    const sales = requireRecordSalesDeployment(p.deployment.recordSales);
+    const id = derivePressingId(releaseOut.id, p.pressing.edition, sales.recordPackageId);
+    const adminCapId = derivePressingAdminCapId(id, sales.recordPackageId);
     pressingOut = {
       id,
       adminCapId,

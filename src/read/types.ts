@@ -22,8 +22,7 @@
 
 /** Lifecycle state shared by compositions, recordings, and releases. */
 export type WorkState =
-  | { type: "Initialized" }
-  | { type: "Published"; timestampMs: number };
+  { type: "Initialized" } | { type: "Published"; timestampMs: number };
 
 /** A cover image's location on Walrus, plus the URL to fetch it from. */
 export interface CoverImage {
@@ -77,6 +76,8 @@ export interface TrackView {
   disc: number;
   /** Base64url Walrus blob id for the master stream, when attached on-chain. */
   masterBlobId?: string;
+  /** Base64url Walrus blob id for the public mix-delivery descriptor. */
+  mixBlobId?: string;
 }
 
 /** A release with everything a page renders: metadata, cover, credits, tracklist. */
@@ -118,13 +119,10 @@ export interface Currency {
 export interface PressingView {
   id: string;
   releaseId: string;
-  /** The one run-wide sale switch. Scheduled carries its opening time. */
-  state:
-    | { kind: "scheduled"; startTimestampMs: number }
-    | { kind: "active" }
-    | { kind: "paused" };
-  /** Records pressed so far, decimal string. The run is intentionally uncapped. */
-  supply: string;
+  edition: number;
+  supply: number;
+  maxSupply: number | null;
+  distributors: string[];
 }
 
 /** One permanent currency offer derived from a Pressing. */
@@ -132,9 +130,9 @@ export interface ListingView {
   id: string;
   pressingId: string;
   releaseId: string;
-  price: Price;
+  pricing: Price;
   currency: Currency;
-  /** The per-currency switch; the Pressing state still governs every purchase. */
+  /** The per-currency purchase switch. */
   state: "enabled" | "disabled";
 }
 
@@ -181,8 +179,9 @@ export interface PressingPreview {
   title: string;
   subtitle: string | null;
   coverUrl: string | null;
-  state: PressingView["state"];
-  supply: string;
+  edition: number;
+  supply: number;
+  maxSupply: number | null;
   trackCount: number;
 }
 
@@ -284,17 +283,18 @@ export interface OwnedRecord {
   id: string;
   /** Full on-chain type, e.g. `<miso_record>::record::Record`. */
   type: string;
-  releaseId: string | null;
-  /** Singleton Record Registry that allocated this object's ID and number. */
-  registryId: string | null;
-  /** Registry-allocated release sequence, as a lossless u64 decimal string. */
-  number: string | null;
-  /** Record creation time from Sui's Clock. */
-  createdAtMs: number | null;
+  releaseId: string;
+  pressingId: string;
+  edition: number;
+  number: number;
   /** Defining Move type name of the currency used for the purchase. */
-  purchaseCurrency: string | null;
+  purchaseCurrency: string;
+  /** Lossless u64 base-unit amount actually paid. */
+  purchasePrice: string;
   /** Transaction sender that purchased the Record. */
-  purchasedBy: string | null;
+  purchasedBy: string;
+  /** Lossless u64 Unix-millisecond purchase timestamp. */
+  purchasedTimestampMs: string;
 }
 
 /** A party the wallet administers (holds the `PartyAdminCap` for). */
@@ -372,17 +372,20 @@ export interface RecordSale {
   releaseId: string;
   /** The `Record` object minted to the buyer. */
   recordId: string;
-  /** This copy's number in the Pressing run (1-based), decimal string. */
-  number: string;
-  /** What the buyer actually paid, in the currency's base units. */
-  paid: string;
+  edition: number;
+  /** This copy's number in the edition. */
+  number: number;
+  /** Embedded defining TypeName; validated against the event generic. */
+  purchaseCurrency: string;
+  /** What the buyer actually paid, in base units. */
+  purchasePrice: string;
   /** The fixed or floor price that the Listing accepted at this sale. */
-  price: Price;
+  pricing: Price;
   /** Currency type carried by the `RecordSoldEvent` generic argument. */
   currencyType: string;
-  buyer: string;
-  /** Chain-clock timestamp captured by `listing::buy` (Unix milliseconds). */
-  createdAtMs: number;
+  purchasedBy: string;
+  /** Lossless chain-clock timestamp captured by `listing::purchase`. */
+  purchasedTimestampMs: string;
 }
 
 /** One track's share of the paid amount, and how that share splits again. */

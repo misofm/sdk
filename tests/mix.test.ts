@@ -7,6 +7,7 @@ import { bcs } from "@mysten/sui/bcs";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
 import * as walrusData from "../src/contracts/recording_master_reference/deps/ori/walrus_data.ts";
+import * as recordContract from "../src/contracts/miso_record/record.ts";
 import {
   attachRecordingEngineSession,
   base64UrlToBytes,
@@ -228,8 +229,17 @@ test("Recording session lookup derives one deterministic field and rejects encry
 });
 
 test("Record release lookup validates the configured concrete type before BCS", async () => {
-  const RecordBcs = bcs.struct("Record", { id: bcs.Address, release_id: bcs.Address });
-  const content = RecordBcs.serialize({ id: RECORD, release_id: RELEASE }).toBytes();
+  const content = recordContract.Record.serialize({
+    id: RECORD,
+    release_id: RELEASE,
+    pressing_id: `0x${"66".repeat(32)}`,
+    edition: 1,
+    number: 1,
+    purchase_currency: { name: "0x2::sui::SUI" },
+    purchase_price: "1",
+    purchased_by: `0x${"77".repeat(32)}`,
+    purchased_timestamp_ms: "1",
+  }).toBytes();
   const client = {
     core: {
       getObject: async () => ({

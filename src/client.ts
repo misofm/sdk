@@ -7,9 +7,10 @@
 //
 //   const client = new SuiGrpcClient({ network, baseUrl }).$extend(miso());
 //
-//   await client.miso.getSale({ releaseId, currencyType });
+//   await client.miso.getSale({ releaseId, edition, currencyType });
 //   await client.miso.protocol.getReleaseById(releaseId);
-//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient }));
+//   tx.add(client.miso.tx.purchaseRecord({ releaseId, edition, currencyType,
+//     paymentAmount, expectedPricing, recipient }));
 //
 // Two things this buys over calling the bare functions:
 //
@@ -38,8 +39,9 @@ import {
 } from "@misonetwork/sdk/client";
 import type { PartyProtocolClient } from "@misonetwork/sdk/party";
 
-import * as listingContract from "./contracts/miso_pressing/listing.ts";
-import * as pressingContract from "./contracts/miso_pressing/pressing.ts";
+import * as recordContract from "./contracts/miso_record/record.ts";
+import * as pressingContract from "./contracts/miso_record/pressing.ts";
+import * as listingContract from "./contracts/miso_record_shop/listing.ts";
 import * as genreContract from "./contracts/genre/genre.ts";
 import * as releaseDescriptionContract from "./contracts/release_description/release_description.ts";
 import * as releaseDspLinkContract from "./contracts/release_dsp_link/release_dsp_link.ts";
@@ -62,30 +64,34 @@ import * as coverArtContract from "./contracts/cover_art/cover_art.ts";
 import * as releaseCoverArtContract from "./contracts/release_cover_art/release_cover_art.ts";
 import * as releaseCreditsContract from "./contracts/release_credits/release_credits.ts";
 import {
-  buyRecord,
+  authorizeRecordShop,
   deriveListingId,
   derivePressingAdminCapId,
   derivePressingId,
+  deriveRecordId,
   deriveSaleIds,
   getListing,
   getPressing,
+  getRecord,
   getSale,
   openListing,
   openPressing,
+  purchaseRecord,
+  revokeRecordShop,
   setListingPrice,
   setListingState,
-  setPressingState,
 } from "./pressing.ts";
 import type {
-  BuyRecordParams,
   GetSaleParams,
   ListingView,
   OpenListingParams,
   OpenPressingParams,
+  PressingAdministrationParams,
   PressingView,
+  PurchaseRecordParams,
+  RecordView,
   SetListingPriceParams,
   SetListingStateParams,
-  SetPressingStateParams,
 } from "./pressing.ts";
 import {
   publishShareCurrency,
@@ -109,7 +115,9 @@ import {
 } from "./release-graph.ts";
 import {
   getMisoPlatformDeployment,
+  requireRecordSalesDeployment,
   type MisoPlatformDeployment,
+  type RecordSalesDeployment,
 } from "./deployments.ts";
 import {
   deriveGenreAddress,
@@ -171,8 +179,9 @@ export interface MisoOptions<Name extends string = "miso"> {
 }
 
 export interface MisoPlatformConfig {
-  /** The published `miso_pressing` package. */
-  packageId: string;
+  /** Finalized immutable Record + Record Shop identities, or an explicit
+   * unavailable legacy state that makes every sales API fail closed. */
+  recordSales?: RecordSalesDeployment;
   /**
    * The `@misonetwork/sdk` protocol package (miso core). Required for the
    * publish builders (`publishComposition`, `publishRecording`,
@@ -219,32 +228,33 @@ export interface MisoPlatformConfig {
   genreRegistryId?: string;
   /** External ori package used to create WalrusData values. */
   oriPackageId?: string;
-  /** Shared Record namespace/counter singleton used by every purchase. */
-  recordRegistryId?: string;
-  /** Shared Record witness policy used by every purchase. */
-  recordSettingsId?: string;
 }
 
 /** Params with the ids this client already knows dropped from the call site. */
-type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
-type Configured<T> = DistributiveOmit<T, "misoPressingPackageId">;
-type ConfiguredBuyRecord = DistributiveOmit<
-  BuyRecordParams,
-  "misoPressingPackageId" | "recordRegistryId" | "recordSettingsId"
+type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown
+  ? Omit<T, Keys>
+  : never;
+type Configured<T> = DistributiveOmit<
+  T,
+  "recordPackageId" | "recordShopPackageId"
 >;
 
 /** Publish-builder params with the protocol/minato ids this client already knows dropped. */
-type ConfiguredPublish<T> = DistributiveOmit<T, "misoPackageId" | "minatoPackageId">;
+type ConfiguredPublish<T> = DistributiveOmit<
+  T,
+  "misoPackageId" | "minatoPackageId"
+>;
 
 /** Release-builder params with this client's core, share, and registry ids dropped. */
 type ConfiguredRelease<T> = DistributiveOmit<
   T,
-  | "misoPackageId"
-  | "minatoPackageId"
-  | "releaseRegistryId"
+  "misoPackageId" | "minatoPackageId" | "releaseRegistryId"
 >;
 
-type ConfiguredReleaseKind = DistributiveOmit<SetReleaseKindParams, "releaseKindPackageId">;
+type ConfiguredReleaseKind = DistributiveOmit<
+  SetReleaseKindParams,
+  "releaseKindPackageId"
+>;
 type ConfiguredReleaseDescription = DistributiveOmit<
   SetReleaseDescriptionParams,
   "releaseDescriptionPackageId"
@@ -271,7 +281,10 @@ type ConfiguredReleaseTrackCover = DistributiveOmit<
 >;
 
 /** Whole-graph params with this client's package ids dropped. */
-export type ConfiguredReleaseGraphParams = Omit<PublishReleaseGraphParams, "misoPackageId" | "minatoPackageId">;
+export type ConfiguredReleaseGraphParams = Omit<
+  PublishReleaseGraphParams,
+  "misoPackageId" | "minatoPackageId"
+>;
 
 export class MisoPlatformClient {
   readonly #client: ClientWithCoreApi;
@@ -292,9 +305,13 @@ export class MisoPlatformClient {
     // A pressing-only facade must not implicitly register a fail-closed core
     // extension. Supply a core deployment/misoPackageId when `protocol` is
     // needed; otherwise this remains a safe, independent pressing client.
-    this.protocol = protocol ?? (config.misoPackageId
-      ? protocolMiso({ deployment: { packageId: config.misoPackageId } }).register(client)
-      : undefined);
+    this.protocol =
+      protocol ??
+      (config.misoPackageId
+        ? protocolMiso({
+            deployment: { packageId: config.misoPackageId },
+          }).register(client)
+        : undefined);
     this.deployment = deployment;
   }
 
@@ -308,8 +325,22 @@ export class MisoPlatformClient {
     return this.protocol.party;
   }
 
-  get packageId(): string {
-    return this.#config.packageId;
+  #recordSales() {
+    return requireRecordSalesDeployment(
+      this.#config.recordSales ?? {
+        status: "unavailable",
+        reason:
+          "this client was configured without Record and Record Shop package IDs",
+      },
+    );
+  }
+
+  get recordPackageId(): string {
+    return this.#recordSales().recordPackageId;
+  }
+
+  get recordShopPackageId(): string {
+    return this.#recordSales().recordShopPackageId;
   }
 
   #misoPackageId(): string {
@@ -358,12 +389,17 @@ export class MisoPlatformClient {
 
   /** The run itself, or `null` if this release has never opened one. */
   getPressing(pressingId: string): Promise<PressingView | null> {
-    return getPressing(this.#client, pressingId, this.packageId);
+    return getPressing(this.#client, pressingId, this.recordPackageId);
   }
 
   /** One currency's offer, or `null` if the run does not sell in it. */
   getListing(listingId: string): Promise<ListingView | null> {
-    return getListing(this.#client, listingId, this.packageId);
+    return getListing(this.#client, listingId, this.recordShopPackageId);
+  }
+
+  /** One concrete purchased Record, including immutable purchase provenance. */
+  getRecord(recordId: string): Promise<RecordView | null> {
+    return getRecord(this.#client, recordId, this.recordPackageId);
   }
 
   /** Run + one currency's offer in a single round trip, by address math. */
@@ -373,27 +409,42 @@ export class MisoPlatformClient {
   }> {
     return getSale(this.#client, {
       ...p,
-      misoPressingPackageId: this.packageId,
+      recordPackageId: this.recordPackageId,
+      recordShopPackageId: this.recordShopPackageId,
     });
   }
 
   // ── Address math ──────────────────────────────────────────────────────────
 
   readonly ids = {
-    pressing: (releaseId: string) =>
-      derivePressingId(releaseId, this.packageId),
+    pressing: (releaseId: string, edition: number) =>
+      derivePressingId(releaseId, edition, this.recordPackageId),
     pressingAdminCap: (pressingId: string) =>
-      derivePressingAdminCapId(pressingId, this.packageId),
+      derivePressingAdminCapId(pressingId, this.recordPackageId),
+    record: (pressingId: string, number: number) =>
+      deriveRecordId(pressingId, number, this.recordPackageId),
     listing: (pressingId: string, currencyType: string) =>
-      deriveListingId(pressingId, currencyType, this.packageId),
-    sale: (releaseId: string, currencyType: string) =>
-      deriveSaleIds(releaseId, currencyType, this.packageId),
+      deriveListingId(pressingId, currencyType, this.recordShopPackageId),
+    sale: (releaseId: string, edition: number, currencyType: string) =>
+      deriveSaleIds(
+        releaseId,
+        edition,
+        currencyType,
+        this.recordPackageId,
+        this.recordShopPackageId,
+      ),
     vault: (capId: string, capType: string) =>
       vaultActions.deriveVaultId({
-        vaultRegistryId: this.#requiredConfig("vaultRegistryId", "Vault ID derivation"),
+        vaultRegistryId: this.#requiredConfig(
+          "vaultRegistryId",
+          "Vault ID derivation",
+        ),
         capId,
         capType,
-        vaultPackageId: this.#requiredConfig("vaultPackageId", "Vault ID derivation"),
+        vaultPackageId: this.#requiredConfig(
+          "vaultPackageId",
+          "Vault ID derivation",
+        ),
       }),
     vaultAdminCap: (vaultId: string) =>
       vaultActions.deriveVaultAdminCapId(
@@ -411,29 +462,38 @@ export class MisoPlatformClient {
   // ── Transaction builders ──────────────────────────────────────────────────
 
   readonly tx = {
-    buyRecord: (p: ConfiguredBuyRecord): TxThunk =>
-      buyRecord({
+    purchaseRecord: (p: Configured<PurchaseRecordParams>): TxThunk =>
+      purchaseRecord({
         ...p,
-        misoPressingPackageId: this.packageId,
-        recordRegistryId: this.#requiredConfig(
-          "recordRegistryId",
-          "Record purchase",
-        ),
-        recordSettingsId: this.#requiredConfig(
-          "recordSettingsId",
-          "Record purchase",
-        ),
+        recordPackageId: this.recordPackageId,
+        recordShopPackageId: this.recordShopPackageId,
       }),
     openPressing: (p: Configured<OpenPressingParams>): TxThunk =>
-      openPressing({ ...p, misoPressingPackageId: this.packageId }),
+      openPressing({
+        ...p,
+        recordPackageId: this.recordPackageId,
+        recordShopPackageId: this.recordShopPackageId,
+      }),
     openListing: (p: Configured<OpenListingParams>): TxThunk =>
-      openListing({ ...p, misoPressingPackageId: this.packageId }),
+      openListing({ ...p, recordShopPackageId: this.recordShopPackageId }),
+    authorizeRecordShop: (
+      p: Configured<PressingAdministrationParams>,
+    ): TxThunk =>
+      authorizeRecordShop({
+        ...p,
+        recordPackageId: this.recordPackageId,
+        recordShopPackageId: this.recordShopPackageId,
+      }),
+    revokeRecordShop: (p: Configured<PressingAdministrationParams>): TxThunk =>
+      revokeRecordShop({
+        ...p,
+        recordPackageId: this.recordPackageId,
+        recordShopPackageId: this.recordShopPackageId,
+      }),
     setListingPrice: (p: Configured<SetListingPriceParams>): TxThunk =>
-      setListingPrice({ ...p, misoPressingPackageId: this.packageId }),
+      setListingPrice({ ...p, recordShopPackageId: this.recordShopPackageId }),
     setListingState: (p: Configured<SetListingStateParams>): TxThunk =>
-      setListingState({ ...p, misoPressingPackageId: this.packageId }),
-    setPressingState: (p: Configured<SetPressingStateParams>): TxThunk =>
-      setPressingState({ ...p, misoPressingPackageId: this.packageId }),
+      setListingState({ ...p, recordShopPackageId: this.recordShopPackageId }),
 
     // Publishing (protocol works + minato share economics) — package-id-free
     // builders pass through unchanged; the rest bind this client's
@@ -574,11 +634,65 @@ export class MisoPlatformClient {
 
   /** Generated Move-call bindings, for commands this facade doesn't wrap. */
   get call() {
+    const sales =
+      this.#config.recordSales?.status === "available"
+        ? this.#config.recordSales
+        : undefined;
     return {
-      listing: bindModulePackage(listingContract, this.packageId, ["newFixedPrice", "newFloorPrice", "newEnabledState", "newDisabledState", "buy", "setState", "setPrice", "deriveId", "hasListing", "releaseId", "pressingId", "price", "state", "isLive", "amount"] as const),
-      pressing: bindModulePackage(pressingContract, this.packageId, ["newScheduledState", "newActiveState", "newPausedState", "setState", "deriveId", "releaseId", "supply", "isSelling", "pressingAdminCapPressingId"] as const),
+      record: sales
+        ? bindModulePackage(recordContract, sales.recordPackageId, [
+            "destroy",
+            "releaseId",
+            "pressingId",
+            "edition",
+            "number",
+            "purchaseCurrency",
+            "purchasePrice",
+            "purchasedBy",
+            "purchasedTimestampMs",
+            "deriveAddress",
+          ] as const)
+        : undefined,
+      listing: sales
+        ? bindModulePackage(listingContract, sales.recordShopPackageId, [
+            "fixed",
+            "floor",
+            "enabled",
+            "disabled",
+            "setState",
+            "setPrice",
+            "purchase",
+            "deriveAddress",
+            "releaseId",
+            "pressingId",
+            "pricing",
+            "price",
+            "state",
+            "isEnabled",
+            "isDisabled",
+            "isFixed",
+            "isFloor",
+          ] as const)
+        : undefined,
+      pressing: sales
+        ? bindModulePackage(pressingContract, sales.recordPackageId, [
+            "authorizeDistributor",
+            "revokeDistributor",
+            "deriveAddress",
+            "deriveAdminCapAddress",
+            "releaseId",
+            "edition",
+            "supply",
+            "maxSupply",
+            "distributors",
+            "isDistributorAuthorized",
+            "pressingId",
+          ] as const)
+        : undefined,
       genre: this.#config.genrePackageId
-        ? bindModulePackage(genreContract, this.#config.genrePackageId, ["deriveAddress"] as const)
+        ? bindModulePackage(genreContract, this.#config.genrePackageId, [
+            "deriveAddress",
+          ] as const)
         : undefined,
       releaseDescription: this.#config.releaseDescriptionPackageId
         ? bindModulePackage(
@@ -591,14 +705,47 @@ export class MisoPlatformClient {
         ? bindModulePackage(
             releaseDspLinkContract,
             this.#config.releaseDspLinkPackageId,
-            ["platform", "platformSpotify", "platformAppleMusic", "platformAmazonMusic", "platformBandcamp", "platformDeezer", "platformSoundcloud", "platformTidal", "platformYoutubeMusic", "newSpotify", "newAppleMusicAlbum", "newAppleMusicTrack", "newAmazonMusicAlbum", "newAmazonMusicTrack", "newBandcamp", "newDeezer", "newSoundcloud", "newTidal", "newYoutubeMusic", "setReleaseLink", "clearReleaseLink", "setTrackLink", "clearTrackLink", "clearTrackLinks", "hasReleaseLink"] as const,
+            [
+              "platform",
+              "platformSpotify",
+              "platformAppleMusic",
+              "platformAmazonMusic",
+              "platformBandcamp",
+              "platformDeezer",
+              "platformSoundcloud",
+              "platformTidal",
+              "platformYoutubeMusic",
+              "newSpotify",
+              "newAppleMusicAlbum",
+              "newAppleMusicTrack",
+              "newAmazonMusicAlbum",
+              "newAmazonMusicTrack",
+              "newBandcamp",
+              "newDeezer",
+              "newSoundcloud",
+              "newTidal",
+              "newYoutubeMusic",
+              "setReleaseLink",
+              "clearReleaseLink",
+              "setTrackLink",
+              "clearTrackLink",
+              "clearTrackLinks",
+              "hasReleaseLink",
+            ] as const,
           )
         : undefined,
       releaseGenre: this.#config.releaseGenrePackageId
         ? bindModulePackage(
             releaseGenreContract,
             this.#config.releaseGenrePackageId,
-            ["setPrimaryGenre", "addSecondaryGenre", "removeSecondaryGenre", "setTrackPrimaryGenre", "unsetTrackPrimaryGenre", "hasGenre"] as const,
+            [
+              "setPrimaryGenre",
+              "addSecondaryGenre",
+              "removeSecondaryGenre",
+              "setTrackPrimaryGenre",
+              "unsetTrackPrimaryGenre",
+              "hasGenre",
+            ] as const,
           )
         : undefined,
       releaseKind: this.#config.releaseKindPackageId
@@ -608,70 +755,206 @@ export class MisoPlatformClient {
             ["setKind", "unsetKind", "hasKind"] as const,
           )
         : undefined,
-      releaseRevenueDistributor: this.#config.vaultReleaseRevenueDistributorPluginPackageId
+      releaseRevenueDistributor: this.#config
+        .vaultReleaseRevenueDistributorPluginPackageId
         ? bindModulePackage(
             releaseRevenueDistributorContract,
             this.#config.vaultReleaseRevenueDistributorPluginPackageId,
-            ["install", "uninstall", "redeemAndDistribute", "receiveAndDistribute", "isInstalled"] as const,
+            [
+              "install",
+              "uninstall",
+              "redeemAndDistribute",
+              "receiveAndDistribute",
+              "isInstalled",
+            ] as const,
           )
         : undefined,
       vault: this.#config.vaultPackageId
-        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, ["share", "transferAdminCap", "withdrawCap", "restoreCap", "vaultAddress", "vaultAdminCapAddress", "vaultId", "capId", "isOccupied", "authorizedPluginsId", "authorizedPluginCount", "isPluginAuthorized"] as const)
+        ? bindModulePackage(vaultContract, this.#config.vaultPackageId, [
+            "share",
+            "transferAdminCap",
+            "withdrawCap",
+            "restoreCap",
+            "vaultAddress",
+            "vaultAdminCapAddress",
+            "vaultId",
+            "capId",
+            "isOccupied",
+            "authorizedPluginsId",
+            "authorizedPluginCount",
+            "isPluginAuthorized",
+          ] as const)
         : undefined,
-      compositionRoyaltyPool: this.#config.vaultCompositionRoyaltyPoolPluginPackageId
+      compositionRoyaltyPool: this.#config
+        .vaultCompositionRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
             this.#config.vaultCompositionRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
+            [
+              "install",
+              "uninstall",
+              "newPool",
+              "initializePool",
+              "receiveAndDeposit",
+              "redeemAndDeposit",
+              "isInstalled",
+              "poolAddress",
+            ] as const,
           )
         : undefined,
-      recordingRoyaltyPool: this.#config.vaultRecordingRoyaltyPoolPluginPackageId
+      recordingRoyaltyPool: this.#config
+        .vaultRecordingRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
             this.#config.vaultRecordingRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
+            [
+              "install",
+              "uninstall",
+              "newPool",
+              "initializePool",
+              "receiveAndDeposit",
+              "redeemAndDeposit",
+              "isInstalled",
+              "poolAddress",
+            ] as const,
           )
         : undefined,
       partyWallet: this.#config.vaultPartyWalletPluginPackageId
         ? bindModulePackage(
             partyWalletContract,
             this.#config.vaultPartyWalletPluginPackageId,
-            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemBalance", "isInstalled", "inboxAddress"] as const,
+            [
+              "install",
+              "uninstall",
+              "receiveObject",
+              "receiveObjects",
+              "receiveCoins",
+              "redeemBalance",
+              "isInstalled",
+              "inboxAddress",
+            ] as const,
           )
         : undefined,
-      compositionRoutedStake: this.#config.vaultCompositionRoutedStakePluginPackageId
+      compositionRoutedStake: this.#config
+        .vaultCompositionRoutedStakePluginPackageId
         ? bindModulePackage(
             compositionRoutedStakeContract,
             this.#config.vaultCompositionRoutedStakePluginPackageId,
-            ["install", "uninstall", "createStake", "register", "unregister", "unstake", "restake", "isInstalled", "stakeAddress"] as const,
+            [
+              "install",
+              "uninstall",
+              "createStake",
+              "register",
+              "unregister",
+              "unstake",
+              "restake",
+              "isInstalled",
+              "stakeAddress",
+            ] as const,
           )
         : undefined,
       routedStake: this.#config.routedStakePackageId
-        ? bindModulePackage(routedStakeContract, this.#config.routedStakePackageId, ["share", "register", "unregister", "sweep", "unstake", "restake", "derivedAddress"] as const)
+        ? bindModulePackage(
+            routedStakeContract,
+            this.#config.routedStakePackageId,
+            [
+              "share",
+              "register",
+              "unregister",
+              "sweep",
+              "unstake",
+              "restake",
+              "derivedAddress",
+            ] as const,
+          )
         : undefined,
       royaltyPool: this.#config.royaltyPoolPackageId
-        ? bindModulePackage(royaltyPoolContract, this.#config.royaltyPoolPackageId, ["share", "deposit", "sweepAndDeposit", "receiveAndDeposit", "registerStake", "unregisterStake", "claimRewards", "pendingRewards", "stakedShares", "cumulativeRewardPerShare", "cumulativeDeposits", "derivedAddress", "assertDerivedFrom"] as const)
+        ? bindModulePackage(
+            royaltyPoolContract,
+            this.#config.royaltyPoolPackageId,
+            [
+              "share",
+              "deposit",
+              "sweepAndDeposit",
+              "receiveAndDeposit",
+              "registerStake",
+              "unregisterStake",
+              "claimRewards",
+              "pendingRewards",
+              "stakedShares",
+              "cumulativeRewardPerShare",
+              "cumulativeDeposits",
+              "derivedAddress",
+              "assertDerivedFrom",
+            ] as const,
+          )
         : undefined,
       recordingAdvisory: this.#config.recordingAdvisoryPackageId
-        ? bindModulePackage(recordingAdvisoryContract, this.#config.recordingAdvisoryPackageId, ["explicit", "notExplicit", "cleaned", "setRating", "unsetRating", "hasRating", "isExplicit", "isNotExplicit", "isCleaned"] as const)
+        ? bindModulePackage(
+            recordingAdvisoryContract,
+            this.#config.recordingAdvisoryPackageId,
+            [
+              "explicit",
+              "notExplicit",
+              "cleaned",
+              "setRating",
+              "unsetRating",
+              "hasRating",
+              "isExplicit",
+              "isNotExplicit",
+              "isCleaned",
+            ] as const,
+          )
         : undefined,
       recordingLanguage: this.#config.recordingLanguagePackageId
-        ? bindModulePackage(recordingLanguageContract, this.#config.recordingLanguagePackageId, ["setLanguages", "setInstrumental", "unsetLanguages", "hasLanguages", "isInstrumental"] as const)
+        ? bindModulePackage(
+            recordingLanguageContract,
+            this.#config.recordingLanguagePackageId,
+            [
+              "setLanguages",
+              "setInstrumental",
+              "unsetLanguages",
+              "hasLanguages",
+              "isInstrumental",
+            ] as const,
+          )
         : undefined,
       recordingMasterReference: this.#config.recordingMasterReferencePackageId
-        ? bindModulePackage(recordingMasterReferenceContract, this.#config.recordingMasterReferencePackageId, ["setMasterReference", "unsetMasterReference", "hasMasterReference"] as const)
+        ? bindModulePackage(
+            recordingMasterReferenceContract,
+            this.#config.recordingMasterReferencePackageId,
+            [
+              "setMasterReference",
+              "unsetMasterReference",
+              "hasMasterReference",
+            ] as const,
+          )
         : undefined,
       recordingPreview: this.#config.recordingPreviewPackageId
-        ? bindModulePackage(recordingPreviewContract, this.#config.recordingPreviewPackageId, ["setPreview", "unsetPreview", "hasPreview"] as const)
+        ? bindModulePackage(
+            recordingPreviewContract,
+            this.#config.recordingPreviewPackageId,
+            ["setPreview", "unsetPreview", "hasPreview"] as const,
+          )
         : undefined,
       coverArt: this.#config.coverArtPackageId
-        ? bindModulePackage(coverArtContract, this.#config.coverArtPackageId, [] as const)
+        ? bindModulePackage(
+            coverArtContract,
+            this.#config.coverArtPackageId,
+            [] as const,
+          )
         : undefined,
       releaseCoverArt: this.#config.releaseCoverArtPackageId
         ? bindModulePackage(
             releaseCoverArtContract,
             this.#config.releaseCoverArtPackageId,
-            ["setCover", "unsetCover", "setTrackCover", "unsetTrackCover", "hasCoverArt"] as const,
+            [
+              "setCover",
+              "unsetCover",
+              "setTrackCover",
+              "unsetTrackCover",
+              "hasCoverArt",
+            ] as const,
           )
         : undefined,
       releaseCredits: this.#config.releaseCreditsPackageId
@@ -686,15 +969,26 @@ export class MisoPlatformClient {
 
   /** Generated BCS definitions, for parsing objects or events yourself. */
   readonly bcs = {
+    Record: recordContract.Record,
     Pressing: pressingContract.Pressing,
     PressingAdminCap: pressingContract.PressingAdminCap,
     Listing: listingContract.Listing,
-    Price: listingContract.Price,
+    Pricing: listingContract.Pricing,
+    ListingState: listingContract.State,
+    RecordCreatedEvent: recordContract.RecordCreatedEvent,
+    RecordDestroyedEvent: recordContract.RecordDestroyedEvent,
+    PressingCreatedEvent: pressingContract.PressingCreatedEvent,
+    DistributorAuthorizedEvent: pressingContract.DistributorAuthorizedEvent,
+    DistributorRevokedEvent: pressingContract.DistributorRevokedEvent,
+    RecordPurchasedEvent: pressingContract.RecordPurchasedEvent,
+    ListingCreatedEvent: listingContract.ListingCreatedEvent,
+    ListingPriceChangedEvent: listingContract.ListingPriceChangedEvent,
+    ListingStateChangedEvent: listingContract.ListingStateChangedEvent,
+    RecordSoldEvent: listingContract.RecordSoldEvent,
     VaultAdminCap: vaultContract.VaultAdminCap,
     VaultRegistry: vaultContract.VaultRegistry,
     VaultKey: vaultContract.VaultKey,
     VaultAdminCapKey: vaultContract.VaultAdminCapKey,
-    VaultRegistryCreatedEvent: vaultContract.VaultRegistryCreatedEvent,
     VaultCreatedEvent: vaultContract.VaultCreatedEvent,
     VaultCapabilityWithdrawnEvent: vaultContract.VaultCapabilityWithdrawnEvent,
     VaultCapabilityRestoredEvent: vaultContract.VaultCapabilityRestoredEvent,
@@ -728,7 +1022,7 @@ export function miso<const Name extends string = "miso">(
       return new MisoPlatformClient(
         client,
         {
-          packageId: deployment.packages.pressing,
+          recordSales: deployment.recordSales,
           misoPackageId: deployment.protocol.miso,
           minatoPackageId: deployment.packages.minato,
           releaseRegistryId: deployment.objects.releaseRegistry,
@@ -738,7 +1032,8 @@ export function miso<const Name extends string = "miso">(
           releaseDspLinkPackageId: deployment.packages.releaseDspLink,
           recordingAdvisoryPackageId: deployment.packages.recordingAdvisory,
           recordingLanguagePackageId: deployment.packages.recordingLanguage,
-          recordingMasterReferencePackageId: deployment.packages.recordingMasterReference,
+          recordingMasterReferencePackageId:
+            deployment.packages.recordingMasterReference,
           recordingPreviewPackageId: deployment.packages.recordingPreview,
           vaultPackageId: deployment.packages.vault,
           vaultRegistryId: deployment.objects.vaultRegistry,
@@ -747,7 +1042,8 @@ export function miso<const Name extends string = "miso">(
             deployment.packages.vaultCompositionRoyaltyPoolPlugin,
           vaultRecordingRoyaltyPoolPluginPackageId:
             deployment.packages.vaultRecordingRoyaltyPoolPlugin,
-          vaultPartyWalletPluginPackageId: deployment.packages.vaultPartyWalletPlugin,
+          vaultPartyWalletPluginPackageId:
+            deployment.packages.vaultPartyWalletPlugin,
           vaultCompositionRoutedStakePluginPackageId:
             deployment.packages.vaultCompositionRoutedStakePlugin,
           routedStakePackageId: deployment.packages.routedStake,
@@ -760,8 +1056,6 @@ export function miso<const Name extends string = "miso">(
           genrePackageId: deployment.packages.genre,
           genreRegistryId: deployment.objects.genreRegistry,
           oriPackageId: deployment.packages.ori,
-          recordRegistryId: deployment.objects.recordRegistry,
-          recordSettingsId: deployment.objects.recordSettings,
         },
         protocol,
         deployment,
@@ -779,7 +1073,9 @@ export function misoPlatform(config: MisoPlatformConfig) {
     name: "misoPlatform" as const,
     register: (client: ClientWithCoreApi) => {
       const protocol = config.misoPackageId
-        ? protocolMiso({ deployment: { packageId: config.misoPackageId } }).register(client)
+        ? protocolMiso({
+            deployment: { packageId: config.misoPackageId },
+          }).register(client)
         : undefined;
       return new MisoPlatformClient(client, config, protocol);
     },

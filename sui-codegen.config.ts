@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 // MISO_SDK_CODEGEN_SOURCE_ROOT to a copied checkout root containing both
 // `misofm/` and `misonetwork/`; codegen then never writes summaries or locks into
 // a developer's live sibling sources. Regenerating requires:
-//   ~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}
+//   ~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins}
 //   ~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
 //     royalty-pool, routed-stake, share}
 const sourceRoot =
@@ -31,9 +31,13 @@ const source = (path: string) => resolve(sourceRoot, path);
 const config: SuiCodegenConfig = {
   output: "./src/contracts",
   packages: [
-    // The record production line: one uncapped run per release, plus a
-    // `Listing<Currency>` per payment rail.
-    { package: "@local-pkg/miso_pressing", path: source("misofm/pressing") },
+    // Record identity and edition-scoped Pressings are separate from the
+    // primary-sale mechanics supplied by Record Shop.
+    { package: "@local-pkg/miso_record", path: source("misofm/record") },
+    {
+      package: "@local-pkg/miso_record_shop",
+      path: source("misofm/record-shop"),
+    },
 
     // Royalty pools — accumulator-based distribution bound to a work.
     {

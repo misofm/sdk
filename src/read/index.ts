@@ -72,6 +72,14 @@ export {
   ownsRecord,
 } from "./wallet.ts";
 
-export { breakdown, getPurchaseReceipt } from "./receipts.ts";
+export {
+  breakdown,
+  findRecordSale,
+  findRecordSales,
+  getPurchaseReceipt,
+  getPurchaseReceipts,
+  isRecordSoldEventType,
+  recordSoldCurrencyType,
+} from "./receipts.ts";
 
 export type * from "./types.ts";

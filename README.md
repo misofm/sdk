@@ -10,13 +10,13 @@ protocol and data-extension primitives.
 Miso ships two SDK families, and the npm scope tells you which promise you are
 holding:
 
-| Scope | Layer | Owns |
-| --- | --- | --- |
+| Scope            | Layer        | Owns                                                                                                                                   |
+| ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `@misonetwork/*` | **Protocol** | Composition, Recording, Release, Party identity; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
-| `@misofm/*` | **Platform** | Pressing, Listing, Record, and Vault plugins that apply Miso business logic to custodied protocol admin caps |
+| `@misofm/*`      | **Platform** | Pressing, Listing, Record, and Vault plugins that apply Miso business logic to custodied protocol admin caps                           |
 
 A release is protocol. Pressing a record off that release and selling it is
-platform. So is deciding *what to do* with a freshly-minted work's share
+platform. So is deciding _what to do_ with a freshly-minted work's share
 supply — the protocol only knows how to mint one. Keeping the boundary at the
 package line is what stops the open protocol from quietly growing a
 storefront (or an opinion about tokenomics).
@@ -63,23 +63,21 @@ package IDs from one verified deployment.
 
 ## The model
 
-A release has exactly **one** `Pressing`: a single uncapped sale run. Its `supply`
-counts sales through that Pressing implementation; the singleton `RecordRegistry`
-owns the canonical per-release Record sequence. There are no editions, supply caps,
-sold-out state, or expiry — a run is `Scheduled → Active → Paused → Active`.
+A release may have one `Pressing` per positive `u16` edition. Each Pressing owns its
+independent `u32` Record-number sequence, current supply, optional immutable `u32`
+maximum supply, and authorized distributor witness types.
 
 Selling in a currency is a `Listing<Currency>`, one per currency, permanent, edited in
-place rather than replaced. A sale needs both switches open: the run active and that
-currency's listing enabled.
+place rather than replaced. The Listing's enabled/disabled state is the sale switch;
+the Pressing has no schedule state.
 
 **Everything is address math.** The pressing's UID derives off its release's, each
 listing's off the pressing's. The protocol's canonical `ReleaseRegistry` creates the
-release; there is no *pressing* registry or mutable lookup pointer to follow, so
-"where is it" is answered offline — which is why the builders take a RELEASE id and
-compute the rest. A caller cannot pair a listing with the wrong pressing, because it
-never picks one. Record IDs separately derive from `RecordRegistry` at
-`RecordKey(release_id, number)`, preserving identity and numbering when sales
-mechanics are replaced.
+release; there is no _pressing_ registry or mutable lookup pointer to follow, so
+"where is it" is answered offline. A Pressing derives from `(release, edition)`, a
+Record from `(pressing, number)`, and a `Listing<Currency>` from its Pressing under
+the separate immutable Record Shop package. There are no Record Registry or Settings
+singletons.
 
 ## Usage
 
@@ -102,32 +100,37 @@ const party = await client.miso.party.getPartyById(partyId);
 // Read: run + one currency's offer, one round trip, no registry lookup.
 const { pressing, listing } = await client.miso.getSale({
   releaseId,
+  edition,
   currencyType: USD_COIN_TYPE,
 });
 
 // Write: a thunk, so it composes with protocol calls in the same PTB.
 const tx = new Transaction();
 tx.add(
-  client.miso.tx.buyRecord({
+  client.miso.tx.purchaseRecord({
     releaseId,
+    edition,
     currencyType: USD_COIN_TYPE,
-    amount: listing.price.amount,
+    paymentAmount: listing.pricing.amount,
+    expectedPricing: listing.pricing,
     recipient: buyer,
   }),
 );
 ```
 
-The configured client obtains `recordRegistry` and `recordSettings` from its
-verified deployment. The bare `buyRecord` builder requires both IDs explicitly.
+The deployment records sales as either explicitly unavailable (legacy) or available
+with both verified immutable package IDs. New sales builders and readers fail closed
+when either package is unavailable.
 
-Holding the ids yourself? Every builder and reader is exported bare, taking
-`misoPressingPackageId` per call:
+Holding the ids yourself? The bare APIs take `recordPackageId` and/or
+`recordShopPackageId` explicitly:
 
 ```ts
-import { buyRecord, getSale } from "@misofm/sdk/pressing";
+import { purchaseRecord, getSale } from "@misofm/sdk/pressing";
 ```
 
-Testnet package and singleton IDs are bundled in
+Verified package IDs are bundled only after immutable publication. Legacy Testnet
+identities remain labeled unavailable and are never reused as the new packages.
 `MISO_PLATFORM_DEPLOYMENTS.testnet`. Calling `miso()` selects that verified map
 from the Sui client's network. Unbundled and custom networks still fail closed
 unless the caller passes one complete deployment through `miso({ deployment })`.
@@ -196,7 +199,7 @@ address, and the exact authorized route on every protected request.
 
 ### Payment
 
-`listing::buy` takes a bare `Balance<Currency>`, and `buyRecord` sources it with
+`listing::purchase` takes a bare `Balance<Currency>`, and `purchaseRecord` sources it with
 `tx.balance()` — which draws from the buyer's **address balance** first and falls back
 to coin objects only if it must. When the address balance covers the price, that is a
 single `balance::redeem_funds` and **no coin object is minted, touched, or destroyed**,
@@ -206,9 +209,9 @@ Never hand-pick coin objects for a payment. That road shows a buyer their $1,000
 then refuses to spend a cent of it, because a coin listing cannot see money that lives
 in the address balance.
 
-Purchases through Miso are sponsored, so `useGasCoin` defaults to `false`: the gas coin
-belongs to the sponsor, and drawing a SUI payment out of it would spend the wrong
-wallet's money.
+Purchases always set `useGasCoin: false`: the gas coin may belong to a sponsor. Buyers
+also pass the exact expected `Fixed` or `Floor` pricing variant and value, protecting
+them from stale pricing-mode changes as well as amount changes.
 
 ### Vault fund settlement
 
@@ -260,8 +263,9 @@ const thunk = client.miso.tx.publishComposition({
 `client.miso.tx.publishRecording` and `publishCompositionAndRecording`
 follow the same shape (the latter atomically, borrow-before-share, in one PTB —
 see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
-The protocol, pressing, Record Registry/settings, minato, and release-coordinator
-addresses all come from the deployment selected by the Sui client's network.
+The protocol, immutable Record and Record Shop packages, minato, and core
+`ReleaseRegistry` address all come from the deployment selected by the Sui
+client's network. Record sales have no Record Registry or Settings singleton.
 The deprecated `misoPlatform()` constructor still accepts those values manually
 for compatibility with existing integrations.
 
@@ -274,8 +278,28 @@ import { publishReleaseGraph } from "@misofm/sdk";
 // Every composition and recording, optional royalty pools, tracks, and
 // the release — with the release id derived ON-CHAIN — in one atomic PTB.
 const thunk = publishReleaseGraph({
-  compositions: [{ shareType, shareCurrencyId, shareTreasuryCapId, title: "Song", royaltyRateBps: 1000, shareRecipients, adminAddress }],
-  recordings: [{ shareType, shareCurrencyId, shareTreasuryCapId, compositionShareType, parentCompositionIndex: 0, shareRecipients, adminAddress }],
+  compositions: [
+    {
+      shareType,
+      shareCurrencyId,
+      shareTreasuryCapId,
+      title: "Song",
+      royaltyRateBps: 1000,
+      shareRecipients,
+      adminAddress,
+    },
+  ],
+  recordings: [
+    {
+      shareType,
+      shareCurrencyId,
+      shareTreasuryCapId,
+      compositionShareType,
+      parentCompositionIndex: 0,
+      shareRecipients,
+      adminAddress,
+    },
+  ],
   release: {
     title: "Album",
     nonce: "42",
@@ -362,10 +386,20 @@ const currency = await client.miso.createShareCurrency(signer, {
 
 // Batched (many currencies, via a ParallelTransactionExecutor):
 import { publishShareCurrencies, initializeShareCurrencies } from "@misofm/sdk";
-const { packageIds } = await publishShareCurrencies(executor, initializerAddress, 10);
-const { currencies } = await initializeShareCurrencies(executor, signerAddress, packageIds, (pkg) => ({
-  name: "…", description: "…",
-}));
+const { packageIds } = await publishShareCurrencies(
+  executor,
+  initializerAddress,
+  10,
+);
+const { currencies } = await initializeShareCurrencies(
+  executor,
+  signerAddress,
+  packageIds,
+  (pkg) => ({
+    name: "…",
+    description: "…",
+  }),
+);
 ```
 
 `executeViaExecutor(executor, ...thunks)` (`execute.ts`) submits a
@@ -395,9 +429,14 @@ duplicate roles.
 
 ```ts
 import {
-  attachCompositionCredit, attachRecordingCredit, addReleaseCredit,
-  addRecordingPrimaryArtist, addRecordingFeaturedArtist,
-  getCompositionCredits, getRecordingCredits, getReleaseCredits,
+  attachCompositionCredit,
+  attachRecordingCredit,
+  addReleaseCredit,
+  addRecordingPrimaryArtist,
+  addRecordingFeaturedArtist,
+  getCompositionCredits,
+  getRecordingCredits,
+  getReleaseCredits,
 } from "@misofm/sdk";
 
 const thunk = attachRecordingCredit({
@@ -405,7 +444,10 @@ const thunk = attachRecordingCredit({
   recordingAdminCapId: "0x...",
   partyId: "0x...",
   displayName: "Jane Doe",
-  roles: [{ type: "Vocalist", level: "Lead" }, { type: "Instrumentalist", instrument: "Guitar" }],
+  roles: [
+    { type: "Vocalist", level: "Lead" },
+    { type: "Instrumentalist", instrument: "Guitar" },
+  ],
   recordingShareType: "0x...::share::Share",
   compositionShareType: "0x...::share::Share",
   recordingCreditsPackageId: "0x...",
@@ -413,12 +455,27 @@ const thunk = attachRecordingCredit({
 });
 
 // Designate an already-credited party (same params minus displayName/roles/misoCreditPackageId):
-addRecordingPrimaryArtist({ recordingId, recordingAdminCapId, partyId, recordingShareType, compositionShareType, recordingCreditsPackageId });
+addRecordingPrimaryArtist({
+  recordingId,
+  recordingAdminCapId,
+  partyId,
+  recordingShareType,
+  compositionShareType,
+  recordingCreditsPackageId,
+});
 
 // Reads return null when no credits field is attached.
-const credits = await getCompositionCredits(client, compositionId, compositionCreditsPackageId);
+const credits = await getCompositionCredits(
+  client,
+  compositionId,
+  compositionCreditsPackageId,
+);
 // CreditView[]: { partyId, displayName, roles: string[] } — e.g. "Producer (Lead)", "Instrumentalist: Guitar"
-const rc = await getRecordingCredits(client, recordingId, recordingCreditsPackageId);
+const rc = await getRecordingCredits(
+  client,
+  recordingId,
+  recordingCreditsPackageId,
+);
 // { credits: CreditView[], primaryArtistIds: string[], featuredArtistIds: string[] }
 ```
 
@@ -442,14 +499,18 @@ import { setReleaseCover, getReleaseCover } from "@misofm/sdk";
 const thunk = setReleaseCover({
   releaseId: "0x...",
   releaseAdminCapId: "0x...",
-  stillBlobId: "987654321",   // Walrus blob id as u256 (decimal string or bigint)
-  animatedBlobId: null,        // optional animated cover
+  stillBlobId: "987654321", // Walrus blob id as u256 (decimal string or bigint)
+  animatedBlobId: null, // optional animated cover
   coverArtPackageId: "0x...",
   releaseCoverArtPackageId: "0x...",
   oriPackageId: "0x...",
 });
 
-const cover = await getReleaseCover(client, releaseId, releaseCoverArtPackageId);
+const cover = await getReleaseCover(
+  client,
+  releaseId,
+  releaseCoverArtPackageId,
+);
 // ReleaseCoverView | null: { still, animated } as normalized Walrus refs
 // ({ kind: "blob", blobId } | { kind: "quiltPatch", quiltId, version, startIndex, endIndex })
 ```
@@ -475,10 +536,15 @@ the required `vector<Receiving<Coin<Currency>>>` in the PTB.
 
 ```ts
 import type {
-  CreditView, RecordingCreditsView,
-  CompositionRole, RecordingRole, RecordingRoleLevel, RecordingLeveledRoleType,
+  CreditView,
+  RecordingCreditsView,
+  CompositionRole,
+  RecordingRole,
+  RecordingRoleLevel,
+  RecordingLeveledRoleType,
   ReleaseRole,
-  ReleaseCoverView, CoverImageRef,
+  ReleaseCoverView,
+  CoverImageRef,
 } from "@misofm/sdk";
 ```
 
@@ -519,7 +585,7 @@ the on-chain ABI:
 bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 ```
 
-`sui-codegen.config.ts` lists the platform package (`miso_pressing`), data
+`sui-codegen.config.ts` lists `miso_record`, `miso_record_shop`, data
 extensions, generic `royalty_pool`/`routed_stake`, and the `vault` plus all
 vault-plugin packages. The protocol CORE (`miso` —
 composition/recording/release/track) generates into
@@ -528,7 +594,7 @@ adding the core here to save an import is how the split this package exists to
 enforce gets undone.
 
 Paths resolve against sibling checkouts, so regenerating requires
-`~/Documents/GitHub/misofm/{sdk, pressing, vault, vault-plugins}` and
+`~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins}` and
 `~/Documents/GitHub/misonetwork/{protocol, protocol-extensions,
 royalty-pool, routed-stake, share}`.
 

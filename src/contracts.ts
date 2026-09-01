@@ -9,9 +9,11 @@
 // re-exported from ITS `contracts` namespace — import it from there rather than
 // mirroring it here.
 
-// The record production line (pressing runs + their per-currency listings).
-export * as pressing from "./contracts/miso_pressing/pressing.ts";
-export * as listing from "./contracts/miso_pressing/listing.ts";
+// Record identity/issuance and Record Shop primary-sale mechanics. The
+// package-restricted witness constructor is intentionally not exported here.
+export * as record from "./contracts/miso_record/record.ts";
+export * as pressing from "./contracts/miso_record/pressing.ts";
+export * as listing from "./contracts/miso_record_shop/listing.ts";
 
 // Generic royalty-pool primitive plus vault-custodied business-logic plugins.
 export * as royaltyPool from "./contracts/royalty_pool/pool.ts";

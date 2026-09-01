@@ -3,6 +3,7 @@
 
 import { bcs } from "@mysten/sui/bcs";
 import { toBase64 } from "@mysten/sui/utils";
+import { walrusBlobIdFromU256 } from "../../mix.ts";
 
 const u256 = bcs.u256();
 
@@ -11,7 +12,7 @@ function toBase64Url(bytes: Uint8Array): string {
 }
 
 export function u256ToB64Url(value: bigint | string): string {
-  return toBase64Url(u256.serialize(BigInt(value)).toBytes());
+  return walrusBlobIdFromU256(value);
 }
 
 /** Build a blob URL with Walrus's non-strict default made explicit. */
