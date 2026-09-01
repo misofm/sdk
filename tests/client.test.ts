@@ -27,6 +27,8 @@ const MINATO = "0x" + "ef".repeat(32);
 const SHARE = "0x" + "ab".repeat(32) + "::share::Share";
 const A = "0x" + "11".repeat(32);
 const VAULT = "0x" + "56".repeat(32);
+const RECORD_REGISTRY = "0x" + "57".repeat(32);
+const RECORD_SETTINGS = "0x" + "58".repeat(32);
 
 /** Addresses are injected only after the admin-cli deployment is verified. */
 const NETWORK_DEPLOYMENT = Object.fromEntries(
@@ -55,7 +57,13 @@ const DEPLOYMENT = {
     routedStake: A,
     vaultReleaseRevenueDistributorPlugin: A,
   },
-  objects: { releaseRegistry: A, vaultRegistry: A, genreRegistry: A, recordSettings: A },
+  objects: {
+    releaseRegistry: A,
+    vaultRegistry: A,
+    genreRegistry: A,
+    recordRegistry: RECORD_REGISTRY,
+    recordSettings: RECORD_SETTINGS,
+  },
 } as unknown as MisoPlatformDeployment;
 
 function client() {
@@ -203,6 +211,30 @@ test("miso() binds generated platform and vault calls to an explicit deployment"
   ).toBe(VAULT);
 });
 
+test("miso() binds the verified Record Registry and Settings into purchases", () => {
+  const c = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(miso({ deployment: DEPLOYMENT }));
+  const tx = new Transaction();
+  c.miso.tx.buyRecord({
+    releaseId: A,
+    currencyType: "0x2::sui::SUI",
+    amount: "1",
+    recipient: A,
+  })(tx);
+
+  const data = tx.getData() as {
+    inputs: Array<{ UnresolvedObject?: { objectId: string } }>;
+    commands: Array<{ MoveCall?: { module: string; function: string; arguments: Array<{ Input?: number }> } }>;
+  };
+  const call = data.commands.find(
+    (command) => command.MoveCall?.module === "listing" && command.MoveCall.function === "buy",
+  )!.MoveCall!;
+  expect(data.inputs[call.arguments[2]!.Input!]!.UnresolvedObject?.objectId).toBe(RECORD_REGISTRY);
+  expect(data.inputs[call.arguments[4]!.Input!]!.UnresolvedObject?.objectId).toBe(RECORD_SETTINGS);
+});
+
 test("miso() binds whole-release graph package ids", () => {
   const c = new SuiGrpcClient({
     network: "testnet",
@@ -274,7 +306,7 @@ test("client.misoPlatform.tx.publishComposition binds miso + minato package ids"
   expect(disperse?.package).toBe(MINATO); // minato bound
 });
 
-test("client without misoPackageId/minatoPackageId throws on publish builders, not on pressing builders", () => {
+test("client configuration fails closed only for builders whose dependencies are absent", () => {
   const sellOnly = new SuiGrpcClient({
     network: "testnet",
     baseUrl: "https://fullnode.testnet.sui.io:443",
@@ -291,6 +323,28 @@ test("client without misoPackageId/minatoPackageId throws on publish builders, n
       adminAddress: A,
     }),
   ).toThrow(/misoPackageId.*is required/);
+
+  expect(() =>
+    sellOnly.misoPlatform.tx.buyRecord({
+      releaseId: A,
+      currencyType: "0x2::sui::SUI",
+      amount: "1",
+      recipient: A,
+    }),
+  ).toThrow(/recordRegistryId.*required/);
+
+  const registryOnly = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  }).$extend(misoPlatform({ packageId: PRESSING, recordRegistryId: RECORD_REGISTRY }));
+  expect(() =>
+    registryOnly.misoPlatform.tx.buyRecord({
+      releaseId: A,
+      currencyType: "0x2::sui::SUI",
+      amount: "1",
+      recipient: A,
+    }),
+  ).toThrow(/recordSettingsId.*required/);
 
   const withoutMiso = new SuiGrpcClient({
     network: "testnet",

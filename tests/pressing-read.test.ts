@@ -19,6 +19,7 @@ import * as pressing from "../src/contracts/miso_pressing/pressing.ts";
 const RELEASE = "0x" + "33".repeat(32);
 const CURRENCY = "0x2::sui::SUI";
 const RECORD_SETTINGS = "0x" + "55".repeat(32);
+const RECORD_REGISTRY = "0x" + "66".repeat(32);
 const { pressingId: PRESSING, listingId: LISTING } = deriveSaleIds(
   RELEASE,
   CURRENCY,
@@ -218,6 +219,7 @@ test("rejects unsafe JavaScript numbers before serializing u64 price, schedule, 
       releaseId: RELEASE,
       currencyType: CURRENCY,
       recipient: PRESSING,
+      recordRegistryId: RECORD_REGISTRY,
       recordSettingsId: RECORD_SETTINGS,
       misoPressingPackageId: "0xa",
       amount: unsafe,
@@ -234,12 +236,13 @@ test("rejects unsafe JavaScript numbers before serializing u64 price, schedule, 
   ).not.toThrow();
 });
 
-test("buy passes the explicit Record Settings object to listing::buy", () => {
+test("buy passes the explicit Record Registry and Settings objects to listing::buy", () => {
   const tx = new Transaction();
   buyRecord({
     releaseId: RELEASE,
     currencyType: CURRENCY,
     recipient: PRESSING,
+    recordRegistryId: RECORD_REGISTRY,
     recordSettingsId: RECORD_SETTINGS,
     misoPressingPackageId: "0xa",
     amount: "7",
@@ -260,8 +263,11 @@ test("buy passes the explicit Record Settings object to listing::buy", () => {
   const call = data.commands.find(
     (command) => command.MoveCall?.module === "listing" && command.MoveCall.function === "buy",
   )!.MoveCall!;
-  expect(call.arguments).toHaveLength(5);
-  const settings = call.arguments[3]!;
+  expect(call.arguments).toHaveLength(6);
+  const registry = call.arguments[2]!;
+  expect(registry.$kind).toBe("Input");
+  expect(data.inputs[registry.Input!]!.UnresolvedObject?.objectId).toBe(RECORD_REGISTRY);
+  const settings = call.arguments[4]!;
   expect(settings.$kind).toBe("Input");
   expect(data.inputs[settings.Input!]!.UnresolvedObject?.objectId).toBe(RECORD_SETTINGS);
 });

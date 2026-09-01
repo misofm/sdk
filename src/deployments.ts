@@ -66,7 +66,12 @@ export interface MisoPlatformDeployment {
     /** Shared parent used to derive canonical Genre object ids. */
     readonly genreRegistry: string;
     /**
-     * Shared witness allowlist used by the concrete Record package. Absent from
+     * Singleton namespace and per-release sequence allocator for Records.
+     * Absent from deployment generations published before RecordRegistry.
+     */
+    readonly recordRegistry?: string;
+    /**
+     * Shared single-witness policy used by the concrete Record package. Absent from
      * legacy deployment generations; purchase callers must then supply the
      * Settings ID from a newer verified deployment explicitly.
      */
