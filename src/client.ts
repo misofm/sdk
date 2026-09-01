@@ -622,21 +622,21 @@ export class MisoPlatformClient {
         ? bindModulePackage(
             compositionRoyaltyPoolContract,
             this.#config.vaultCompositionRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
+            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
       recordingRoyaltyPool: this.#config.vaultRecordingRoyaltyPoolPluginPackageId
         ? bindModulePackage(
             recordingRoyaltyPoolContract,
             this.#config.vaultRecordingRoyaltyPoolPluginPackageId,
-            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "sweepAndDeposit", "isInstalled", "poolAddress"] as const,
+            ["install", "uninstall", "newPool", "initializePool", "receiveAndDeposit", "redeemAndDeposit", "isInstalled", "poolAddress"] as const,
           )
         : undefined,
       partyWallet: this.#config.vaultPartyWalletPluginPackageId
         ? bindModulePackage(
             partyWalletContract,
             this.#config.vaultPartyWalletPluginPackageId,
-            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemBalance", "sweepBalance", "isInstalled", "inboxAddress", "settledFunds"] as const,
+            ["install", "uninstall", "receiveObject", "receiveObjects", "receiveCoins", "redeemBalance", "isInstalled", "inboxAddress"] as const,
           )
         : undefined,
       compositionRoutedStake: this.#config.vaultCompositionRoutedStakePluginPackageId

@@ -210,13 +210,20 @@ Purchases through Miso are sponsored, so `useGasCoin` defaults to `false`: the g
 belongs to the sponsor, and drawing a SUI payment out of it would spend the wrong
 wallet's money.
 
-### Vault fund sweeping
+### Vault fund settlement
 
-`sweepCompositionRoyaltyPool` and `sweepRecordingRoyaltyPool` take the shared
-`AccumulatorRoot` and let Move determine the commit-settled amount; callers no
-longer provide a `u64`. Party-wallet monetary builders are similarly composable:
+`settleAndDistributeReleaseRevenue`, `settleCompositionRoyaltyPool`, and
+`settleRecordingRoyaltyPool` read the amount from the framework's
+`balance::settled_funds_value` and pass that command result directly to the
+plugin's exact-value redemption call. The caller never supplies or estimates a
+`u64`. The lower-level `redeemAndDistributeReleaseRevenue`,
+`redeemAndDepositCompositionRoyaltyPool`, and
+`redeemAndDepositRecordingRoyaltyPool` remain available when an earlier PTB
+command already produced the exact value.
+
+Party-wallet monetary builders are similarly composable:
 `receivePartyWalletBalance`, `redeemPartyWalletBalance`, and
-`sweepPartyWalletBalance` return the PTB `Balance<Currency>` result. Pass that
+`settlePartyWalletBalance` return the PTB `Balance<Currency>` result. Pass that
 result directly to another Move call, or convert it with `coin::from_balance`
 only when an owned Coin is required. Every returned Balance must be consumed in
 the same PTB.

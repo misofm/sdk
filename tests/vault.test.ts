@@ -13,11 +13,12 @@ import {
   installReleaseRevenueDistributorPlugin,
   receivePartyWalletBalance,
   redeemPartyWalletBalance,
+  settleAndDistributeReleaseRevenue,
+  settleCompositionRoyaltyPool,
+  settlePartyWalletBalance,
+  settleRecordingRoyaltyPool,
   registerCompositionRoutedStake,
   receivingCoins,
-  sweepCompositionRoyaltyPool,
-  sweepPartyWalletBalance,
-  sweepRecordingRoyaltyPool,
   invokeWithAdminCap,
   newCompositionRoyaltyPool,
   restoreVaultCapability,
@@ -200,33 +201,44 @@ test("royalty-pool constructors return the unshared pool for same-PTB registrati
   ]);
 });
 
-test("royalty-pool cranks sweep the settled accumulator snapshot without an amount", () => {
+test("settlement cranks pipe the framework snapshot into exact plugin calls", () => {
   const tx = new Transaction();
-  sweepCompositionRoyaltyPool(tx, {
+  settleCompositionRoyaltyPool(tx, {
     vault: tx.object(A),
-    composition: tx.object(A),
+    compositionId: A,
     pool: tx.object(A),
-    accumulatorRoot: tx.object(A),
     compositionShareType: COMPOSITION_SHARE,
     currencyType: SUI,
     pluginPackageId: COMP_POOL_PLUGIN,
   });
-  sweepRecordingRoyaltyPool(tx, {
+  settleRecordingRoyaltyPool(tx, {
     vault: tx.object(A),
-    recording: tx.object(A),
+    recordingId: A,
     pool: tx.object(A),
-    accumulatorRoot: tx.object(A),
     recordingShareType: RECORDING_SHARE,
     compositionShareType: COMPOSITION_SHARE,
     currencyType: SUI,
     pluginPackageId: COMP_POOL_PLUGIN,
   });
+  settleAndDistributeReleaseRevenue(tx, {
+    vault: tx.object(A),
+    releaseId: A,
+    currencyType: SUI,
+    pluginPackageId: REVENUE_PLUGIN,
+  });
 
-  const cranks = calls(tx).filter((call) => call.function === "sweep_and_deposit");
-  expect(cranks.map((call) => call.module)).toEqual([
-    "composition_royalty_pool",
-    "recording_royalty_pool",
+  expect(calls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
+    "balance::settled_funds_value",
+    "composition_royalty_pool::redeem_and_deposit",
+    "balance::settled_funds_value",
+    "recording_royalty_pool::redeem_and_deposit",
+    "balance::settled_funds_value",
+    "release_revenue_distributor::redeem_and_distribute",
   ]);
+  const data = tx.getData() as { commands: { MoveCall?: { arguments: { $kind: string; Result?: number }[] } }[] };
+  expect(data.commands[1]!.MoveCall!.arguments[3]).toMatchObject({ $kind: "Result", Result: 0 });
+  expect(data.commands[3]!.MoveCall!.arguments[3]).toMatchObject({ $kind: "Result", Result: 2 });
+  expect(data.commands[5]!.MoveCall!.arguments[2]).toMatchObject({ $kind: "Result", Result: 4 });
 });
 
 test("party-wallet monetary builders return composable Balance results", () => {
@@ -243,12 +255,12 @@ test("party-wallet monetary builders return composable Balance results", () => {
     coins: [{ objectId: A, version: "7", digest: "11111111111111111111111111111111" }],
   });
   const redeemed = redeemPartyWalletBalance(tx, { ...common, value: 7n });
-  const swept = sweepPartyWalletBalance(tx, {
+  const settled = settlePartyWalletBalance(tx, {
     ...common,
-    accumulatorRoot: tx.object(A),
+    partyId: A,
   });
 
-  for (const balance of [received, redeemed, swept]) {
+  for (const balance of [received, redeemed, settled]) {
     const coin = tx.moveCall({
       target: "0x2::coin::from_balance",
       typeArguments: [SUI],
@@ -257,7 +269,7 @@ test("party-wallet monetary builders return composable Balance results", () => {
     tx.transferObjects([coin], tx.pure.address(A));
   }
 
-  expect([received.$kind, redeemed.$kind, swept.$kind]).toEqual([
+  expect([received.$kind, redeemed.$kind, settled.$kind]).toEqual([
     "Result",
     "Result",
     "Result",
@@ -266,7 +278,7 @@ test("party-wallet monetary builders return composable Balance results", () => {
     calls(tx)
       .filter((call) => call.module === "party_wallet")
       .map((call) => call.function),
-  ).toEqual(["receive_coins", "redeem_balance", "sweep_balance"]);
+  ).toEqual(["receive_coins", "redeem_balance", "redeem_balance"]);
 });
 
 test("routed-stake registration pins the vault, composition, recording, and canonical pool", () => {
