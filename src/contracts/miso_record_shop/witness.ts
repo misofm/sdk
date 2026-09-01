@@ -7,5 +7,6 @@
 
 import { MoveTuple } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = '@local-pkg/miso_record_shop::witness';
 export const Witness = new MoveTuple({ name: `${$moduleName}::Witness`, fields: [bcs.bool()] });

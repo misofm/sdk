@@ -2,6 +2,7 @@
  * THIS FILE IS GENERATED AND SHOULD NOT BE MANUALLY MODIFIED *
  **************************************************************/
 import { type BcsType, bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { MoveStruct } from '../../../utils/index.js';
 const $moduleName = '0x2::vec_map';
 /** An entry in the map */

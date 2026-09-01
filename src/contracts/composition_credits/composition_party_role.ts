@@ -29,6 +29,7 @@
 
 import { MoveEnum, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/composition_credits::composition_party_role';
 /** Represents a party's role on a composition. */

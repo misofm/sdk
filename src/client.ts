@@ -31,6 +31,7 @@ import type {
   ClientWithCoreApi,
   SuiClientRegistration,
 } from "@mysten/sui/client";
+import type {} from "@mysten/bcs";
 import type { Signer } from "@mysten/sui/cryptography";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
 import type { ParallelTransactionExecutor } from "@mysten/sui/transactions";

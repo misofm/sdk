@@ -15,6 +15,7 @@
 
 import { MoveStruct } from '../../../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import * as walrus_data from '../0x340057f2174fb59e4626742dd2b46c662237837b6187450cb59e4976ce7eac78/walrus_data.js';
 const $moduleName = 'cover_art::cover_art';
 export const CoverArt = new MoveStruct({ name: `${$moduleName}::CoverArt`, fields: {

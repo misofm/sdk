@@ -9,6 +9,7 @@
  */
 
 import { type BcsType, bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { MoveStruct } from '../../../utils/index.js';
 const $moduleName = 'miso_credit::credit';
 /**

@@ -15,6 +15,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs, type BcsType } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 import * as vec_set from './deps/sui/vec_set.js';
 import * as type_name from './deps/std/type_name.js';

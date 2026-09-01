@@ -25,6 +25,7 @@
 
 import { MoveStruct } from '../../../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import * as balance from '../sui/balance.js';
 import * as vec_map from '../sui/vec_map.js';
 import * as type_name from '../std/type_name.js';

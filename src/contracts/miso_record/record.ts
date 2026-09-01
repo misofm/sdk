@@ -13,6 +13,7 @@
 
 import { MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 import * as type_name from './deps/std/type_name.js';
 const $moduleName = '@local-pkg/miso_record::record';

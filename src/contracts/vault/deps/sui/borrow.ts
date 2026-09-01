@@ -12,6 +12,7 @@
  */
 
 import { type BcsType, bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { MoveStruct } from '../../../utils/index.js';
 const $moduleName = '0x2::borrow';
 /** An object wrapping a `T` and providing the borrow API. */

@@ -21,6 +21,7 @@
  */
 
 import { type BcsType, bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { MoveTuple } from '../../../utils/index.js';
 const $moduleName = 'per_track::per_track';
 /**

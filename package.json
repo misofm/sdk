@@ -120,7 +120,7 @@
   ],
   "scripts": {
     "codegen": "sui-ts-codegen generate && bun run codegen:format",
-    "codegen:format": "find src/contracts -type f -name '*.ts' -exec perl -pi -e 's/[ \\t]+$//' {} +",
+    "codegen:format": "bun scripts/format-codegen.ts",
     "codegen:check": "bun run codegen && git diff --exit-code -- src/contracts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
@@ -128,9 +128,11 @@
     "prepack": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "rm -rf dist && tsc -p tsconfig.build.json --noCheck"
   },
+  "dependencies": {
+    "@mysten/bcs": "^2.1.1"
+  },
   "devDependencies": {
     "@misonetwork/sdk": "^0.10.2",
-    "@mysten/bcs": "^2.1.1",
     "@mysten/codegen": "^0.11.14",
     "@mysten/move-bytecode-template": "^0.4.0",
     "@mysten/seal": "^1.4.6",

@@ -16,6 +16,7 @@
 
 import { MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs, type BcsType } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as borrow from './deps/sui/borrow.js';
 import * as bag from './deps/sui/bag.js';

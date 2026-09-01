@@ -13,6 +13,7 @@
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/release_revenue_distributor::release_revenue_distributor';
 export const ReleaseTrackRevenueDistributedEvent = new MoveStruct({ name: `${$moduleName}::ReleaseTrackRevenueDistributedEvent<phantom Currency>`, fields: {

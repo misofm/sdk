@@ -17,6 +17,7 @@
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_wallet::party_wallet';
 export const ObjectReceivedEvent = new MoveStruct({ name: `${$moduleName}::ObjectReceivedEvent`, fields: {

@@ -17,6 +17,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as walrus_data from './deps/ori/walrus_data.js';
 const $moduleName = '@local-pkg/recording_preview::recording_preview';

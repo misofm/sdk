@@ -3,5 +3,6 @@
  **************************************************************/
 import { MoveTuple } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = '@local-pkg/release_revenue_distributor_plugin::witness';
 export const Witness = new MoveTuple({ name: `${$moduleName}::Witness`, fields: [bcs.bool()] });

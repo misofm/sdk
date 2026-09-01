@@ -30,6 +30,7 @@
 
 import { MoveTuple, MoveEnum, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/release_dsp_link::release_dsp_link';
 export const ReleaseLinkKey = new MoveTuple({ name: `${$moduleName}::ReleaseLinkKey`, fields: [bcs.u8()] });

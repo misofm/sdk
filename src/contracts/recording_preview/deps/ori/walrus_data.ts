@@ -3,6 +3,7 @@
  **************************************************************/
 import { MoveEnum, MoveStruct, MoveTuple } from '../../../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = 'ori::walrus_data';
 /**
  * Confidentiality of a stored blob: cleartext, or encrypted with an access policy.
