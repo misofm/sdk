@@ -285,11 +285,16 @@ export interface OwnedRecord {
   /** Full on-chain type, e.g. `<miso_record>::record::Record`. */
   type: string;
   releaseId: string | null;
-  /**
-   * Always `null` for the current key-only Record schema. Issuance numbers are
-   * Pressing-sale provenance and are indexed from creation/sale events.
-   */
-  number: number | null;
+  /** Singleton Record Registry that allocated this object's ID and number. */
+  registryId: string | null;
+  /** Registry-allocated release sequence, as a lossless u64 decimal string. */
+  number: string | null;
+  /** Record creation time from Sui's Clock. */
+  createdAtMs: number | null;
+  /** Defining Move type name of the currency used for the purchase. */
+  purchaseCurrency: string | null;
+  /** Transaction sender that purchased the Record. */
+  purchasedBy: string | null;
 }
 
 /** A party the wallet administers (holds the `PartyAdminCap` for). */

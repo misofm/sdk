@@ -1,10 +1,11 @@
 // Copyright (c) Miso Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pressing — the record production line. A release has exactly ONE `Pressing`: a
-// single uncapped run whose counter numbers every copy that release will ever sell,
-// forever. There are no editions, no supply caps, no sold-out state, and no expiry —
-// the run is `Scheduled → Active → Paused → Active` and nothing else. Selling in a
+// Pressing — the record production line. A release has exactly ONE `Pressing`: an
+// uncapped sale run whose supply counts this implementation's sales. The singleton
+// Record Registry owns the canonical per-release number sequence across any future
+// sales-package replacement. There are no editions, supply caps, sold-out state, or
+// expiry — the run is `Scheduled → Active → Paused → Active`. Selling in a
 // currency is a `Listing<Currency>` derived off the pressing: one per currency, ever,
 // permanent, edited in place rather than replaced. A sale needs both switches open.
 //
@@ -368,6 +369,11 @@ export interface BuyRecordParams {
   /** Where to send the pressed `Record` (usually the buyer). */
   recipient: string;
   /**
+   * The singleton `miso_record::record::RecordRegistry` that owns canonical
+   * Record IDs and per-release number sequences.
+   */
+  recordRegistryId: string;
+  /**
    * The shared `miso_record::settings::Settings` object that authorizes this
    * Pressing package's private `MintWitness` to create Records.
    */
@@ -414,7 +420,13 @@ export function buyRecord(p: BuyRecordParams): TxThunk {
     const record = tx.add(
       listing.buy({
         package: pkg,
-        arguments: [listingId, pressingId, payment, p.recordSettingsId],
+        arguments: [
+          listingId,
+          pressingId,
+          p.recordRegistryId,
+          payment,
+          p.recordSettingsId,
+        ],
         typeArguments: [p.currencyType],
       }),
     );
@@ -431,8 +443,8 @@ export interface PressingView {
   id: string;
   releaseId: string;
   state: PressingRunState & { startTimestampMs?: bigint };
-  /** Records pressed so far; also the most recent number. Not a cap — nothing counts
-   *  against it, and there is no sold-out state to reach. */
+  /** Records sold through this Pressing. This is not the Registry's canonical
+   *  release supply and may diverge after a sales-package replacement. */
   supply: bigint;
 }
 

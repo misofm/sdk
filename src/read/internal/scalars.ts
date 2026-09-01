@@ -20,8 +20,10 @@ export function u64(v: NumericLike): string {
 /** Base-unit scalar → decimal string, or `null` when absent/unparseable. */
 export function u64OrNull(v: NumericLike): string | null {
   if (v == null) return null;
-  if (typeof v === "bigint") return v.toString();
-  if (typeof v === "number") return Number.isFinite(v) ? BigInt(Math.trunc(v)).toString() : null;
+  if (typeof v === "bigint") return v >= 0n ? v.toString() : null;
+  if (typeof v === "number") {
+    return Number.isSafeInteger(v) && v >= 0 ? BigInt(v).toString() : null;
+  }
   const s = v.trim();
   return /^\d+$/.test(s) ? BigInt(s).toString() : null;
 }

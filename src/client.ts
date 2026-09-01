@@ -9,7 +9,7 @@
 //
 //   await client.miso.getSale({ releaseId, currencyType });
 //   await client.miso.protocol.getReleaseById(releaseId);
-//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient, recordSettingsId }));
+//   tx.add(client.miso.tx.buyRecord({ releaseId, currencyType, amount, recipient }));
 //
 // Two things this buys over calling the bare functions:
 //
@@ -219,11 +219,19 @@ export interface MisoPlatformConfig {
   genreRegistryId?: string;
   /** External ori package used to create WalrusData values. */
   oriPackageId?: string;
+  /** Shared Record namespace/counter singleton used by every purchase. */
+  recordRegistryId?: string;
+  /** Shared Record witness policy used by every purchase. */
+  recordSettingsId?: string;
 }
 
 /** Params with the ids this client already knows dropped from the call site. */
 type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
 type Configured<T> = DistributiveOmit<T, "misoPressingPackageId">;
+type ConfiguredBuyRecord = DistributiveOmit<
+  BuyRecordParams,
+  "misoPressingPackageId" | "recordRegistryId" | "recordSettingsId"
+>;
 
 /** Publish-builder params with the protocol/minato ids this client already knows dropped. */
 type ConfiguredPublish<T> = DistributiveOmit<T, "misoPackageId" | "minatoPackageId">;
@@ -403,10 +411,18 @@ export class MisoPlatformClient {
   // ── Transaction builders ──────────────────────────────────────────────────
 
   readonly tx = {
-    buyRecord: (p: Configured<BuyRecordParams>): TxThunk =>
+    buyRecord: (p: ConfiguredBuyRecord): TxThunk =>
       buyRecord({
         ...p,
         misoPressingPackageId: this.packageId,
+        recordRegistryId: this.#requiredConfig(
+          "recordRegistryId",
+          "Record purchase",
+        ),
+        recordSettingsId: this.#requiredConfig(
+          "recordSettingsId",
+          "Record purchase",
+        ),
       }),
     openPressing: (p: Configured<OpenPressingParams>): TxThunk =>
       openPressing({ ...p, misoPressingPackageId: this.packageId }),
@@ -744,6 +760,8 @@ export function miso<const Name extends string = "miso">(
           genrePackageId: deployment.packages.genre,
           genreRegistryId: deployment.objects.genreRegistry,
           oriPackageId: deployment.packages.ori,
+          recordRegistryId: deployment.objects.recordRegistry,
+          recordSettingsId: deployment.objects.recordSettings,
         },
         protocol,
         deployment,

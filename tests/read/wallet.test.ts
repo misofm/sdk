@@ -51,7 +51,18 @@ describe("getOwnedRecords", () => {
     const fake = fakeClient([
       {
         objects: [
-          { objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xrel", number: 3 } },
+          {
+            objectId: "0x1",
+            type: RECORD_TYPE,
+            json: {
+              release_id: "0xrel",
+              registry_id: "0xregistry",
+              number: "18446744073709551615",
+              created_at_ms: "1234",
+              purchase_currency: { name: "0x2::sui::SUI" },
+              purchased_by: "0xbuyer",
+            },
+          },
           { objectId: "0x2", type: WRONG_RECORD_TYPE, json: { release_id: "0xrel", number: 4 } },
         ],
         hasNextPage: false,
@@ -59,7 +70,16 @@ describe("getOwnedRecords", () => {
       },
     ]);
     const records = await getOwnedRecords(fake.client, "0xowner");
-    expect(records.map((r) => r.id)).toEqual(["0x1"]);
+    expect(records).toEqual([{
+      id: "0x1",
+      type: RECORD_TYPE,
+      releaseId: "0xrel",
+      registryId: "0xregistry",
+      number: "18446744073709551615",
+      createdAtMs: 1234,
+      purchaseCurrency: "0x2::sui::SUI",
+      purchasedBy: "0xbuyer",
+    }]);
     expect(fake.types).toEqual([RECORD_TYPE_FILTER]);
   });
 
@@ -123,7 +143,7 @@ describe("getOwnedRecords", () => {
     expect(records.map((item) => item.id)).toEqual(["0xtrusted"]);
   });
 
-  test("does not read the removed top-level number field", async () => {
+  test("reads the Registry-allocated top-level number field", async () => {
     const { client } = fakeClient([
       {
         objects: [{ objectId: "0x1", type: RECORD_TYPE, json: { release_id: "0xa", number: 7 } }],
@@ -132,7 +152,37 @@ describe("getOwnedRecords", () => {
       },
     ]);
     const records = await getOwnedRecords(client, "0xowner");
-    expect(records[0]!.number).toBeNull();
+    expect(records[0]!.number).toBe("7");
+  });
+
+  test("fails malformed and unsafe provenance fields closed", async () => {
+    const { client } = fakeClient([
+      {
+        objects: [{
+          objectId: "0x1",
+          type: RECORD_TYPE,
+          json: {
+            release_id: "",
+            registry_id: 7,
+            number: Number.MAX_SAFE_INTEGER + 1,
+            created_at_ms: "18446744073709551615",
+            purchase_currency: { name: 9 },
+            purchased_by: null,
+          },
+        }],
+        hasNextPage: false,
+        cursor: null,
+      },
+    ]);
+    const [record] = await getOwnedRecords(client, "0xowner");
+    expect(record).toMatchObject({
+      releaseId: null,
+      registryId: null,
+      number: null,
+      createdAtMs: null,
+      purchaseCurrency: null,
+      purchasedBy: null,
+    });
   });
 
   test("follows pagination until the last page", async () => {
@@ -168,12 +218,21 @@ describe("getOwnedRecords", () => {
     expect(fake.calls).toBe(1);
   });
 
-  test("a record with no parsable release id or number is still listed", async () => {
+  test("a record with no parsable fields is still listed", async () => {
     const { client } = fakeClient([
       { objects: [{ objectId: "0x1", type: RECORD_TYPE, json: null }], hasNextPage: false, cursor: null },
     ]);
     const [record] = await getOwnedRecords(client, "0xowner");
-    expect(record).toEqual({ id: "0x1", type: RECORD_TYPE, releaseId: null, number: null });
+    expect(record).toEqual({
+      id: "0x1",
+      type: RECORD_TYPE,
+      releaseId: null,
+      registryId: null,
+      number: null,
+      createdAtMs: null,
+      purchaseCurrency: null,
+      purchasedBy: null,
+    });
   });
 });
 

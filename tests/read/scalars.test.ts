@@ -32,6 +32,12 @@ describe("u64", () => {
     expect(u64OrNull(0n)).toBe("0");
     expect(u64OrNull("nope")).toBeNull();
   });
+
+  test("rejects negative and precision-losing numeric values", () => {
+    expect(u64OrNull(-1)).toBeNull();
+    expect(u64OrNull(-1n)).toBeNull();
+    expect(u64OrNull(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
 });
 
 describe("ms", () => {

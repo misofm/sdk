@@ -63,10 +63,10 @@ package IDs from one verified deployment.
 
 ## The model
 
-A release has exactly **one** `Pressing`: a single uncapped run whose counter numbers
-every copy that release will ever sell. There are no editions, no supply caps, no
-sold-out state, and no expiry — a run is `Scheduled → Active → Paused → Active` and
-nothing else.
+A release has exactly **one** `Pressing`: a single uncapped sale run. Its `supply`
+counts sales through that Pressing implementation; the singleton `RecordRegistry`
+owns the canonical per-release Record sequence. There are no editions, supply caps,
+sold-out state, or expiry — a run is `Scheduled → Active → Paused → Active`.
 
 Selling in a currency is a `Listing<Currency>`, one per currency, permanent, edited in
 place rather than replaced. A sale needs both switches open: the run active and that
@@ -77,7 +77,9 @@ listing's off the pressing's. The protocol's canonical `ReleaseRegistry` creates
 release; there is no *pressing* registry or mutable lookup pointer to follow, so
 "where is it" is answered offline — which is why the builders take a RELEASE id and
 compute the rest. A caller cannot pair a listing with the wrong pressing, because it
-never picks one.
+never picks one. Record IDs separately derive from `RecordRegistry` at
+`RecordKey(release_id, number)`, preserving identity and numbering when sales
+mechanics are replaced.
 
 ## Usage
 
@@ -111,10 +113,12 @@ tx.add(
     currencyType: USD_COIN_TYPE,
     amount: listing.price.amount,
     recipient: buyer,
-    recordSettingsId,
   }),
 );
 ```
+
+The configured client obtains `recordRegistry` and `recordSettings` from its
+verified deployment. The bare `buyRecord` builder requires both IDs explicitly.
 
 Holding the ids yourself? Every builder and reader is exported bare, taking
 `misoPressingPackageId` per call:
@@ -249,7 +253,7 @@ const thunk = client.miso.tx.publishComposition({
 `client.miso.tx.publishRecording` and `publishCompositionAndRecording`
 follow the same shape (the latter atomically, borrow-before-share, in one PTB —
 see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
-The protocol, pressing, record-settings, minato, and release-coordinator
+The protocol, pressing, Record Registry/settings, minato, and release-coordinator
 addresses all come from the deployment selected by the Sui client's network.
 The deprecated `misoPlatform()` constructor still accepts those values manually
 for compatibility with existing integrations.

@@ -20,7 +20,7 @@ import {
   isNotFound,
 } from "@misonetwork/sdk";
 import type { MisoClient } from "./client.ts";
-import { int, u64 } from "./internal/scalars.ts";
+import { int, msOrNull, u64, u64OrNull } from "./internal/scalars.ts";
 import * as vaultContract from "../contracts/vault/vault.ts";
 import type {
   Balance,
@@ -152,9 +152,16 @@ function isCanonicalRecordType(
   return true;
 }
 
-function readReleaseId(json: Record<string, unknown>): string | null {
-  const r = json.release_id;
-  return typeof r === "string" && r ? r : null;
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function readTypeName(value: unknown): string | null {
+  if (typeof value === "string") return readNonEmptyString(value);
+  if (value !== null && typeof value === "object") {
+    return readNonEmptyString((value as Record<string, unknown>).name);
+  }
+  return null;
 }
 
 /**
@@ -187,8 +194,14 @@ export async function getOwnedRecords(client: MisoClient, owner: string): Promis
       out.push({
         id: obj.objectId,
         type: obj.type,
-        releaseId: readReleaseId(json),
-        number: null,
+        releaseId: readNonEmptyString(json.release_id),
+        registryId: readNonEmptyString(json.registry_id),
+        number: u64OrNull(json.number as bigint | number | string | null | undefined),
+        createdAtMs: msOrNull(
+          json.created_at_ms as bigint | number | string | null | undefined,
+        ),
+        purchaseCurrency: readTypeName(json.purchase_currency),
+        purchasedBy: readNonEmptyString(json.purchased_by),
       });
     }
     if (!res.hasNextPage) break;

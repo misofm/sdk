@@ -7,11 +7,12 @@
  * A release's record production — its _Pressing_.
  * 
  * A release has exactly one pressing, and the pressing is one uncapped run of
- * records: every copy ever made draws its number from this single counter,
- * forever. There are no editions, no supply caps, and no sold-out state — scarcity
- * on Miso is what a record _accrues_ (playtime above all), not how few of it were
- * printed. The pressing owns two things and only two things: the **run** the
- * records number against, and the **switch** that stops it.
+ * records sold through this implementation. Canonical Record numbering lives in
+ * `miso_record::record::RecordRegistry`, so replacing the sales package does not
+ * restart a release's sequence. There are no editions, no supply caps, and no
+ * sold-out state — scarcity on Miso is what a record _accrues_ (playtime above
+ * all), not how few of it were printed. The pressing owns the sale run and the
+ * **switch** that stops it.
  * 
  * ```text
  * Release
@@ -24,14 +25,11 @@
  * # Everything is address math
  * 
  * A pressing's UID is derived off its release's UID at a singleton key, its admin
- * cap's and each listing's off the pressing's, and records off the pressing's at
- * their number. So every object in the tree is reachable from the release id
- * alone, by pure computation — no registry, no pointer that has to be maintained,
- * and no stored set of listings: a listing either exists at its derived address or
- * it does not (`listing::has_listing`), and `ListingOpenedEvent<Currency>`
- * enumerates them for an indexer. It also makes the number sequence gap-free for
- * free, and every record verifiable against its pressing from its address and
- * number.
+ * cap's and each listing's off the pressing's. Record IDs are instead derived from
+ * the singleton Record Registry at `(release_id, number)`, remaining stable if
+ * this sales package is replaced. Listings need no stored index: a listing either
+ * exists at its derived address or it does not (`listing::has_listing`), and
+ * `ListingOpenedEvent<Currency>` enumerates them for an indexer.
  * 
  * # Starting and stopping is state, never teardown
  * 
@@ -107,8 +105,8 @@ export const Pressing = new MoveStruct({ name: `${$moduleName}::Pressing`, field
         /** Whether the run sells at all, in any currency. */
         state: PressingState,
         /**
-         * Records pressed so far; also the most recent number. Read on every mint — this
-         * is the sequence itself, not a statistic.
+         * Records sold through this Pressing. This is a sales statistic, not the canonical
+         * Record number sequence; that belongs to `RecordRegistry`.
          */
         supply: bcs.u64()
     } });
@@ -330,7 +328,10 @@ export interface SupplyOptions {
         self: RawTransactionArgument<string>
     ];
 }
-/** Records pressed so far; also the most recent number. */
+/**
+ * Records sold through this Pressing. This may differ from the Registry's
+ * canonical release supply after a sales-package replacement.
+ */
 export function supply(options: SupplyOptions) {
     const packageAddress = options.package ?? '@local-pkg/miso_pressing';
     const argumentsTypes = [

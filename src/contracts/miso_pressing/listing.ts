@@ -7,10 +7,10 @@
  * One currency's offer on a pressing — a _Listing_.
  * 
  * A listing answers exactly two questions: **what does it cost** and **can you pay
- * in this currency**. Everything about _what you get_ — the run, the number —
- * belongs to the `Pressing`. So a pressing sold in SUI and in USDC has two
- * listings, each with its own price and switch, both drawing on the same number
- * sequence.
+ * in this currency**. Everything about _what you get_ belongs to the `Pressing`,
+ * while the singleton `RecordRegistry` allocates its canonical number. So a
+ * pressing sold in SUI and in USDC has two listings with independent prices and
+ * switches, both drawing on the same release sequence.
  * 
  * A listing's UID is derived off its pressing's UID at `ListingKey<Currency>()`,
  * so there is exactly one listing per (pressing, currency) — ever — and its
@@ -48,17 +48,14 @@
  * 
  * The **when** lives on the Pressing, not here: its opening time is a fact about
  * the release going on sale, not about one payment rail, and a run that opened in
- * SUI at Friday 8pm and in USDC at some other time would have two starts and one
- * number sequence. So a listing carries no schedule — only whether its currency is
- * taken.
+ * SUI at Friday 8pm and in USDC at some other time would have two starts for one
+ * sale run. So a listing carries no schedule — only whether its currency is taken.
  * 
  * # Sale provenance
  * 
- * What the buyer paid is not part of the Record — it is a fact about the _sale_.
- * `RecordSoldEvent` snapshots the accepted `Price`, actual payment, buyer, and
- * clock timestamp. The Record creation event separately records the authorized
- * witness, parent, and number, so provenance remains explicit without changing
- * Record's universal object schema.
+ * The Record stores its purchase currency, buyer, and creation time. The sale
+ * event additionally snapshots the accepted `Price` and actual payment, which
+ * remain facts about this offer rather than universal Record fields.
  */
 
 import { MoveTuple, MoveEnum, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
@@ -249,6 +246,7 @@ export function _new(options: NewOptions) {
 export interface BuyArguments {
     self: RawTransactionArgument<string>;
     pressing: RawTransactionArgument<string>;
+    registry: RawTransactionArgument<string>;
     payment: TransactionArgument;
     settings: RawTransactionArgument<string>;
 }
@@ -257,6 +255,7 @@ export interface BuyOptions {
     arguments: BuyArguments | [
         self: RawTransactionArgument<string>,
         pressing: RawTransactionArgument<string>,
+        registry: RawTransactionArgument<string>,
         payment: TransactionArgument,
         settings: RawTransactionArgument<string>
     ];
@@ -265,15 +264,14 @@ export interface BuyOptions {
     ];
 }
 /**
- * Buy one record: pay this listing's price, take the next number out of the
- * pressing.
+ * Buy one record: pay this listing's price and mint the Registry's next Record.
  *
  * `payment` is a bare `Balance<Currency>` and must satisfy the price (exactly, for
  * `Fixed`; at least, for `Floor`). The ENTIRE payment forwards to the release's
  * address — under `Floor`, anything above the floor is kept as a tip, not
- * refunded. The record's number is the pressing's next 1-based value, shared with
- * every other currency selling the same run, and its UID is derived off the
- * pressing. `settings` must authorize this package's `MintWitness`.
+ * refunded. The singleton `registry` allocates the next 1-based number for this
+ * release across every currency and any future sales-package replacement.
+ * `settings` must authorize this package's `MintWitness`.
  *
  * Both switches must be open: this listing `Enabled`, checked here, and the run
  * selling at this moment, checked in `pressing::mint_next`.
@@ -285,9 +283,10 @@ export function buy(options: BuyOptions) {
         null,
         null,
         null,
+        null,
         '0x2::clock::Clock'
     ] satisfies (string | null)[];
-    const parameterNames = ["self", "pressing", "payment", "settings"];
+    const parameterNames = ["self", "pressing", "registry", "payment", "settings"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'listing',
