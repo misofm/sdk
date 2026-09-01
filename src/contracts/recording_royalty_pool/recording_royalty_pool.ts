@@ -199,19 +199,19 @@ export function receiveAndDeposit(options: ReceiveAndDepositOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface SweepAndDepositArguments {
+export interface RedeemAndDepositArguments {
     vault: RawTransactionArgument<string>;
     recording: RawTransactionArgument<string>;
     pool: RawTransactionArgument<string>;
-    root: RawTransactionArgument<string>;
+    value: RawTransactionArgument<number | bigint>;
 }
-export interface SweepAndDepositOptions {
+export interface RedeemAndDepositOptions {
     package?: string;
-    arguments: SweepAndDepositArguments | [
+    arguments: RedeemAndDepositArguments | [
         vault: RawTransactionArgument<string>,
         recording: RawTransactionArgument<string>,
         pool: RawTransactionArgument<string>,
-        root: RawTransactionArgument<string>
+        value: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
         string,
@@ -220,27 +220,25 @@ export interface SweepAndDepositOptions {
     ];
 }
 /**
- * Redeem the settled `Currency` amount reported for the Recording address and
- * deposit it into the canonical pool. Anyone may crank this after installation.
+ * Redeem `value` from the Recording's funds accumulator and deposit it into the
+ * canonical pool. Anyone may crank this after installation.
  *
- * Funds sent during the current consensus commit are not yet settled and remain
- * available for a later sweep. Aborts with `ENoSettledFunds` when the settled
- * amount is zero. The framework caps the reported amount at `u64::MAX`; any excess
- * remains for a later sweep.
+ * A PTB can obtain `value` from `sui::balance::settled_funds_value` and pass that
+ * command result directly to this function.
  */
-export function sweepAndDeposit(options: SweepAndDepositOptions) {
+export function redeemAndDeposit(options: RedeemAndDepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/recording_royalty_pool';
     const argumentsTypes = [
         null,
         null,
         null,
-        null
+        'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["vault", "recording", "pool", "root"];
+    const parameterNames = ["vault", "recording", "pool", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'recording_royalty_pool',
-        function: 'sweep_and_deposit',
+        function: 'redeem_and_deposit',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

@@ -30,6 +30,9 @@ import * as routedStake from "./contracts/routed_stake/routed_stake.ts";
 /** An object id resolved lazily when a transaction thunk is applied. */
 export type ObjectInput = string | TransactionObjectArgument;
 
+/** The framework singleton read by `balance::settled_funds_value`. */
+export const SUI_ACCUMULATOR_ROOT_OBJECT_ID = "0xacc";
+
 function object(tx: Transaction, value: ObjectInput): TransactionObjectArgument {
   return typeof value === "string" ? tx.object(value) : value;
 }
@@ -376,7 +379,6 @@ export interface CompositionRoyaltyPoolCrankParams {
   readonly vault: TransactionObjectArgument;
   readonly composition: TransactionObjectArgument;
   readonly pool: TransactionObjectArgument;
-  readonly accumulatorRoot: TransactionObjectArgument;
   readonly compositionShareType: string;
   readonly currencyType: string;
   readonly pluginPackageId: string;
@@ -384,6 +386,9 @@ export interface CompositionRoyaltyPoolCrankParams {
 
 /** JSON-safe input for an on-chain u64. Numbers are rejected to prevent rounding. */
 export type U64Input = bigint | string | number;
+
+/** An exact scalar or the result of an earlier PTB command returning `u64`. */
+export type U64Argument = U64Input | TransactionArgument;
 
 /** Validate an SDK scalar before serializing it as a Move u64. */
 export function asU64(name: string, value: U64Input): bigint {
@@ -400,18 +405,77 @@ export function asU64(name: string, value: U64Input): bigint {
   return parsed;
 }
 
-/** Permissionless crank: sweep settled address funds into the canonical pool. */
-export function sweepCompositionRoyaltyPool(
+function asU64Argument(name: string, value: U64Argument): bigint | TransactionArgument {
+  if (
+    typeof value === "bigint" ||
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return asU64(name, value);
+  }
+  return value;
+}
+
+/** Read the commit-settled accumulator balance for an address inside this PTB. */
+export function settledFundsValue(
   tx: Transaction,
-  params: CompositionRoyaltyPoolCrankParams,
+  params: {
+    readonly address: string | TransactionArgument;
+    readonly currencyType: string;
+    readonly accumulatorRoot?: ObjectInput;
+  },
+): TransactionArgument {
+  return tx.moveCall({
+    target: "0x2::balance::settled_funds_value",
+    typeArguments: [params.currencyType],
+    arguments: [
+      object(tx, params.accumulatorRoot ?? SUI_ACCUMULATOR_ROOT_OBJECT_ID),
+      typeof params.address === "string"
+        ? tx.pure.address(params.address)
+        : params.address,
+    ],
+  });
+}
+
+/** Permissionless crank: redeem an exact Composition amount into its pool. */
+export function redeemAndDepositCompositionRoyaltyPool(
+  tx: Transaction,
+  params: CompositionRoyaltyPoolCrankParams & {
+    readonly value: U64Argument;
+  },
 ): void {
   tx.add(
-    compositionRoyaltyPool.sweepAndDeposit({
+    compositionRoyaltyPool.redeemAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [params.compositionShareType, params.currencyType],
-      arguments: [params.vault, params.composition, params.pool, params.accumulatorRoot],
+      arguments: [
+        params.vault,
+        params.composition,
+        params.pool,
+        asU64Argument("value", params.value),
+      ],
     }),
   );
+}
+
+/** Redeem exactly the framework-reported settled Composition funds. */
+export function settleCompositionRoyaltyPool(
+  tx: Transaction,
+  params: Omit<CompositionRoyaltyPoolCrankParams, "composition"> & {
+    readonly compositionId: string;
+    readonly accumulatorRoot?: ObjectInput;
+  },
+): void {
+  const value = settledFundsValue(tx, {
+    address: params.compositionId,
+    currencyType: params.currencyType,
+    accumulatorRoot: params.accumulatorRoot,
+  });
+  redeemAndDepositCompositionRoyaltyPool(tx, {
+    ...params,
+    composition: tx.object(params.compositionId),
+    value,
+  });
 }
 
 /** Permissionless crank: receive selected Composition-owned coins into the pool. */
@@ -512,7 +576,7 @@ export function receivePartyWalletBalance(
 /** Redeem an exact Party accumulator amount and return its Balance. */
 export function redeemPartyWalletBalance(
   tx: Transaction,
-  params: PartyWalletFundsParams & { readonly value: U64Input },
+  params: PartyWalletFundsParams & { readonly value: U64Argument },
 ): TransactionArgument {
   return tx.add(
     partyWallet.redeemBalance({
@@ -522,31 +586,30 @@ export function redeemPartyWalletBalance(
         params.vault,
         params.party,
         params.vaultAdminCap,
-        asU64("value", params.value),
+        asU64Argument("value", params.value),
       ],
     }),
   );
 }
 
-/** Sweep the Party's currently settled accumulator funds and return its Balance. */
-export function sweepPartyWalletBalance(
+/** Redeem exactly the framework-reported settled Party funds. */
+export function settlePartyWalletBalance(
   tx: Transaction,
-  params: PartyWalletFundsParams & {
-    readonly accumulatorRoot: TransactionObjectArgument;
+  params: Omit<PartyWalletFundsParams, "party"> & {
+    readonly partyId: string;
+    readonly accumulatorRoot?: ObjectInput;
   },
 ): TransactionArgument {
-  return tx.add(
-    partyWallet.sweepBalance({
-      package: params.pluginPackageId,
-      typeArguments: [params.currencyType],
-      arguments: [
-        params.vault,
-        params.party,
-        params.accumulatorRoot,
-        params.vaultAdminCap,
-      ],
-    }),
-  );
+  const value = settledFundsValue(tx, {
+    address: params.partyId,
+    currencyType: params.currencyType,
+    accumulatorRoot: params.accumulatorRoot,
+  });
+  return redeemPartyWalletBalance(tx, {
+    ...params,
+    party: tx.object(params.partyId),
+    value,
+  });
 }
 
 export function uninstallRecordingRoyaltyPoolPlugin(
@@ -602,29 +665,55 @@ export interface RecordingRoyaltyPoolCrankParams {
   readonly vault: TransactionObjectArgument;
   readonly recording: TransactionObjectArgument;
   readonly pool: TransactionObjectArgument;
-  readonly accumulatorRoot: TransactionObjectArgument;
   readonly recordingShareType: string;
   readonly compositionShareType: string;
   readonly currencyType: string;
   readonly pluginPackageId: string;
 }
 
-/** Permissionless crank: sweep settled address funds into the canonical pool. */
-export function sweepRecordingRoyaltyPool(
+/** Permissionless crank: redeem an exact Recording amount into its pool. */
+export function redeemAndDepositRecordingRoyaltyPool(
   tx: Transaction,
-  params: RecordingRoyaltyPoolCrankParams,
+  params: RecordingRoyaltyPoolCrankParams & {
+    readonly value: U64Argument;
+  },
 ): void {
   tx.add(
-    recordingRoyaltyPool.sweepAndDeposit({
+    recordingRoyaltyPool.redeemAndDeposit({
       package: params.pluginPackageId,
       typeArguments: [
         params.recordingShareType,
         params.compositionShareType,
         params.currencyType,
       ],
-      arguments: [params.vault, params.recording, params.pool, params.accumulatorRoot],
+      arguments: [
+        params.vault,
+        params.recording,
+        params.pool,
+        asU64Argument("value", params.value),
+      ],
     }),
   );
+}
+
+/** Redeem exactly the framework-reported settled Recording funds. */
+export function settleRecordingRoyaltyPool(
+  tx: Transaction,
+  params: Omit<RecordingRoyaltyPoolCrankParams, "recording"> & {
+    readonly recordingId: string;
+    readonly accumulatorRoot?: ObjectInput;
+  },
+): void {
+  const value = settledFundsValue(tx, {
+    address: params.recordingId,
+    currencyType: params.currencyType,
+    accumulatorRoot: params.accumulatorRoot,
+  });
+  redeemAndDepositRecordingRoyaltyPool(tx, {
+    ...params,
+    recording: tx.object(params.recordingId),
+    value,
+  });
 }
 
 /** Permissionless crank: receive selected Recording-owned coins into the pool. */
@@ -681,16 +770,37 @@ export function redeemAndDistributeReleaseRevenue(
   params: Omit<ReleaseRevenueDistributorPluginParams, "vaultAdminCap"> & {
     readonly release: TransactionObjectArgument;
     readonly currencyType: string;
-    readonly value: U64Input;
+    readonly value: U64Argument;
   },
 ): void {
   tx.add(
     releaseRevenueDistributor.redeemAndDistribute({
       package: params.pluginPackageId,
       typeArguments: [params.currencyType],
-      arguments: [params.vault, params.release, asU64("value", params.value)],
+      arguments: [params.vault, params.release, asU64Argument("value", params.value)],
     }),
   );
+}
+
+/** Redeem exactly the framework-reported settled Release funds and route them. */
+export function settleAndDistributeReleaseRevenue(
+  tx: Transaction,
+  params: Omit<ReleaseRevenueDistributorPluginParams, "vaultAdminCap"> & {
+    readonly releaseId: string;
+    readonly currencyType: string;
+    readonly accumulatorRoot?: ObjectInput;
+  },
+): void {
+  const value = settledFundsValue(tx, {
+    address: params.releaseId,
+    currencyType: params.currencyType,
+    accumulatorRoot: params.accumulatorRoot,
+  });
+  redeemAndDistributeReleaseRevenue(tx, {
+    ...params,
+    release: tx.object(params.releaseId),
+    value,
+  });
 }
 
 /** Permissionless crank: receive release-owned coins and route them by track BPS. */
