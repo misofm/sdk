@@ -1,0 +1,12 @@
+{
+  "name": "misofm-sdk-isolated-consumer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && bun run verify.mjs"
+  },
+  "dependencies": {
+    "@misofm/sdk": "file:../misofm-sdk.tgz",
+    "typescript": "5.9.3"
+  }
+}
