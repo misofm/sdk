@@ -14,6 +14,7 @@ import {
   redeemAndDistributeReleaseRevenue, redeemPartyWalletBalance,
   registerCompositionRoutedStake, restoreVaultCapability,
   restakeCompositionRoutedStake, settleAndDistributeReleaseRevenue,
+  shareRoutedStake,
   settleCompositionRoyaltyPool, settleRecordingRoyaltyPool,
   unstakeCompositionRoutedStake, vaultAdminCap, withdrawVaultCapability,
 } from "../src/vault.ts";
@@ -230,6 +231,23 @@ test("routed-stake lifecycle targets Actions and returned assets remain composab
   expect(calls(tx).filter((call) => call.module === "composition_routed_stake").map((call) => call.function))
     .toEqual(["create_stake", "register", "unstake", "restake"]);
   expect(calls(tx).filter((call) => call.module === "composition_routed_stake").every((call) => call.package === ACTION)).toBe(true);
+});
+
+test("routed-stake sharing consumes the configured value through the routed-stake package", () => {
+  const tx = new Transaction();
+  const routed = tx.object(A);
+  shareRoutedStake(tx, {
+    routedStake: routed,
+    routedStakePackageId: PLUGIN,
+    stakeShareType: RECORDING_SHARE,
+    poolShareType: COMPOSITION_SHARE,
+  });
+  expect(calls(tx)[0]).toMatchObject({
+    package: PLUGIN,
+    module: "routed_stake",
+    function: "share",
+    typeArguments: [RECORDING_SHARE, COMPOSITION_SHARE],
+  });
 });
 
 test("explicit Release amounts remain raw Action composition only", () => {

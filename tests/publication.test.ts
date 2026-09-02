@@ -3,6 +3,8 @@
 
 import { expect, test } from "bun:test";
 import { Transaction } from "@mysten/sui/transactions";
+import { bcs } from "@mysten/sui/bcs";
+import { fromBase64 } from "@mysten/sui/utils";
 import {
   getMisoPlatformDeployment,
   OperationsUnavailableError,
@@ -108,6 +110,7 @@ function params(): AtomicPublicationParams {
           },
         ],
         royaltyPool: { currencyType: "0x2::sui::SUI" },
+        routedStake: true,
         advisory: "Explicit",
         languages: { kind: "languages", codes: ["en"] },
         masterReferenceBlobId: 1n,
@@ -185,6 +188,9 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
   expect(count("composition_royalty_pool::new_pool")).toBe(1);
   expect(count("recording_royalty_pool_plugin::install")).toBe(1);
   expect(count("recording_royalty_pool::new_pool")).toBe(1);
+  expect(count("composition_routed_stake::create_stake")).toBe(1);
+  expect(count("composition_routed_stake::register")).toBe(1);
+  expect(count("routed_stake::share")).toBe(1);
   expect(count("stake::new")).toBe(2);
   expect(count("pool::register_stake")).toBe(2);
   expect(count("pool::share")).toBe(2);
@@ -221,6 +227,59 @@ test("atomic publication includes the full graph, extensions, plugins, and custo
   expect(seq.indexOf("recording_royalty_pool::new_pool")).toBeLessThan(
     seq.indexOf("recording::publish"),
   );
+  expect(seq.indexOf("composition_routed_stake::register")).toBeLessThan(
+    seq.indexOf("routed_stake::share"),
+  );
+  expect(seq.indexOf("composition_routed_stake::create_stake")).toBeLessThan(
+    seq.indexOf("composition_routed_stake::register"),
+  );
+  expect(seq.indexOf("routed_stake::share")).toBeLessThan(
+    seq.indexOf("pool::share", seq.indexOf("recording_royalty_pool::new_pool")),
+  );
+  expect(seq.indexOf("routed_stake::share")).toBeLessThan(
+    seq.indexOf("recording::publish"),
+  );
+  expect(seq.indexOf("recording::publish")).toBeLessThan(
+    seq.indexOf("composition::publish"),
+  );
+
+  const commands = tx.getData().commands as any[];
+  const compositionIndex = commands.findIndex((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "composition" && command.MoveCall.function === "new"
+  );
+  const recordingIndex = commands.findIndex((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "recording" && command.MoveCall.function === "new"
+  );
+  const routed = commands.find((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "composition_routed_stake" && command.MoveCall.function === "create_stake"
+  )!.MoveCall;
+  const routedIndex = commands.findIndex((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "composition_routed_stake" && command.MoveCall.function === "create_stake"
+  );
+  expect(routed.arguments.slice(0, 3)).toEqual([
+    { NestedResult: [compositionIndex, 0], $kind: "NestedResult" },
+    { NestedResult: [compositionIndex, 1], $kind: "NestedResult" },
+    { NestedResult: [recordingIndex, 0], $kind: "NestedResult" },
+  ]);
+  const valueInput = tx.getData().inputs[routed.arguments[3].Input] as any;
+  expect(bcs.u64().parse(fromBase64(valueInput.Pure.bytes))).toBe("1000000000000");
+  const recordingPoolIndex = commands.findIndex((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "recording_royalty_pool" && command.MoveCall.function === "new_pool"
+  );
+  const register = commands.find((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "composition_routed_stake" && command.MoveCall.function === "register"
+  )!.MoveCall;
+  expect(register.arguments).toEqual([
+    { NestedResult: [compositionIndex, 0], $kind: "NestedResult" },
+    { NestedResult: [compositionIndex, 1], $kind: "NestedResult" },
+    { NestedResult: [recordingIndex, 0], $kind: "NestedResult" },
+    { Result: routedIndex, $kind: "Result" },
+    { Result: recordingPoolIndex, $kind: "Result" },
+  ]);
+  const share = commands.find((command) =>
+    command.$kind === "MoveCall" && command.MoveCall.module === "routed_stake" && command.MoveCall.function === "share"
+  )!.MoveCall;
+  expect(share.arguments).toEqual([{ Result: routedIndex, $kind: "Result" }]);
 });
 
 test("atomic publication is exactly assembled and checked before execution", () => {
@@ -302,7 +361,7 @@ test("SDK callers can explicitly retain legacy balance dispersal", () => {
       ({ shareDistribution: _, ...node }) => node,
     ),
     recordings: input.recordings.map(
-      ({ shareDistribution: _, ...node }) => node,
+      ({ shareDistribution: _, routedStake: __, ...node }) => node,
     ),
   };
   const tx = new Transaction();
@@ -330,6 +389,47 @@ test("Vault-only publication features reject direct custody", () => {
   );
 });
 
+test("routed stakes require fresh parents and matching royalty pools", () => {
+  const input = params();
+  const recording = input.recordings[0]!;
+  expect(() => publishAtomicCatalog({
+    ...input,
+    recordings: [{
+      ...recording,
+      parentCompositionIndex: undefined,
+      parentCompositionId: A,
+    }],
+  })).toThrow(/fresh parent Composition/);
+  expect(() => publishAtomicCatalog({
+    ...input,
+    recordings: [{
+      ...recording,
+      royaltyPool: { currencyType: "0x2::coin::COIN" },
+    }],
+  })).toThrow(/same currency type/);
+  expect(() => publishAtomicCatalog({
+    ...input,
+    recordings: input.recordings.map((recording) => ({
+      ...recording,
+      shareDistribution: "balance" as const,
+    })),
+  })).toThrow(/Recording stake distribution/);
+  expect(() => publishAtomicCatalog({
+    ...input,
+    compositions: input.compositions.map((composition) => ({
+      ...composition,
+      shareDistribution: "balance" as const,
+    })),
+  })).toThrow(/parent Composition stake distribution/);
+  expect(() => publishAtomicCatalog({
+    ...input,
+    compositions: input.compositions.map((composition) => ({
+      ...composition,
+      royaltyRateBps: 0,
+    })),
+  })).toThrow(/royaltyRateBps from 1 to 9999/);
+});
+
 test("atomic result parsing maps canonical Vault events without requiring top-level cap effects", () => {
   const input: AtomicPublicationParams = {
     ...params(),
@@ -341,6 +441,7 @@ test("atomic result parsing maps canonical Vault events without requiring top-le
   const releaseId = "0x" + "33".repeat(32);
   const compositionPoolId = "0x" + "34".repeat(32);
   const recordingPoolId = "0x" + "35".repeat(32);
+  const routedStakeId = "0x" + "36".repeat(32);
   const compositionCapId = deriveCompositionAdminCapId(
     compositionId,
     deployment.protocol.miso,
@@ -389,6 +490,7 @@ test("atomic result parsing maps canonical Vault events without requiring top-le
     [releaseId]: `${deployment.protocol.miso}::release::Release`,
     [compositionPoolId]: `${deployment.packages.royaltyPool}::pool::RoyaltyPool<${SHARE_1},0x2::sui::SUI>`,
     [recordingPoolId]: `${deployment.packages.royaltyPool}::pool::RoyaltyPool<${SHARE_2},0x2::sui::SUI>`,
+    [routedStakeId]: `${deployment.packages.routedStake}::routed_stake::RoutedStake<${SHARE_2},${SHARE_1}>`,
   };
   const result = {
     digest: "digest",
@@ -413,6 +515,7 @@ test("atomic result parsing maps canonical Vault events without requiring top-le
     id: recordingId,
     adminCapId: recordingCapId,
     royaltyPoolId: recordingPoolId,
+    routedStakeId,
   });
   expect(parsed.release).toMatchObject({
     id: releaseId,

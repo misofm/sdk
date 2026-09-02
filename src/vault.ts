@@ -833,6 +833,23 @@ export function registerCompositionRoutedStake(
   });
 }
 
+/** Share a configured routed stake so anyone can sweep its rewards to the parent pool. */
+export function shareRoutedStake(
+  tx: Transaction,
+  params: {
+    readonly routedStake: TransactionObjectArgument;
+    readonly routedStakePackageId: string;
+    readonly stakeShareType: string;
+    readonly poolShareType: string;
+  },
+): void {
+  tx.add(routedStake.share({
+    package: params.routedStakePackageId,
+    typeArguments: [params.stakeShareType, params.poolShareType],
+    arguments: [params.routedStake],
+  }));
+}
+
 /** Unregister a routed stake after pending rewards have been swept. */
 export function unregisterCompositionRoutedStake(
   tx: Transaction,

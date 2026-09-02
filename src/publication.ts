@@ -63,6 +63,7 @@ import {
 import { setReleaseCover, setReleaseTrackCover } from "./cover.ts";
 import {
   custodyNewAdminCap,
+  createCompositionRoutedStake,
   deriveVaultAdminCapId,
   directAdminCap,
   disposeNewAdminCap,
@@ -73,6 +74,8 @@ import {
   newCompositionRoyaltyPool,
   newRecordingRoyaltyPool,
   parseVaultCreatedEvent,
+  registerCompositionRoutedStake,
+  shareRoutedStake,
   type AdminCapAuthority,
   type AdminCapCustody,
 } from "./vault.ts";
@@ -90,6 +93,8 @@ const { composition, recording, release, track, party } = protocolContracts;
 
 export const MAX_ATOMIC_PUBLICATION_COMMANDS = 900;
 export const MAX_ATOMIC_PUBLICATION_INPUTS = 2048;
+/** Fixed protocol work-share supply: 10 million shares at six decimals. */
+const WORK_SHARE_SUPPLY = 10_000_000_000_000n;
 
 export interface PublicationCustody {
   readonly kind: "direct" | "vault";
@@ -159,6 +164,8 @@ export type PublicationRecording = PublicationRecordingParent & {
   readonly custody: PublicationCustody;
   readonly credits?: PublicationRecordingCredit[];
   readonly royaltyPool?: { readonly currencyType: string };
+  /** Route the exact parent Composition royalty cut through this Recording's pool. */
+  readonly routedStake?: true;
   readonly advisory?: "Explicit" | "NotExplicit" | "Cleaned";
   readonly languages?: PublicationRecordingLanguages;
   readonly masterReferenceBlobId?: bigint | string;
@@ -353,6 +360,15 @@ function publicationMaxSupply(value: number | null | undefined): number | null {
   return value;
 }
 
+function compositionRoyaltyCut(royaltyRateBps: number): bigint {
+  // Atomic publication always allocates a non-zero Recording creator remainder.
+  // Lower-level routed-stake builders remain available for Move's 100% case.
+  if (!Number.isInteger(royaltyRateBps) || royaltyRateBps <= 0 || royaltyRateBps >= 10_000) {
+    throw new RangeError("routed stake requires parent royaltyRateBps from 1 to 9999");
+  }
+  return (WORK_SHARE_SUPPLY * BigInt(royaltyRateBps)) / 10_000n;
+}
+
 interface PublicationShareAllocation {
   readonly shareType: string;
   readonly shareRecipients: ShareRecipient[];
@@ -486,6 +502,7 @@ function publishRecording(
   p: AtomicPublicationParams,
   node: PublicationRecording,
   parts: WorkParts,
+  parentComposition?: { node: PublicationComposition; parts: WorkParts },
 ): void {
   const available = node.custody.kind === "vault" ? operations(p) : undefined;
   const typeArguments: [string, string] = [node.shareType, node.compositionShareType];
@@ -529,6 +546,36 @@ function publishRecording(
         const pool = newRecordingRoyaltyPool(tx, poolParams);
         if (stakes.length > 0) {
           registerPublicationStakes(tx, p, node, stakes, pool, node.royaltyPool.currencyType);
+        }
+        if (node.routedStake) {
+          if (!parentComposition) throw new Error(`${node.ref}: routed stake requires a fresh parent Composition`);
+          const authority = directAdminCap(parentComposition.parts.adminCap);
+          const routed = createCompositionRoutedStake(tx, {
+            authority,
+            composition: parentComposition.parts.work,
+            recording: parts.work,
+            recordingShareType: node.shareType,
+            compositionShareType: node.compositionShareType,
+            value: compositionRoyaltyCut(parentComposition.node.royaltyRateBps),
+            actionPackageId: available!.actions.compositionRoutedStake,
+          });
+          registerCompositionRoutedStake(tx, {
+            authority,
+            composition: parentComposition.parts.work,
+            recording: parts.work,
+            routedStake: routed,
+            royaltyPool: pool,
+            recordingShareType: node.shareType,
+            compositionShareType: node.compositionShareType,
+            currencyType: node.royaltyPool.currencyType,
+            actionPackageId: available!.actions.compositionRoutedStake,
+          });
+          shareRoutedStake(tx, {
+            routedStake: routed,
+            routedStakePackageId: p.deployment.packages.routedStake,
+            stakeShareType: node.shareType,
+            poolShareType: node.compositionShareType,
+          });
         }
         shareRoyaltyPool(tx, {
           pool,
@@ -608,6 +655,32 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
       throw new Error(`${node.ref}: permissionless royalty cranks require Vault custody`);
     }
   }
+  p.recordings.forEach((node) => {
+    if (!node.routedStake) return;
+    if (node.parentCompositionIndex === undefined) {
+      throw new Error(`${node.ref}: routed stake requires a fresh parent Composition`);
+    }
+    if (!node.royaltyPool) {
+      throw new Error(`${node.ref}: routed stake requires a Recording royalty pool`);
+    }
+    if (node.shareDistribution !== "stake") {
+      throw new Error(`${node.ref}: routed stake requires Recording stake distribution`);
+    }
+    const parent = requiredAt(p.compositions, node.parentCompositionIndex, "parent composition");
+    if (!parent.royaltyPool) {
+      throw new Error(`${node.ref}: routed stake requires a parent Composition royalty pool`);
+    }
+    if (parent.shareDistribution !== "stake") {
+      throw new Error(`${node.ref}: routed stake requires parent Composition stake distribution`);
+    }
+    compositionRoyaltyCut(parent.royaltyRateBps);
+    if (parent.royaltyPool.currencyType !== node.royaltyPool.currencyType) {
+      throw new Error(`${node.ref}: routed stake pools must use the same currency type`);
+    }
+    if (parent.custody.kind !== "vault") {
+      throw new Error(`${node.ref}: routed stake requires parent Composition Vault custody`);
+    }
+  });
   if (p.release?.revenueDistribution && p.release.custody.kind !== "vault") {
     throw new Error("Release revenue distribution requires Vault custody");
   }
@@ -886,8 +959,19 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
       }
     }
 
+    p.recordings.forEach((node, index) => publishRecording(
+      tx,
+      p,
+      node,
+      requiredAt(recordings, index, "recording"),
+      node.parentCompositionIndex === undefined
+        ? undefined
+        : {
+            node: requiredAt(p.compositions, node.parentCompositionIndex, "parent composition"),
+            parts: requiredAt(compositions, node.parentCompositionIndex, "parent composition"),
+          },
+    ));
     p.compositions.forEach((node, index) => publishComposition(tx, p, node, requiredAt(compositions, index, "composition")));
-    p.recordings.forEach((node, index) => publishRecording(tx, p, node, requiredAt(recordings, index, "recording")));
     if (p.release && releaseObject && releaseAdminCap) {
       publishReleaseObject(tx, p, p.release, releaseObject, releaseAdminCap);
     }
@@ -954,7 +1038,7 @@ export interface AtomicPublicationResult {
   gasUsed: number;
   parties: Record<string, { id: string; adminCapId: string; created: boolean; authority?: PublicationAuthorityOut }>;
   compositions: Record<string, { id: string; adminCapId: string; shareType: string; authority: PublicationAuthorityOut; royaltyPoolId?: string }>;
-  recordings: Record<string, { id: string; adminCapId: string; shareType: string; compositionShareType: string; authority: PublicationAuthorityOut; royaltyPoolId?: string }>;
+  recordings: Record<string, { id: string; adminCapId: string; shareType: string; compositionShareType: string; authority: PublicationAuthorityOut; royaltyPoolId?: string; routedStakeId?: string }>;
   release?: { id: string; adminCapId: string; authority: PublicationAuthorityOut };
   pressing?: { id: string; adminCapId: string; authority: PublicationAuthorityOut };
 }
@@ -1066,6 +1150,12 @@ export function parseAtomicPublicationResult(
       compositionShareType: node.compositionShareType,
       authority: authorityOut(result, vaults, node.custody, adminCapId, recordingCapType(p, node.shareType), vaultPackageId),
       royaltyPoolId: node.royaltyPool ? findByShareType(createdPools, node.shareType, "Recording RoyaltyPool") : undefined,
+      routedStakeId: node.routedStake
+        ? createdByExactType(
+            result,
+            `${p.deployment.packages.routedStake}::routed_stake::RoutedStake<${node.shareType},${node.compositionShareType}>`,
+          )
+        : undefined,
     };
   });
 

@@ -345,6 +345,29 @@ level `createShareStake`, `createShareStakes`, `registerShareStake`,
 `newCompositionRoyaltyPool`, `newRecordingRoyaltyPool`, and
 `shareRoyaltyPool` builders expose each step separately for custom PTBs.
 
+For a fresh Recording whose parent Composition owns a protocol royalty cut,
+`recordings[].routedStake` redeems that exact cut into a derived
+`RoutedStake`, registers it with the Recording's royalty pool, and shares it
+for permissionless sweeping. The Recording and parent Composition must both
+declare royalty pools in the same currency, and the parent must use Vault
+custody:
+
+```ts
+recordings: [{
+  // ...fresh parent, share currency, custody, and royaltyPool...
+  routedStake: true,
+}]
+```
+
+The SDK derives the exact `composition_routed_stake::create_stake` value from
+the protocol's fixed share supply and the fresh parent's `royaltyRateBps`; it
+does not permit zero or partial routing. Both works must use `"stake"` share
+distribution so the Recording pool has its complete supply registered and the
+parent destination pool is operable from the first sweep. Atomic publication
+supports rates from 1 to 9999 BPS because it always allocates a non-zero
+Recording creator remainder; lower-level routed-stake builders remain
+available for the Move layer's 100% composition-cut case.
+
 ```ts
 import {
   assertAtomicPublicationBounds,
@@ -376,9 +399,10 @@ Fresh raw PartyAdminCap, CompositionAdminCap, RecordingAdminCap, and
 ReleaseAdminCap values never leave the PTB when Vault custody is selected.
 Only the Composition royalty-pool, Recording royalty-pool, and Release revenue
 plugins are installable, while each new Vault is still owned. Party-wallet and
-Composition routed-stake operations remain raw Actions because they return
-caller-controlled assets. Plugin witness construction remains inside the SDK
-bindings.
+Composition routed-stake operations remain raw Actions. Atomic publication
+consumes the returned routed stake by registering and sharing it; lower-level
+callers retain explicit control over those lifecycle steps. Plugin witness
+construction remains inside the SDK bindings.
 
 Share packages necessarily precede this stage: publish at most five per PTB,
 then initialize their currencies, then submit the atomic catalog PTB. The two
