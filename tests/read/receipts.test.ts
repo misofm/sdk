@@ -115,4 +115,41 @@ describe("Record Shop sale receipts", () => {
       purchasedTimestampMs: "5678",
     });
   });
+
+  test("rejects values that cannot represent Move unsigned integers", () => {
+    const json = {
+      listing_id: IDS.listing,
+      record_id: IDS.record,
+      release_id: IDS.release,
+      pressing_id: IDS.pressing,
+      edition: 2,
+      number: 7,
+      purchase_currency: { name: CURRENCY },
+      purchase_price: 123,
+      purchased_by: IDS.buyer,
+      purchased_timestamp_ms: 5678,
+      pricing: { Floor: 100 },
+    };
+    const sale = (overrides: Record<string, unknown>) => findRecordSale([{
+      eventType: eventType(),
+      bcs: new Uint8Array(),
+      json: { ...json, ...overrides },
+    }], SHOP_PACKAGE, IDS.record);
+
+    expect(() => sale({ purchase_price: 123.75 })).toThrow(
+      MalformedRecordSoldEventError,
+    );
+    expect(() => sale({ purchase_price: Number.MAX_SAFE_INTEGER + 1 })).toThrow(
+      MalformedRecordSoldEventError,
+    );
+    expect(() => sale({ purchase_price: (1n << 64n).toString() })).toThrow(
+      MalformedRecordSoldEventError,
+    );
+    expect(() => sale({ edition: 2.5 })).toThrow(
+      MalformedRecordSoldEventError,
+    );
+    expect(() => sale({ purchased_timestamp_ms: -1 })).toThrow(
+      MalformedRecordSoldEventError,
+    );
+  });
 });

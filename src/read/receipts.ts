@@ -34,6 +34,7 @@ import type { Price, PressingDetail, PurchaseReceipt, RecordSale, TrackRoyalty }
 import { getWorkAddressesByShareTypes } from "./works.ts";
 
 const BPS = 10_000n;
+const U64_MAX = (1n << 64n) - 1n;
 
 /** `miso_record_shop::listing::RecordSoldEvent<Currency>`. */
 const RECORD_SOLD_EVENT_NAME = "listing::RecordSoldEvent";
@@ -52,11 +53,15 @@ export class MalformedRecordSoldEventError extends Error {
 /** Composition royalty rate (bps) per recording id. Sparse — an unresolved parent has no entry. */
 type CompositionRates = Record<string, number | undefined>;
 
-function coerceBigInt(v: unknown): bigint | null {
-  if (typeof v === "bigint") return v;
-  if (typeof v === "number" && Number.isFinite(v)) return BigInt(Math.trunc(v));
-  if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
-  return null;
+function coerceU64(v: unknown): bigint | null {
+  const value = typeof v === "bigint"
+    ? v
+    : typeof v === "number" && Number.isSafeInteger(v)
+      ? BigInt(v)
+      : typeof v === "string" && /^\d+$/.test(v)
+        ? BigInt(v)
+        : null;
+  return value !== null && value >= 0n && value <= U64_MAX ? value : null;
 }
 
 function priceFromUnknown(value: unknown): Price | null {
@@ -69,7 +74,7 @@ function priceFromUnknown(value: unknown): Price | null {
   const fixed = variants.$kind === "Fixed" || Object.hasOwn(variants, "Fixed");
   const floor = variants.$kind === "Floor" || Object.hasOwn(variants, "Floor");
   if (fixed === floor) return null;
-  const amount = coerceBigInt(fixed ? variants.Fixed : variants.Floor);
+  const amount = coerceU64(fixed ? variants.Fixed : variants.Floor);
   return amount == null || amount <= 0n
     ? null
     : { kind: fixed ? "fixed" : "floor", amount: amount.toString() };
@@ -86,7 +91,7 @@ function typeName(value: unknown): string | null {
 }
 
 function positiveU32(value: unknown): number | null {
-  const bigint = coerceBigInt(value);
+  const bigint = coerceU64(value);
   return bigint == null || bigint <= 0n || bigint > 0xffff_ffffn
     ? null
     : Number(bigint);
@@ -114,8 +119,8 @@ function saleFromJson(
 ): RecordSale | null {
   const edition = positiveU16(json.edition);
   const number = positiveU32(json.number);
-  const purchasePrice = coerceBigInt(json.purchase_price);
-  const purchasedTimestampMs = coerceBigInt(json.purchased_timestamp_ms);
+  const purchasePrice = coerceU64(json.purchase_price);
+  const purchasedTimestampMs = coerceU64(json.purchased_timestamp_ms);
   const recordId = json.record_id;
   const pricing = priceFromUnknown(json.pricing);
   const embeddedCurrency = typeName(json.purchase_currency);
