@@ -155,6 +155,50 @@ test("configured client exposes safe raw modules without witness or mint", () =>
   ).toBeUndefined();
 });
 
+test("configured client binds composable streaming-transcode attach and unset builders", async () => {
+  const streamingPackage = id(110);
+  const oriPackage = id(111);
+  const deployment = {
+    ...DEPLOYMENT,
+    packages: {
+      ...DEPLOYMENT.packages,
+      recordingStreamingTranscode: streamingPackage,
+      ori: oriPackage,
+    },
+  } as MisoPlatformDeployment;
+  const base = new SuiGrpcClient({
+    network: "testnet",
+    baseUrl: "https://fullnode.testnet.sui.io:443",
+  });
+  Object.defineProperty(base.core, "getChainIdentifier", {
+    configurable: true,
+    value: async () => ({ chainIdentifier: deployment.chainIdentifier }),
+  });
+  const client = base.$extend(miso({ deployment }));
+  await client.miso.ready();
+
+  const target = {
+    recordingId: A,
+    authority: { kind: "direct" as const, adminCap: id(112) },
+    recordingShareType: `${id(113)}::share::Share`,
+    compositionShareType: `${id(114)}::share::Share`,
+  };
+  const tx = new Transaction();
+  client.miso.tx.setRecordingStreamingTranscode({
+    ...target,
+    quiltId: 42n,
+  })(tx);
+  client.miso.tx.unsetRecordingStreamingTranscode(target)(tx);
+
+  expect(moveCalls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
+    "data::new_quilt",
+    "recording_streaming_transcode::new",
+    "recording_streaming_transcode::set_streaming_transcode",
+    "recording_streaming_transcode::unset_streaming_transcode",
+  ]);
+  expect(client.miso.call.recordingStreamingTranscode).toBeDefined();
+});
+
 test("an available operations deployment binds all nine exact package targets", async () => {
   const base = new SuiGrpcClient({
     network: "testnet",

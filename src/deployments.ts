@@ -214,6 +214,8 @@ export interface MisoPlatformDeployment {
     readonly recordingAdvisory: string;
     readonly recordingLanguage: string;
     readonly recordingMasterReference: string;
+    /** Complete Walrus Quilt containing the Recording's streaming transcodes. */
+    readonly recordingStreamingTranscode?: string;
     /** Canonical plaintext session pointer extension; absent before publication. */
     readonly recordingEngineSession?: string;
     /** Original immutable Record-gated Seal policy; absent before publication. */

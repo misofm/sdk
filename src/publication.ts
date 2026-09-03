@@ -52,6 +52,7 @@ import {
   setRecordingLanguages,
   setRecordingMasterReference,
   setRecordingPreview,
+  setRecordingStreamingTranscode,
 } from "./recording-extensions.ts";
 import {
   setReleaseDescription,
@@ -169,6 +170,8 @@ export type PublicationRecording = PublicationRecordingParent & {
   readonly advisory?: "Explicit" | "NotExplicit" | "Cleaned";
   readonly languages?: PublicationRecordingLanguages;
   readonly masterReferenceBlobId?: bigint | string;
+  /** Complete Walrus Quilt ID containing this Recording's streaming transcodes. */
+  readonly streamingTranscodeQuiltId?: bigint | string;
   readonly previewBlobId?: bigint | string;
 };
 
@@ -643,6 +646,14 @@ function publishReleaseObject(
 
 /** Build the complete post-share catalog graph as one atomic PTB. */
 export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
+  if (
+    p.recordings.some((node) => node.streamingTranscodeQuiltId !== undefined) &&
+    !p.deployment.packages.recordingStreamingTranscode
+  ) {
+    throw new Error(
+      "A recording streaming transcode requires deployment.packages.recordingStreamingTranscode",
+    );
+  }
   if (publicationUsesVault(p)) {
     requireOperationsDeployment(p.deployment.operations);
   }
@@ -850,6 +861,15 @@ export function publishAtomicCatalog(p: AtomicPublicationParams): TxThunk {
         compositionShareType: node.compositionShareType,
         recordingMasterReferencePackageId: p.deployment.packages.recordingMasterReference,
         reference: walrusBlob(tx, p, node.masterReferenceBlobId),
+      })(tx);
+      if (node.streamingTranscodeQuiltId !== undefined) setRecordingStreamingTranscode({
+        recordingId: parts.work, authority,
+        recordingShareType: node.shareType,
+        compositionShareType: node.compositionShareType,
+        recordingStreamingTranscodePackageId:
+          p.deployment.packages.recordingStreamingTranscode!,
+        oriPackageId: p.deployment.packages.ori,
+        quiltId: node.streamingTranscodeQuiltId,
       })(tx);
       if (node.previewBlobId !== undefined) setRecordingPreview({
         recordingId: parts.work, authority,

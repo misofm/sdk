@@ -42,6 +42,7 @@ export * as releaseRevenueDistributor from "./contracts/release_revenue_distribu
 export * as recordingAdvisory from "./contracts/recording_advisory/recording_advisory.ts";
 export * as recordingLanguage from "./contracts/recording_language/recording_language.ts";
 export * as recordingMasterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
+export * as recordingStreamingTranscode from "./contracts/recording_streaming_transcode/recording_streaming_transcode.ts";
 export * as recordingPreview from "./contracts/recording_preview/recording_preview.ts";
 
 // Credits extensions (per-work credit stores + their role vocabularies).

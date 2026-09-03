@@ -14,6 +14,7 @@ import * as language from "./contracts/recording_language/recording_language.ts"
 import * as walrusData from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
 import * as masterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
 import * as preview from "./contracts/recording_preview/recording_preview.ts";
+import * as streamingTranscode from "./contracts/recording_streaming_transcode/recording_streaming_transcode.ts";
 
 export interface RecordingExtensionTarget {
   readonly recordingId: ObjectInput;
@@ -95,6 +96,55 @@ export function setRecordingMasterReference(p: SetRecordingMasterReferenceParams
   };
 }
 
+export interface SetRecordingStreamingTranscodeParams extends RecordingExtensionTarget {
+  readonly recordingStreamingTranscodePackageId: string;
+  /** External `ori` package used to construct the complete Walrus Quilt reference. */
+  readonly oriPackageId: string;
+  /** Complete Walrus Quilt ID as its on-chain `u256` value. */
+  readonly quiltId: bigint | string;
+}
+
+/** Sets or replaces the complete streaming-transcode Quilt attached to a Recording. */
+export function setRecordingStreamingTranscode(
+  p: SetRecordingStreamingTranscodeParams,
+): TxThunk {
+  return (tx) => {
+    const quilt = tx.moveCall({
+      target: `${p.oriPackageId}::data::new_quilt`,
+      arguments: [tx.pure.u256(p.quiltId)],
+    });
+    const transcode = tx.add(streamingTranscode._new({
+      package: p.recordingStreamingTranscodePackageId,
+      arguments: [quilt],
+    }));
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingStreamingTranscodePackageId}::recording_streaming_transcode::set_streaming_transcode`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [object(tx, p.recordingId), transcode],
+      adminCapIndex: 1,
+    });
+  };
+}
+
+export type UnsetRecordingStreamingTranscodeParams = Omit<
+  SetRecordingStreamingTranscodeParams,
+  "oriPackageId" | "quiltId"
+>;
+
+/** Removes the Recording's streaming-transcode reference, if present. */
+export function unsetRecordingStreamingTranscode(
+  p: UnsetRecordingStreamingTranscodeParams,
+): TxThunk {
+  return (tx) => {
+    invokeWithAdminCap(tx, p.authority, {
+      target: `${p.recordingStreamingTranscodePackageId}::recording_streaming_transcode::unset_streaming_transcode`,
+      typeArguments: [p.recordingShareType, p.compositionShareType],
+      arguments: [object(tx, p.recordingId)],
+      adminCapIndex: 1,
+    });
+  };
+}
+
 export interface SetRecordingPreviewParams extends RecordingWalrusReferenceParams {
   readonly recordingPreviewPackageId: string;
 }
@@ -124,19 +174,16 @@ const MASTER_REFERENCE_KEY_BYTES = masterReference.ExtensionKey.serialize([
   false,
 ]).toBytes();
 
-type ParsedWalrusData =
-  | { $kind: "Blob"; Blob: [string | number | bigint, unknown] }
-  | {
-      $kind: "QuiltPatch";
-      QuiltPatch: [string | number | bigint, number, number, number];
-    };
-
 /** Parse an attached master reference's standalone Walrus blob id. */
 export function parseRecordingMasterReferenceContent(
   content: Uint8Array,
 ): string | null {
-  const reference = MasterReferenceField.parse(content)
-    .value as ParsedWalrusData;
+  const reference = MasterReferenceField.parse(content).value as
+    | { $kind: "Blob"; Blob: [string | number | bigint, unknown] }
+    | {
+        $kind: "QuiltPatch";
+        QuiltPatch: [string | number | bigint, number, number, number];
+      };
   return reference.$kind === "Blob" ? String(reference.Blob[0]) : null;
 }
 

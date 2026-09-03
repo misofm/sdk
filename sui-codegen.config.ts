@@ -18,7 +18,8 @@ import { fileURLToPath } from "node:url";
 // MISO_SDK_CODEGEN_SOURCE_ROOT to a copied checkout root containing both
 // `misofm/` and `misonetwork/`; codegen then never writes summaries or locks into
 // a developer's live sibling sources. Regenerating requires:
-//   ~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins}
+//   ~/Documents/GitHub/misofm/{sdk, record, record-shop, vault, vault-plugins,
+//     protocol-extensions}
 //   ~/Documents/GitHub/misonetwork/{party-actions,protocol,protocol-actions,
 //     protocol-extensions,royalty-pool,routed-stake,share}
 const sourceRoot =
@@ -70,20 +71,8 @@ const config: SuiCodegenConfig = {
       path: source("misonetwork/routed-stake"),
     },
 
-    // Cover art (a Walrus blob ref via ori, attached to a Release by
-    // release_cover_art). Drives the app's record-purchase render.
-    {
-      package: "@local-pkg/cover_art",
-      path: source("misonetwork/cover-art"),
-    },
-    // Caveat: release_cover_art transitively depends on ori (walrus_data), which
-    // is NOT declared here, so its dep bindings land under the deployed package
-    // address (currently
-    // src/contracts/release_cover_art/deps/0xf35cf353…/walrus_data.ts)
-    // rather than a readable name. @mysten/codegen has no address→name mapping
-    // for transitive deps (only declared packages get names, and declaring ori
-    // would generate full bindings for an external package). If ori is ever
-    // redeployed, re-run codegen so the baked dep address tracks the new one.
+    // The deployed cover_art binding remains frozen under src/contracts until
+    // its current source ABI is published and selected in deployments.ts.
     {
       package: "@local-pkg/release_cover_art",
       path: source("misonetwork/protocol-extensions/release_cover_art"),
@@ -99,7 +88,7 @@ const config: SuiCodegenConfig = {
     },
     {
       package: "@local-pkg/release_dsp_link",
-      path: source("misonetwork/protocol-extensions/release_dsp_link"),
+      path: source("misofm/protocol-extensions/release_dsp_link"),
     },
     {
       package: "@local-pkg/release_genre",
@@ -120,13 +109,11 @@ const config: SuiCodegenConfig = {
       package: "@local-pkg/recording_language",
       path: source("misonetwork/protocol-extensions/recording_language"),
     },
+    // The deployed recording_master_reference and recording_preview bindings
+    // likewise remain frozen until a deployment explicitly replaces them.
     {
-      package: "@local-pkg/recording_master_reference",
-      path: source("misonetwork/protocol-extensions/recording_master_reference"),
-    },
-    {
-      package: "@local-pkg/recording_preview",
-      path: source("misonetwork/protocol-extensions/recording_preview"),
+      package: "@local-pkg/recording_streaming_transcode",
+      path: source("misofm/protocol-extensions/recording_streaming_transcode"),
     },
 
     // Permissionless automation adapters. Party wallet and routed stake have no
