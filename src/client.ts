@@ -63,6 +63,7 @@ import * as royaltyPoolContract from "./contracts/royalty_pool/pool.ts";
 import * as recordingAdvisoryContract from "./contracts/recording_advisory/recording_advisory.ts";
 import * as recordingLanguageContract from "./contracts/recording_language/recording_language.ts";
 import * as recordingMasterReferenceContract from "./contracts/recording_master_reference/recording_master_reference.ts";
+import * as recordingStreamingTranscodeContract from "./contracts/recording_streaming_transcode/recording_streaming_transcode.ts";
 import * as recordingPreviewContract from "./contracts/recording_preview/recording_preview.ts";
 import * as vaultActions from "./vault.ts";
 import * as coverArtContract from "./contracts/cover_art/cover_art.ts";
@@ -138,6 +139,12 @@ import {
   type SetReleaseGenresParams,
   type SetReleaseKindParams,
 } from "./release-extensions.ts";
+import {
+  setRecordingStreamingTranscode,
+  unsetRecordingStreamingTranscode,
+  type SetRecordingStreamingTranscodeParams,
+  type UnsetRecordingStreamingTranscodeParams,
+} from "./recording-extensions.ts";
 import { addReleaseCredit, type AddReleaseCreditParams } from "./credits.ts";
 import {
   setReleaseCover,
@@ -291,6 +298,7 @@ export interface MisoPlatformConfig {
   recordingAdvisoryPackageId?: string;
   recordingLanguagePackageId?: string;
   recordingMasterReferencePackageId?: string;
+  recordingStreamingTranscodePackageId?: string;
   recordingPreviewPackageId?: string;
   /** Structurally complete Vault/Action/plugin identity set. */
   operations?: OperationsDeployment;
@@ -356,6 +364,14 @@ type ConfiguredReleaseCover = DistributiveOmit<
 type ConfiguredReleaseTrackCover = DistributiveOmit<
   SetReleaseTrackCoverParams,
   "coverArtPackageId" | "releaseCoverArtPackageId" | "oriPackageId"
+>;
+type ConfiguredRecordingStreamingTranscode = DistributiveOmit<
+  SetRecordingStreamingTranscodeParams,
+  "recordingStreamingTranscodePackageId" | "oriPackageId"
+>;
+type ConfiguredUnsetRecordingStreamingTranscode = DistributiveOmit<
+  UnsetRecordingStreamingTranscodeParams,
+  "recordingStreamingTranscodePackageId"
 >;
 
 /** Whole-graph params with this client's package ids dropped. */
@@ -786,6 +802,30 @@ export class MisoPlatformClient {
           "setReleaseTrackCover",
         ),
       }),
+    setRecordingStreamingTranscode: (
+      p: ConfiguredRecordingStreamingTranscode,
+    ): TxThunk =>
+      setRecordingStreamingTranscode({
+        ...p,
+        recordingStreamingTranscodePackageId: this.#requiredConfig(
+          "recordingStreamingTranscodePackageId",
+          "setRecordingStreamingTranscode",
+        ),
+        oriPackageId: this.#requiredConfig(
+          "oriPackageId",
+          "setRecordingStreamingTranscode",
+        ),
+      }),
+    unsetRecordingStreamingTranscode: (
+      p: ConfiguredUnsetRecordingStreamingTranscode,
+    ): TxThunk =>
+      unsetRecordingStreamingTranscode({
+        ...p,
+        recordingStreamingTranscodePackageId: this.#requiredConfig(
+          "recordingStreamingTranscodePackageId",
+          "unsetRecordingStreamingTranscode",
+        ),
+      }),
   }, (operation) => this.#requireReady(operation), "tx");
 
   /**
@@ -1112,6 +1152,17 @@ export class MisoPlatformClient {
             ] as const,
           )
         : undefined,
+      recordingStreamingTranscode: this.#config.recordingStreamingTranscodePackageId
+        ? bindModulePackage(
+            recordingStreamingTranscodeContract,
+            this.#config.recordingStreamingTranscodePackageId,
+            [
+              "setStreamingTranscode",
+              "unsetStreamingTranscode",
+              "hasStreamingTranscode",
+            ] as const,
+          )
+        : undefined,
       recordingPreview: this.#config.recordingPreviewPackageId
         ? bindModulePackage(
             recordingPreviewContract,
@@ -1225,6 +1276,8 @@ export function miso<const Name extends string = "miso">(
           recordingLanguagePackageId: deployment.packages.recordingLanguage,
           recordingMasterReferencePackageId:
             deployment.packages.recordingMasterReference,
+          recordingStreamingTranscodePackageId:
+            deployment.packages.recordingStreamingTranscode,
           recordingPreviewPackageId: deployment.packages.recordingPreview,
           operations: deployment.operations,
           royaltyPoolPackageId: deployment.packages.royaltyPool,

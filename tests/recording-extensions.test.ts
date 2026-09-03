@@ -4,17 +4,25 @@
 import { expect, test } from "bun:test";
 import { bcs } from "@mysten/sui/bcs";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
+import { Transaction } from "@mysten/sui/transactions";
 import * as walrusData from "../src/contracts/recording_master_reference/deps/ori/walrus_data.ts";
 import * as masterReference from "../src/contracts/recording_master_reference/recording_master_reference.ts";
 import {
   getRecordingMasterReference,
   getRecordingMasterReferencesByIds,
   recordingMasterReferenceFieldId,
+  setRecordingStreamingTranscode,
+  unsetRecordingStreamingTranscode,
 } from "../src/recording-extensions.ts";
 
 const RECORDING_ONE = `0x${"11".repeat(32)}`;
 const RECORDING_TWO = `0x${"22".repeat(32)}`;
 const PACKAGE = `0x${"33".repeat(32)}`;
+const ORI_PACKAGE = `0x${"44".repeat(32)}`;
+const STREAMING_PACKAGE = `0x${"55".repeat(32)}`;
+const CAP = `0x${"66".repeat(32)}`;
+const RECORDING_SHARE = `${PACKAGE}::recording_share::RECORDING_SHARE`;
+const COMPOSITION_SHARE = `${PACKAGE}::composition_share::COMPOSITION_SHARE`;
 const BLOB_ID = 123456789n;
 
 const Field = bcs.struct("Field", {
@@ -30,6 +38,63 @@ function masterContent(recordingId: string): Uint8Array {
     value: { Blob: [BLOB_ID, { Unencrypted: true }] },
   }).toBytes();
 }
+
+interface MoveCall {
+  package?: string;
+  module: string;
+  function: string;
+  typeArguments: string[];
+}
+
+function moveCalls(tx: Transaction): MoveCall[] {
+  return tx.getData().commands.flatMap((command) =>
+    command.$kind === "MoveCall" ? [command.MoveCall as MoveCall] : []
+  );
+}
+
+test("builds a composable streaming-transcode attachment from a complete Quilt ID", () => {
+  const tx = new Transaction();
+  setRecordingStreamingTranscode({
+    recordingId: RECORDING_ONE,
+    authority: { kind: "direct", adminCap: CAP },
+    recordingShareType: RECORDING_SHARE,
+    compositionShareType: COMPOSITION_SHARE,
+    recordingStreamingTranscodePackageId: STREAMING_PACKAGE,
+    oriPackageId: ORI_PACKAGE,
+    quiltId: BLOB_ID,
+  })(tx);
+
+  const calls = moveCalls(tx);
+  expect(calls.map((call) => `${call.module}::${call.function}`)).toEqual([
+    "data::new_quilt",
+    "recording_streaming_transcode::new",
+    "recording_streaming_transcode::set_streaming_transcode",
+  ]);
+  expect(calls.map((call) => call.package)).toEqual([
+    ORI_PACKAGE,
+    STREAMING_PACKAGE,
+    STREAMING_PACKAGE,
+  ]);
+  expect(calls[2]!.typeArguments).toEqual([
+    RECORDING_SHARE,
+    COMPOSITION_SHARE,
+  ]);
+});
+
+test("builds an idempotent streaming-transcode removal", () => {
+  const tx = new Transaction();
+  unsetRecordingStreamingTranscode({
+    recordingId: RECORDING_ONE,
+    authority: { kind: "direct", adminCap: CAP },
+    recordingShareType: RECORDING_SHARE,
+    compositionShareType: COMPOSITION_SHARE,
+    recordingStreamingTranscodePackageId: STREAMING_PACKAGE,
+  })(tx);
+
+  expect(moveCalls(tx).map((call) => `${call.module}::${call.function}`)).toEqual([
+    "recording_streaming_transcode::unset_streaming_transcode",
+  ]);
+});
 
 test("reads a Recording's master-reference blob id", async () => {
   const fieldId = recordingMasterReferenceFieldId(RECORDING_ONE, PACKAGE);
