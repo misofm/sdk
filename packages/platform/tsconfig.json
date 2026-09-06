@@ -1,4 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  "include": ["src"],
+  "compilerOptions": {
+    // Force-include @types/bun's ambient globals (Response, URL, Headers,
+    // TextEncoder, …) explicitly. This package has no local "typescript"
+    // dependency of its own reachability that TS's automatic @types
+    // discovery needs; in a workspace with sibling packages pinning a
+    // different typescript range, that auto-discovery can silently miss
+    // @types/bun depending on how the isolated linker resolves the shared
+    // typescript install, so name it explicitly rather than rely on it.
+    "types": ["bun"]
+  }
 }

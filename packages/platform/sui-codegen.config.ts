@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 //     protocol-extensions,royalty-pool,routed-stake,share}
 const sourceRoot =
   process.env.MISO_SDK_CODEGEN_SOURCE_ROOT ??
-  fileURLToPath(new URL("../..", import.meta.url));
+  fileURLToPath(new URL("../../../..", import.meta.url));
 const source = (path: string) => resolve(sourceRoot, path);
 
 const config: SuiCodegenConfig = {

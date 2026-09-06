@@ -21,8 +21,16 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
       - name: Test
-        run: bun test
+        run: bun run test
       - name: Build
         run: bun run build
+      # The root package.json is private — check the tarball contents inside
+      # each publishable workspace package instead of at the repo root, where
+      # `npm pack` would otherwise pass vacuously against the private package.
       - name: Pack
-        run: npm pack --dry-run
+        run: |
+          for dir in packages/*/; do
+            echo "::group::npm pack --dry-run ($dir)"
+            (cd "$dir" && npm pack --dry-run)
+            echo "::endgroup::"
+          done
