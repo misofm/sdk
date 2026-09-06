@@ -64,6 +64,7 @@
 
 import { MoveEnum, MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/miso::recording';
 /** Lifecycle state of a recording. */

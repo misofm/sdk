@@ -34,6 +34,7 @@
 
 import { MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as stake_1 from './deps/royalty_pool/stake.ts';
 const $moduleName = '@local-pkg/routed_stake::routed_stake';

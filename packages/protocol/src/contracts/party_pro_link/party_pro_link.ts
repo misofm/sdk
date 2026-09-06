@@ -17,6 +17,7 @@
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_pro_link::party_pro_link';
 export const WebsiteData = new MoveStruct({ name: `${$moduleName}::WebsiteData`, fields: {

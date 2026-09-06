@@ -19,6 +19,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as country_code from './deps/country_code/country_code.ts';
 import * as language_code from './deps/language_code/language_code.ts';

@@ -17,5 +17,6 @@
 
 import { MoveTuple } from '../../../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = 'bps::bps';
 export const BPS = new MoveTuple({ name: `${$moduleName}::BPS`, fields: [bcs.u16()] });

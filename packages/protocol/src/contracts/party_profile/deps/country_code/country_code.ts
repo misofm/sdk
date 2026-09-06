@@ -15,5 +15,6 @@
 
 import { MoveTuple } from '../../../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = 'country_code::country_code';
 export const CountryCode = new MoveTuple({ name: `${$moduleName}::CountryCode`, fields: [bcs.string()] });

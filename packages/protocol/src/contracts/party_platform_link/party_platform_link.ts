@@ -21,6 +21,7 @@
 
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_platform_link::party_platform_link';
 export const LinkSetEvent = new MoveStruct({ name: `${$moduleName}::LinkSetEvent<phantom Data>`, fields: {

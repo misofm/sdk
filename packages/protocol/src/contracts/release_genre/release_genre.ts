@@ -22,6 +22,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 import * as per_track from './deps/per_track/per_track.ts';
 const $moduleName = '@local-pkg/release_genre::release_genre';

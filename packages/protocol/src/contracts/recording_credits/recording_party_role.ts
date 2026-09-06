@@ -34,6 +34,7 @@
 
 import { MoveEnum, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/recording_credits::recording_party_role';
 /** Indicates the seniority or prominence level of a party. */

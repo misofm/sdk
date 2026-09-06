@@ -39,6 +39,7 @@
 
 import { MoveEnum, MoveStruct, MoveTuple, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 import * as bps from './deps/bps/bps.ts';
 const $moduleName = '@local-pkg/miso::composition';

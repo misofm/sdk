@@ -235,7 +235,7 @@ test("an available operations deployment binds all nine exact package targets", 
     typeArguments: [share, share],
   }));
   tx.add(client.miso.call.releaseRevenueDistributor!.redeemAllAndDistribute({
-    arguments: [tx.object(A), tx.object(A), tx.object("0xacc")],
+    arguments: [tx.object(A), tx.object(A)],
     typeArguments: [currency],
   }));
   tx.add(client.miso.call.compositionRoyaltyPoolPlugin!.isInstalled({

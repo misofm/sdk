@@ -20,6 +20,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_cta::party_cta';
 export const CtasKey = new MoveTuple({ name: `${$moduleName}::CtasKey`, fields: [bcs.bool()] });

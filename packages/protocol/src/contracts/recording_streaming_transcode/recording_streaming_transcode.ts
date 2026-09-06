@@ -19,6 +19,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as data from './deps/ori/data.ts';
 const $moduleName = '@local-pkg/recording_streaming_transcode::recording_streaming_transcode';

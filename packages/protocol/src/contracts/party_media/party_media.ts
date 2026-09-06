@@ -20,6 +20,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_media::party_media';
 export const MediaKey = new MoveTuple({ name: `${$moduleName}::MediaKey`, fields: [bcs.bool()] });

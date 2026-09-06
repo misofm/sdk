@@ -38,15 +38,36 @@ const outputDir = resolve(process.cwd(), codegenConfig.output);
 const sourceConfigRoot = resolve(
   process.env.MISO_SDK_CODEGEN_SOURCE_ROOT ?? join(import.meta.dir, ".."),
 );
+// A `.d.ts` referencing `@mysten/bcs` types only through inferred (unwritten)
+// signatures still needs a direct declaration reference to that package, or a
+// consumer building with `skipLibCheck: false` fails to resolve it. Every
+// generated file that imports from `@mysten/sui/bcs` gets exactly one such
+// anchor line directly beneath that import. Ported from the platform
+// package's old standalone `scripts/format-codegen.ts` post-processing pass,
+// now folded into the one unified codegen pipeline.
+const directBcsAnchor = 'import type {} from "@mysten/bcs";';
+const suiBcsImportLine = /^(import .* from '@mysten\/sui\/bcs';)$/m;
+
+/** Idempotent: strips any existing anchor line(s) before reinserting exactly one. */
+function normalizeBcsAnchor(source: string): string {
+  const withoutAnchor = source
+    .split("\n")
+    .filter((line) => line !== directBcsAnchor)
+    .join("\n");
+  return suiBcsImportLine.test(withoutAnchor)
+    ? withoutAnchor.replace(suiBcsImportLine, `$1\n${directBcsAnchor}`)
+    : withoutAnchor;
+}
+
 /** Keep generated output clean even when a generator template emits ` * ` lines. */
-function normalizeGeneratedWhitespace(directory: string): void {
+function normalizeGeneratedFiles(directory: string): void {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const entryPath = join(directory, entry.name);
     if (entry.isDirectory()) {
-      normalizeGeneratedWhitespace(entryPath);
+      normalizeGeneratedFiles(entryPath);
     } else if (entry.isFile() && entry.name.endsWith(".ts")) {
       const source = readFileSync(entryPath, "utf8");
-      const normalized = source.replace(/[ \t]+(?=\r?$)/gm, "");
+      const normalized = normalizeBcsAnchor(source.replace(/[ \t]+(?=\r?$)/gm, ""));
       if (normalized !== source) writeFileSync(entryPath, normalized);
     }
   }
@@ -96,7 +117,7 @@ try {
       includePhantomTypeParameters: codegenConfig.includePhantomTypeParameters,
     });
   }
-  normalizeGeneratedWhitespace(outputDir);
+  normalizeGeneratedFiles(outputDir);
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }

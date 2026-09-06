@@ -25,6 +25,7 @@
 
 import { MoveStruct } from '../../../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import * as balance from '../sui/balance.ts';
 import * as vec_map from '../sui/vec_map.ts';
 import * as type_name from '../std/type_name.ts';

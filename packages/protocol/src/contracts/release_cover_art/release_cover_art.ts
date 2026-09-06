@@ -17,6 +17,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as cover_art from './deps/cover_art/cover_art.ts';
 import * as per_track from './deps/per_track/per_track.ts';

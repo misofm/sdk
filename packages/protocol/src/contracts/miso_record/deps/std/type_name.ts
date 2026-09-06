@@ -7,6 +7,7 @@
 
 import { MoveStruct } from '../../../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = 'std::type_name';
 export const TypeName = new MoveStruct({ name: `${$moduleName}::TypeName`, fields: {
         /**

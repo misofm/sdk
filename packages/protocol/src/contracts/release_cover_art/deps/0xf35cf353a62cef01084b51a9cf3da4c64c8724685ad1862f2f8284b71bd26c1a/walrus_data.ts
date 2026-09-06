@@ -3,6 +3,7 @@
  **************************************************************/
 import { MoveEnum, MoveStruct, MoveTuple } from '../../../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 const $moduleName = '0xf35cf353a62cef01084b51a9cf3da4c64c8724685ad1862f2f8284b71bd26c1a::walrus_data';
 /**
  * Confidentiality of a stored blob: cleartext, or encrypted with an access policy.

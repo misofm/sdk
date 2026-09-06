@@ -20,6 +20,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
 import * as vec_map from './deps/sui/vec_map.ts';
 import * as credit from './deps/miso_credit/credit.ts';

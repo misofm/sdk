@@ -21,6 +21,7 @@
 
 import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction } from '@mysten/sui/transactions';
 const $moduleName = '@local-pkg/party_genre::party_genre';
 export const GenresKey = new MoveTuple({ name: `${$moduleName}::GenresKey`, fields: [bcs.bool()] });
