@@ -1,4 +1,4 @@
-# misofm/sdk
+# misofm/sdks
 
 Monorepo for the Miso platform-layer TypeScript SDKs.
 

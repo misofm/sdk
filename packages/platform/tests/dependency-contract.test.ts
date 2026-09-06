@@ -13,7 +13,7 @@ type PackageManifest = {
 const repositoryRoot = `${import.meta.dir}/..`;
 const exactVersions = {
   "@mysten/seal": "1.4.6",
-  "@mysten/sui": "2.28.0",
+  "@mysten/sui": "2.29.0",
 } as const;
 const exactVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const protocolSdkContract = {

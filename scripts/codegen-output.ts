@@ -7,9 +7,9 @@ import { join } from "node:path";
 /**
  * The complete, closed-world directory set emitted by the current codegen config —
  * one entry per `packages[].package` output plus `utils`, which `@mysten/codegen`
- * writes on every run without a corresponding config entry, and `recording_preview`,
- * which is frozen (see `sui-codegen.config.ts`): retained here so it survives
- * pruning even though the runner never regenerates it.
+ * writes on every run without a corresponding config entry, and the `frozen`
+ * package entries (see `sui-codegen.config.ts`): retained here so each survives
+ * pruning even though the runner never regenerates them.
  */
 export const GENERATED_CONTRACT_DIRECTORIES = new Set([
   "miso",
@@ -44,18 +44,17 @@ export const GENERATED_CONTRACT_DIRECTORIES = new Set([
   "cover_art",
   "composition_royalty_pool",
   "recording_royalty_pool",
-  // composition_routed_stake is intentionally not generated yet — see the
-  // comment in sui-codegen.config.ts.
   "release_revenue_distributor",
-  // composition_royalty_pool_plugin, recording_royalty_pool_plugin, and
-  // release_revenue_distributor_plugin are intentionally not generated yet —
-  // see the comment in sui-codegen.config.ts.
   "miso_record",
-  // miso_record_shop is intentionally not generated yet — see the comment in
-  // sui-codegen.config.ts.
   "utils",
-  // Frozen — see the `frozen` package entry in sui-codegen.config.ts.
+  // Frozen — see the corresponding `frozen` package entry in
+  // sui-codegen.config.ts for why each is un-generatable upstream.
   "recording_preview",
+  "composition_routed_stake",
+  "composition_royalty_pool_plugin",
+  "recording_royalty_pool_plugin",
+  "release_revenue_distributor_plugin",
+  "miso_record_shop",
 ]);
 
 /**

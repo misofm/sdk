@@ -104,8 +104,7 @@ const config: MisoCodegenConfig = {
     // Actions — public, custody-agnostic business logic over a work.
     { package: "@local-pkg/composition_royalty_pool", path: source("misofm/protocol-actions/composition_royalty_pool") },
     { package: "@local-pkg/recording_royalty_pool", path: source("misofm/protocol-actions/recording_royalty_pool") },
-    // composition_routed_stake is INTENTIONALLY OMITTED, not frozen. Unlike
-    // recording_preview it has live Move source, but `sui move summary`
+    // composition_routed_stake has live Move source, but `sui move summary`
     // currently refuses to build it (reproduces on sui 1.66.2 through 1.78.1,
     // against the clean, committed Move.toml — not an artifact of this SDK
     // checkout): it depends on `royalty_pool` both directly and transitively
@@ -116,8 +115,10 @@ const config: MisoCodegenConfig = {
     //   _royalty_pool = { ..., override = true }
     // in protocol-actions/composition_routed_stake/Move.toml. That's a fix
     // for the protocol-actions repo, out of scope (and out of permissions)
-    // for this SDK change. Add the entry back once that override lands:
-    //   { package: "@local-pkg/composition_routed_stake", path: source("misofm/protocol-actions/composition_routed_stake") },
+    // for this SDK change. Frozen on the existing, already-deployed binding
+    // (carried forward from packages/platform/src/contracts) until that
+    // override lands upstream:
+    { package: "@local-pkg/composition_routed_stake", frozen: true },
     { package: "@local-pkg/release_revenue_distributor", path: source("misofm/protocol-actions/release_revenue_distributor") },
 
     // Vault plugins — permissionless automation adapters for the subset of
@@ -128,15 +129,15 @@ const config: MisoCodegenConfig = {
     // resolver error as composition_routed_stake above, for the identical
     // reason: each redundantly depends on `royalty_pool` directly AND
     // transitively (through composition_royalty_pool / recording_royalty_pool).
-    // Omitted pending the same upstream `override = true` fix. Add back once
-    // fixed:
-    //   { package: "@local-pkg/composition_royalty_pool_plugin", path: source("misofm/vault-plugins/composition_royalty_pool_plugin") },
-    //   { package: "@local-pkg/recording_royalty_pool_plugin", path: source("misofm/vault-plugins/recording_royalty_pool_plugin") },
+    // Frozen on the existing bindings pending the same upstream
+    // `override = true` fix:
+    { package: "@local-pkg/composition_royalty_pool_plugin", frozen: true },
+    { package: "@local-pkg/recording_royalty_pool_plugin", frozen: true },
     //
     // release_revenue_distributor_plugin hits the identical resolver error,
     // this time over `miso` (direct + transitive through
-    // release_revenue_distributor). Same fix needed, same omission:
-    //   { package: "@local-pkg/release_revenue_distributor_plugin", path: source("misofm/vault-plugins/release_revenue_distributor_plugin") },
+    // release_revenue_distributor). Same fix needed; frozen the same way:
+    { package: "@local-pkg/release_revenue_distributor_plugin", frozen: true },
 
     // Record identity and edition-scoped Pressings, separate from Record Shop's
     // primary-sale mechanics.
@@ -148,9 +149,9 @@ const config: MisoCodegenConfig = {
     // drift between record-shop and record, not just a missing override.
     // Forcing this through risks baking in a binding built against whichever
     // revision the resolver happens to pick, which may not match either
-    // package's actual on-chain ABI. Needs the record/record-shop pins
-    // reconciled upstream before this can generate. Add back once fixed:
-    //   { package: "@local-pkg/miso_record_shop", path: source("misofm/record-shop") },
+    // package's actual on-chain ABI. Frozen on the existing binding until the
+    // record/record-shop pins are reconciled upstream:
+    { package: "@local-pkg/miso_record_shop", frozen: true },
   ],
 };
 

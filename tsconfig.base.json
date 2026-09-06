@@ -24,6 +24,13 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+
+    // TypeScript 7.x (`tsgo`) does not auto-include `@types/*` packages at
+    // all — unlike tsc, it never scans `node_modules/@types` for ambient
+    // globals, regardless of linker mode. Name `bun` explicitly here so
+    // every package gets `@types/bun`'s ambient globals (Response, URL,
+    // Headers, TextEncoder, …).
+    "types": ["bun"]
   }
 }

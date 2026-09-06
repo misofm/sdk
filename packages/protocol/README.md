@@ -15,16 +15,19 @@ protocol and Party package set on Sui.
 | `@misofm/protocol/execute`     | Transaction execution helpers                          |
 | `@misofm/protocol/view`        | `devInspect`-backed view helpers                        |
 | `@misofm/protocol/types`       | Shared TypeScript types                                 |
-| `@misofm/protocol/parsers`     | BCS/object parsers                                      |
+| `@misofm/protocol/parsers`     | Event parsers                                           |
 | `@misofm/protocol/events`      | Event decoders                                          |
-| `@misofm/protocol/packages`    | Package ID registry                                     |
+| `@misofm/protocol/packages`    | Module→package bindings                                 |
 | `@misofm/protocol/party`       | Party identity bindings                                 |
+| `@misofm/protocol/contracts`   | Generated ABI-bound bindings (BCS structs + Move calls)  |
 
 ## Install
 
 ```sh
 bun add @misofm/protocol
 ```
+
+Peer dependency: `@mysten/sui@2.29.0` (exact).
 
 ## License
 

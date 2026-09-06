@@ -6,11 +6,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/misofm/sdk.git"
+    "url": "git+https://github.com/misofm/sdks.git"
   },
-  "homepage": "https://github.com/misofm/sdk#readme",
+  "homepage": "https://github.com/misofm/sdks#readme",
   "bugs": {
-    "url": "https://github.com/misofm/sdk/issues"
+    "url": "https://github.com/misofm/sdks/issues"
   },
   "keywords": [
     "sui",
@@ -101,14 +101,14 @@
     "@mysten/bcs": "^2.1.1"
   },
   "devDependencies": {
-    "@mysten/sui": "2.28.0",
+    "@mysten/sui": "2.29.0",
     "@types/bun": "^1.4.0",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.13.0",
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "@mysten/sui": "2.28.0",
+    "@mysten/sui": "2.29.0",
     "typescript": "^5.7 || ^6 || ^7"
   },
   "main": "./dist/index.js"
