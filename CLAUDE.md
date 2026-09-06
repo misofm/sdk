@@ -1,4 +1,4 @@
-# @misofm/sdk Agent Guide
+# misofm/sdks Agent Guide
 
 ## Sui Development Skills
 

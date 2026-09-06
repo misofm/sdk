@@ -1,0 +1,150 @@
+{
+  "name": "@misofm/platform",
+  "version": "0.18.0",
+  "packageManager": "bun@1.4.0",
+  "description": "Complete client SDK for the Miso platform on Sui — high-level reads, pressings, listings, records, and work publishing.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/misofm/sdks.git"
+  },
+  "homepage": "https://github.com/misofm/sdks#readme",
+  "bugs": {
+    "url": "https://github.com/misofm/sdks/issues"
+  },
+  "keywords": [
+    "sui",
+    "move",
+    "miso",
+    "music",
+    "blockchain",
+    "sdk",
+    "pressing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./deployments": {
+      "types": "./dist/deployments.d.ts",
+      "default": "./dist/deployments.js"
+    },
+    "./pressing": {
+      "types": "./dist/pressing.d.ts",
+      "default": "./dist/pressing.js"
+    },
+    "./transactions": {
+      "types": "./dist/transactions.d.ts",
+      "default": "./dist/transactions.js"
+    },
+    "./execute": {
+      "types": "./dist/execute.d.ts",
+      "default": "./dist/execute.js"
+    },
+    "./share": {
+      "types": "./dist/share.d.ts",
+      "default": "./dist/share.js"
+    },
+    "./share-template": {
+      "types": "./dist/share-template.d.ts",
+      "default": "./dist/share-template.js"
+    },
+    "./release-graph": {
+      "types": "./dist/release-graph.d.ts",
+      "default": "./dist/release-graph.js"
+    },
+    "./publication": {
+      "types": "./dist/publication.d.ts",
+      "default": "./dist/publication.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "default": "./dist/catalog.js"
+    },
+    "./credits": {
+      "types": "./dist/credits.d.ts",
+      "default": "./dist/credits.js"
+    },
+    "./cover": {
+      "types": "./dist/cover.d.ts",
+      "default": "./dist/cover.js"
+    },
+    "./release-extensions": {
+      "types": "./dist/release-extensions.d.ts",
+      "default": "./dist/release-extensions.js"
+    },
+    "./recording-extensions": {
+      "types": "./dist/recording-extensions.d.ts",
+      "default": "./dist/recording-extensions.js"
+    },
+    "./mix": {
+      "types": "./dist/mix.d.ts",
+      "default": "./dist/mix.js"
+    },
+    "./read": {
+      "types": "./dist/read/index.d.ts",
+      "default": "./dist/read/index.js"
+    },
+    "./read/types": {
+      "types": "./dist/read/types.d.ts",
+      "default": "./dist/read/types.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
+    },
+    "./vault": {
+      "types": "./dist/vault.d.ts",
+      "default": "./dist/vault.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "scripts": {
+    "codegen": "sui-ts-codegen generate && bun run codegen:format",
+    "codegen:format": "bun scripts/format-codegen.ts",
+    "codegen:check": "bun run codegen && git diff --exit-code -- src/contracts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepare": "rm -rf dist && tsc -p tsconfig.build.json --noCheck"
+  },
+  "dependencies": {
+    "@misofm/protocol": "0.12.0",
+    "@mysten/bcs": "^2.1.1"
+  },
+  "devDependencies": {
+    "@mysten/codegen": "^0.11.14",
+    "@mysten/move-bytecode-template": "^0.4.0",
+    "@mysten/seal": "1.4.6",
+    "@mysten/sui": "2.29.0",
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@mysten/move-bytecode-template": "^0.4.0",
+    "@mysten/seal": "1.4.6",
+    "@mysten/sui": "2.29.0",
+    "typescript": "^5.7 || ^6 || ^7"
+  },
+  "main": "./dist/index.js"
+}
