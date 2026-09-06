@@ -15,7 +15,7 @@ import {
   deriveCompositionAdminCapId,
   deriveRecordingAdminCapId,
   deriveReleaseAdminCapId,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 import {
   assertAtomicPublicationBounds,
   inspectAtomicPublication,

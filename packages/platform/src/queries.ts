@@ -5,5 +5,5 @@
 
 // `isNotFound` is the protocol SDK's — the not-found taxonomy is a property of
 // the Sui transports, not of any one package's objects, so it is defined once in
-// `@misonetwork/sdk` and re-exported here for the platform readers.
-export { isNotFound } from "@misonetwork/sdk";
+// `@misofm/protocol` and re-exported here for the platform readers.
+export { isNotFound } from "@misofm/protocol";

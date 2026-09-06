@@ -3,7 +3,7 @@
 
 // Composed catalog reads.
 //
-// `@misonetwork/sdk` exposes one-question reads: fetch an object by id, list the
+// `@misofm/protocol` exposes one-question reads: fetch an object by id, list the
 // caps an address owns, resolve a share type to its work. Stitching several of
 // those together to answer a PRODUCT question — "show me everything this artist
 // administers" — is orchestration, and it lives here for the same reason the
@@ -19,7 +19,7 @@ import {
   getRecordingsByIds,
   getReleaseById,
   type Recording,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 import { getWorkAddressesByShareTypes } from "./read/works.ts";
 import {
   getCompositionCreditsByIds,

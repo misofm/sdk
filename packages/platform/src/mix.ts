@@ -22,7 +22,7 @@ import {
   normalizeSuiObjectId,
   parseStructTag,
 } from "@mysten/sui/utils";
-import { getReleaseById, isNotFound } from "@misonetwork/sdk";
+import { getReleaseById, isNotFound } from "@misofm/protocol";
 import { WalrusData } from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
 import * as recordContract from "./contracts/miso_record/record.ts";
 import type { TxThunk } from "./transactions.ts";

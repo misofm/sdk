@@ -43,8 +43,8 @@ import {
   walrusBlobIdFromU256,
 } from "../mix.ts";
 import { getTrackCreditsByRecordingIds } from "../catalog.ts";
-import { getReleaseById, getReleasesByIds, isNotFound } from "@misonetwork/sdk";
-import type { Release } from "@misonetwork/sdk";
+import { getReleaseById, getReleasesByIds, isNotFound } from "@misofm/protocol";
+import type { Release } from "@misofm/protocol";
 import type { MisoClient } from "./client.ts";
 import { getRecordingTitles, parseReleaseObject } from "./works.ts";
 import { int } from "./internal/scalars.ts";

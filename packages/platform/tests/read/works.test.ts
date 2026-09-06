@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
-import { contracts } from "@misonetwork/sdk";
+import { contracts } from "@misofm/protocol";
 import { getRecordingTitles, getWorksByIds, parseReleaseObject } from "../../src/read/works.ts";
 
 const RELEASE = "0x" + "11".repeat(32);

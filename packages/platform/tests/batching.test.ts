@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import type { SuiGraphQLClient } from "@mysten/sui/graphql";
-import { contracts } from "@misonetwork/sdk";
+import { contracts } from "@misofm/protocol";
 import { getTrackCreditsByRecordingIds } from "../src/catalog.ts";
 import { getReleaseCoversByIds } from "../src/cover.ts";
 import {

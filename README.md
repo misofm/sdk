@@ -4,7 +4,7 @@ Monorepo for the Miso platform-layer TypeScript SDKs.
 
 | Package                                          | Description                                                                                                                          |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [`packages/platform`](packages/platform/README.md) | `@misofm/sdk` — the complete client SDK for the Miso platform layer: catalog/artist/wallet reads, record production and sale, and Vault custody/Actions/plugins. |
+| [`packages/platform`](packages/platform/README.md) | `@misofm/platform` — the complete client SDK for the Miso platform layer: catalog/artist/wallet reads, record production and sale, and Vault custody/Actions/plugins. |
 | [`packages/protocol`](packages/protocol/README.md) | `@misofm/protocol` — typed bindings, queries, event decoders, and PTB builders for the Miso protocol and Party package set.            |
 
 This root `package.json` is private; each package under `packages/*` is

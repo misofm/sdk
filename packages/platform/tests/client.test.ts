@@ -28,7 +28,7 @@ import {
 import {
   MISO_PACKAGE_NAMES,
   type MisoDeployment,
-} from "@misonetwork/sdk/deployments";
+} from "@misofm/protocol/deployments";
 import { networkFrom } from "../src/read/config.ts";
 
 const RECORD = `0x${"12".repeat(32)}`;

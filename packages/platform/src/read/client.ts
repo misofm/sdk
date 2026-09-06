@@ -18,7 +18,7 @@
 
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
-import { miso, type MisoProtocolClient } from "@misonetwork/sdk/client";
+import { miso, type MisoProtocolClient } from "@misofm/protocol/client";
 import { misoConfig, networkFrom, type MisoConfig, type MisoConfigOverrides, type Network } from "./config.ts";
 
 function definedOverrides<T extends object>(value: T): Partial<T> {
@@ -31,7 +31,7 @@ function definedOverrides<T extends object>(value: T): Partial<T> {
  * same shape from our side so the one cast in `createMisoClient` is explicit
  * rather than an `any` smeared across the codebase.
  */
-export type ProtocolClient = Parameters<typeof import("@misonetwork/sdk").getReleaseById>[0];
+export type ProtocolClient = Parameters<typeof import("@misofm/protocol").getReleaseById>[0];
 
 /** A GraphQL client in the shape the protocol SDK's type-discovery queries want. */
 export type ProtocolGraphQLClient = SuiGraphQLClient;
@@ -68,7 +68,7 @@ export function createMisoClient(options: CreateMisoClientOptions = {}): MisoCli
     : misoConfig(requestedNetwork, overrides);
   if (network !== undefined && config.network !== requestedNetwork) {
     throw new Error(
-      `@misofm/sdk/read: provided config is for ${config.network}, not ${requestedNetwork}.`,
+      `@misofm/platform/read: provided config is for ${config.network}, not ${requestedNetwork}.`,
     );
   }
 

@@ -12,7 +12,7 @@ import {
   type Recording,
   type Release,
   type TrackState,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 
 export interface WorkShareTypes {
   compositions: readonly string[];

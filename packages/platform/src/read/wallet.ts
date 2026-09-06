@@ -18,7 +18,7 @@ import {
   getRecordingByShareType,
   getReleaseById,
   isNotFound,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 import type { MisoClient } from "./client.ts";
 import { int, u64 } from "./internal/scalars.ts";
 import * as vaultContract from "../contracts/vault/vault.ts";

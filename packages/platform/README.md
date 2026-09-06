@@ -1,19 +1,19 @@
-# @misofm/sdk
+# @misofm/platform
 
 The complete client SDK for the **Miso platform layer** on Sui: composed catalog,
 artist, wallet, and receipt reads; the record production line and sale of copies;
-and fail-closed Vault custody, raw Actions, and safe crank plugins built on `@misonetwork/sdk`'s
+and fail-closed Vault custody, raw Actions, and safe crank plugins built on `@misofm/protocol`'s
 protocol and data-extension primitives.
 
 ## The split
 
-Miso ships two SDK families, and the npm scope tells you which promise you are
+Miso ships two SDK packages, and the package name tells you which promise you are
 holding:
 
-| Scope            | Layer        | Owns                                                                                                                                   |
-| ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `@misonetwork/*` | **Protocol** | Composition, Recording, Release, Party identity; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
-| `@misofm/*`      | **Platform** | Pressing, Listing, Record, and an explicitly deployed Vault/Action/plugin compatibility set                                           |
+| Package             | Layer        | Owns                                                                                                                                   |
+| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `@misofm/protocol` | **Protocol** | Composition, Recording, Release, Party identity; metadata/data extensions; utilities; generic royalty-pool and routed-stake primitives |
+| `@misofm/platform` | **Platform** | Pressing, Listing, Record, and an explicitly deployed Vault/Action/plugin compatibility set                                           |
 
 A release is protocol. Pressing a record off that release and selling it is
 platform. So is deciding _what to do_ with a freshly-minted work's share
@@ -31,29 +31,26 @@ address-owned admin caps explicitly; it never silently treats a legacy cap as a
 vaulted one. New Vault IDs are derived from the shared `VaultRegistry`, the raw
 cap ID, and its type; each VaultAdminCap ID is then derived from its Vault.
 
-This package requires `@misonetwork/sdk` as a peer and imports its bare
+This package depends on `@misofm/protocol` directly and imports its bare
 `createComposition`/`createRecording` primitives, composing them with its own
 minato-dispersal and share-currency logic in the same PTB — the
 transaction-thunk composition pattern from the
 [Sui SDK building guide](https://sdk.mystenlabs.com/sui/sdk-building), just
 crossing a package boundary.
 
-Install both SDKs at the application boundary; the platform package intentionally
-does not carry its own protocol SDK copy:
-
 ```sh
-bun add @misofm/sdk@^0.17.1 @misonetwork/sdk@^0.11.0
+bun add @misofm/platform@^0.18.0
 ```
 
-Both SDKs are consumed from npm. The platform package keeps
-`@misonetwork/sdk` as a peer so applications resolve exactly one protocol SDK
-and one compatible deployment map. Registration takes a recursively frozen
+`@misofm/protocol` resolves transitively through that dependency, so
+applications get exactly one protocol SDK and one compatible deployment map
+without installing it themselves. Registration takes a recursively frozen
 snapshot of custom deployment/config records without freezing the caller's
 original objects, so later caller mutation cannot retarget an existing client.
 
 ### Canonical Record-gated sessions
 
-`@misofm/sdk/mix` defines the complete protected-playback wire contract. A
+`@misofm/platform/mix` defines the complete protected-playback wire contract. A
 Record resolves its immutable Release track to a Recording, then derives that
 Recording's `recording_engine_session::ExtensionKey` dynamic field directly.
 The field names one plaintext Walrus `miso.engine-session/1` document containing
@@ -93,7 +90,7 @@ Register the client extension on any client implementing Sui's Core API
 ```ts
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Transaction } from "@mysten/sui/transactions";
-import { miso } from "@misofm/sdk";
+import { miso } from "@misofm/platform";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
   miso({ deployment: verifiedDeployment }),
@@ -136,7 +133,7 @@ Holding the ids yourself? The bare APIs take `recordPackageId` and/or
 `recordShopPackageId` explicitly:
 
 ```ts
-import { purchaseRecord, getSale } from "@misofm/sdk/pressing";
+import { purchaseRecord, getSale } from "@misofm/platform/pressing";
 ```
 
 Verified package and singleton IDs are bundled in
@@ -146,7 +143,7 @@ unless the caller passes one complete deployment through `miso({ deployment })`.
 
 ### High-level platform reads
 
-`@misofm/sdk/read` turns protocol, pressing, Party, credits, cover, and wallet
+`@misofm/platform/read` turns protocol, pressing, Party, credits, cover, and wallet
 objects into the JSON-safe views a client actually renders. It works in browsers,
 Workers, and servers. Miso's HTTP API is a thin validated and cached transport over
 this same surface, not a separate domain implementation.
@@ -157,7 +154,7 @@ import {
   getDiscoverShelf,
   getReleaseDetail,
   getOwnedRecords,
-} from "@misofm/sdk/read";
+} from "@misofm/platform/read";
 
 const miso = createMisoClient({ config: verifiedReadConfig });
 
@@ -169,7 +166,7 @@ const library = await getOwnedRecords(miso, walletAddress);
 The package root also exposes the same functions under the `read` namespace:
 
 ```ts
-import { read } from "@misofm/sdk";
+import { read } from "@misofm/platform";
 
 const miso = read.createMisoClient({ config: verifiedReadConfig });
 const artist = await read.getArtistProfile(miso, partyId);
@@ -177,14 +174,14 @@ const artist = await read.getArtistProfile(miso, partyId);
 
 ### Authenticated platform mutations
 
-`@misofm/sdk/auth` implements Miso's Enoki + Sui personal-message authorization
+`@misofm/platform/auth` implements Miso's Enoki + Sui personal-message authorization
 protocol without owning session state or private credentials. It asks the API
 for a short-lived, method/path-bound challenge, validates the response, signs
 the exact bytes with the caller's Sui signer, and sends the authenticated
 mutation.
 
 ```ts
-import { authenticatedFetch } from "@misofm/sdk/auth";
+import { authenticatedFetch } from "@misofm/platform/auth";
 
 await authenticatedFetch(
   "https://api.testnet.miso.fm/platform/usernames/alice",
@@ -243,13 +240,13 @@ the same PTB.
 
 ## Publishing (`transactions.ts`, `share.ts`, `release-graph.ts`)
 
-`@misonetwork/sdk`'s `createComposition`/`createRecording` mint a work and hand
+`@misofm/protocol`'s `createComposition`/`createRecording` mint a work and hand
 back its by-value parts (the object, its admin cap, its freshly-minted share
 `Balance`) without dispersing, sharing, or transferring anything. This package
 supplies the opinionated finish on top:
 
 ```ts
-import { miso } from "@misofm/sdk";
+import { miso } from "@misofm/platform";
 
 const client = new SuiGrpcClient({ network: "testnet", baseUrl }).$extend(
   miso({ deployment: verifiedDeployment }),
@@ -272,7 +269,7 @@ const thunk = client.miso.tx.publishComposition({
 
 `client.miso.tx.publishRecording` and `publishCompositionAndRecording`
 follow the same shape (the latter atomically, borrow-before-share, in one PTB —
-see `@misonetwork/sdk`'s README for why the ordering is load-bearing).
+see `@misofm/protocol`'s README for why the ordering is load-bearing).
 The protocol, immutable Record and Record Shop packages, minato, and core
 `ReleaseRegistry` address all come from the deployment selected by the Sui
 client's network. Record sales have no Record Registry or Settings singleton.
@@ -285,7 +282,7 @@ For custom PTBs, the bare primitives (`disperseShares`, `finalizeComposition`,
 `finalizeRecording`) and the whole-graph orchestrator are exported standalone:
 
 ```ts
-import { publishReleaseGraph } from "@misofm/sdk";
+import { publishReleaseGraph } from "@misofm/platform";
 
 // Every composition and recording, optional royalty pools, tracks, and
 // the release — with the release id derived ON-CHAIN — in one atomic PTB.
@@ -373,7 +370,7 @@ import {
   assertAtomicPublicationBounds,
   parseAtomicPublicationResult,
   publishAtomicCatalog,
-} from "@misofm/sdk/publication";
+} from "@misofm/platform/publication";
 
 const publication = {
   deployment,
@@ -425,7 +422,7 @@ const currency = await client.miso.createShareCurrency(signer, {
 // → { packageId, currencyId, shareType, treasuryCapId, gasUsed }
 
 // Batched (many currencies, via a ParallelTransactionExecutor):
-import { publishShareCurrencies, initializeShareCurrencies } from "@misofm/sdk";
+import { publishShareCurrencies, initializeShareCurrencies } from "@misofm/platform";
 const { packageIds } = await publishShareCurrencies(
   executor,
   initializerAddress,
@@ -445,7 +442,7 @@ const { currencies } = await initializeShareCurrencies(
 `executeViaExecutor(executor, ...thunks)` (`execute.ts`) submits a
 non-idempotent PTB through a `ParallelTransactionExecutor` exactly once (no
 auto-retry) — it's what the batched provisioning above builds on, layered over
-`@misonetwork/sdk`'s transport-agnostic `buildTx`/`toExecResult`.
+`@misofm/protocol`'s transport-agnostic `buildTx`/`toExecResult`.
 
 ## Extensions
 
@@ -477,7 +474,7 @@ import {
   getCompositionCredits,
   getRecordingCredits,
   getReleaseCredits,
-} from "@misofm/sdk";
+} from "@misofm/platform";
 
 const thunk = attachRecordingCredit({
   recordingId: "0x...",
@@ -534,7 +531,7 @@ A release's cover is a Walrus blob referenced on-chain via `ori::WalrusData`,
 attached under the `release_cover_art` extension:
 
 ```ts
-import { setReleaseCover, getReleaseCover } from "@misofm/sdk";
+import { setReleaseCover, getReleaseCover } from "@misofm/platform";
 
 const thunk = setReleaseCover({
   releaseId: "0x...",
@@ -612,7 +609,7 @@ import type {
   ReleaseRole,
   ReleaseCoverView,
   CoverImageRef,
-} from "@misofm/sdk";
+} from "@misofm/platform";
 ```
 
 `RecordingLeveledRoleType` is the union of the 28 recording role base names that
@@ -628,7 +625,7 @@ src/
   deployments.ts         fail-closed deployment schema and future address injection point
   client.ts              the full client.miso facade; protocol and Party live at client.miso.protocol / .party
   pressing.ts            facade: builders, readers, and the id derivations
-  queries.ts             shared read plumbing (isNotFound, re-exported from @misonetwork/sdk)
+  queries.ts             shared read plumbing (isNotFound, re-exported from @misofm/protocol)
   transactions.ts        the TxThunk contract + the opinionated publish flow (disperse/finalize/publish*)
   release-graph.ts        whole release graph in one PTB (publishReleaseGraph)
   share.ts               share-currency provisioning (createShareCurrency, batched variants)
@@ -637,7 +634,7 @@ src/
   cover.ts               EXTENSION: release cover art (Walrus blob via ori)
   read/                  high-level catalog, artist, wallet, and receipt views
   vault.ts               Vault authority, plugin, event, and receiving-coin builders
-  execute.ts              executeViaExecutor, layered on @misonetwork/sdk's buildTx/toExecResult
+  execute.ts              executeViaExecutor, layered on @misofm/protocol's buildTx/toExecResult
   internal.ts            private helpers (the 0x1::option moveCall targets) — NOT exported
   contracts.ts           barrel re-exporting the generated bindings as `contracts`
   contracts/             GENERATED — do not edit by hand
@@ -656,7 +653,7 @@ bun run codegen   # reads sui-codegen.config.ts → src/contracts/
 extensions, generic `royalty_pool`/`routed_stake`, and the `vault` plus all
 vault-plugin packages. The protocol CORE (`miso` —
 composition/recording/release/track) generates into
-`@misonetwork/sdk` instead, which this package depends on for those bindings —
+`@misofm/protocol` instead, which this package depends on for those bindings —
 adding the core here to save an import is how the split this package exists to
 enforce gets undone.
 
@@ -669,26 +666,24 @@ For an isolated checkout, copy those source trees and set
 `MISO_SDK_CODEGEN_SOURCE_ROOT` to their common parent. The codegen config reads
 only from that copy, avoiding writes to a developer's live source tree.
 
-## Dependency on `@misonetwork/sdk`
+## Dependency on `@misofm/protocol`
 
-`@misonetwork/sdk` is a required peer (`^0.11.0`), not a runtime dependency.
-This package imports its primitives, deployment configuration, protocol client,
-and Party client directly, then exposes them at `client.miso.protocol` and
-`client.miso.party` only after `await client.miso.ready()` validates the exact
-ledger. Direct protocol reads, generated calls, package bindings, and nested
-Party APIs cannot be obtained before that gate. The consuming
-application installs one protocol SDK, preventing a platform tarball from
-silently nesting an older protocol ABI alongside the application's copy.
-`@mysten/sui` itself stays a peer dependency here, same as in
-`@misonetwork/sdk`.
+`@misofm/protocol` is a regular runtime dependency of this package (a workspace
+dependency in this monorepo, resolved to a published version range on publish),
+not a peer. This package imports its primitives, deployment configuration,
+protocol client, and Party client directly, then exposes them at
+`client.miso.protocol` and `client.miso.party` only after
+`await client.miso.ready()` validates the exact ledger. Direct protocol reads,
+generated calls, package bindings, and nested Party APIs cannot be obtained
+before that gate.
 
-The published tarball intentionally contains no protocol SDK copy: consumers
-satisfy the peer with their verified `@misonetwork/sdk@^0.11.0` installation.
+`@mysten/sui` itself stays a peer dependency here, so an application resolves
+exactly one Sui SDK across both packages regardless of which protocol version
+`@misofm/platform` pins.
 
 ```bash
-bun install
+bun add @misofm/platform
 ```
 
-For a tarball integration check, pack both SDKs and install both tarballs into a
-fresh consumer. The consumer must resolve exactly one `@misonetwork/sdk`, at the
-application root; `@misofm/sdk` must not contain a nested copy.
+`@misofm/protocol` resolves automatically as a transitive dependency; there is
+no separate install step and no peer version for consumers to reconcile.

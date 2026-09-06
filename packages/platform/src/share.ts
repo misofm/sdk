@@ -32,7 +32,7 @@ import {
   createdByType,
   allCreatedByType,
   type ExecResult,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 
 import { publishShareCurrency, initializeShareCurrency, type PackageBytecode } from "./transactions.ts";
 import { SHARE_TEMPLATE } from "./share-template.ts";

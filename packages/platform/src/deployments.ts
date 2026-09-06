@@ -1,8 +1,8 @@
 // Copyright (c) Miso Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { MisoDeployment, MisoNetwork } from "@misonetwork/sdk/deployments";
-import { MISO_DEPLOYMENTS } from "@misonetwork/sdk/deployments";
+import type { MisoDeployment, MisoNetwork } from "@misofm/protocol/deployments";
+import { MISO_DEPLOYMENTS } from "@misofm/protocol/deployments";
 import { normalizeSuiObjectId } from "@mysten/sui/utils";
 import { immutableSnapshot } from "./internal.ts";
 
@@ -26,7 +26,7 @@ export type RecordSalesDeployment =
 export class RecordSalesUnavailableError extends Error {
   override readonly name = "RecordSalesUnavailableError";
   constructor(readonly reason: string) {
-    super(`@misofm/sdk: Record sales are unavailable: ${reason}`);
+    super(`@misofm/platform: Record sales are unavailable: ${reason}`);
   }
 }
 
@@ -97,7 +97,7 @@ export type OperationsDeployment =
 export class OperationsUnavailableError extends Error {
   override readonly name = "OperationsUnavailableError";
   constructor(readonly reason: string) {
-    super(`@misofm/sdk: Vault operations are unavailable: ${reason}`);
+    super(`@misofm/platform: Vault operations are unavailable: ${reason}`);
   }
 }
 
@@ -349,7 +349,7 @@ export function getMisoPlatformDeployment(
   )[network];
   if (!deployment) {
     throw new Error(
-      `@misofm/sdk: no bundled Miso platform deployment for network "${network}". ` +
+      `@misofm/platform: no bundled Miso platform deployment for network "${network}". ` +
         "Pass an explicit deployment to miso() for custom networks.",
     );
   }

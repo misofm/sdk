@@ -11,7 +11,7 @@
 // by the platform SDK. Mainnet remains deliberately unavailable until a complete
 // deployment is bundled for it.
 
-import type { MisoDeployment } from "@misonetwork/sdk/deployments";
+import type { MisoDeployment } from "@misofm/protocol/deployments";
 import { getMisoPlatformDeployment, type RecordSalesDeployment } from "../deployments.ts";
 
 export type Network = "testnet" | "mainnet";
@@ -20,7 +20,7 @@ export type Network = "testnet" | "mainnet";
 export function networkFrom(value: string | undefined): Network {
   if (value === undefined || value === "testnet") return "testnet";
   if (value === "mainnet") return "mainnet";
-  throw new Error(`@misofm/sdk/read: unsupported network "${value}".`);
+  throw new Error(`@misofm/platform/read: unsupported network "${value}".`);
 }
 
 /** Package ids for the miso protocol core and the extensions the read layer touches. */
@@ -99,7 +99,7 @@ export function misoConfig(network: Network, overrides: MisoConfigOverrides = {}
       : platform.operations.legacy?.vaultPackageId;
   if (!vaultPackageId) {
     throw new Error(
-      `@misofm/sdk/read: no current or legacy Vault type metadata for "${network}".`,
+      `@misofm/platform/read: no current or legacy Vault type metadata for "${network}".`,
     );
   }
   const config: MisoConfig = {

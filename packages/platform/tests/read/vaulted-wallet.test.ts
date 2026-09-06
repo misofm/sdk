@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "bun:test";
-import { contracts } from "@misonetwork/sdk";
+import { contracts } from "@misofm/protocol";
 import * as vaultContract from "../../src/contracts/vault/vault.ts";
 import type { MisoClient } from "../../src/read/client.ts";
 import {

@@ -38,8 +38,8 @@ import type { ParallelTransactionExecutor } from "@mysten/sui/transactions";
 import {
   miso as protocolMiso,
   type MisoProtocolClient,
-} from "@misonetwork/sdk/client";
-import type { PartyProtocolClient } from "@misonetwork/sdk/party";
+} from "@misofm/protocol/client";
+import type { PartyProtocolClient } from "@misofm/protocol/party";
 
 import * as recordContract from "./contracts/miso_record/record.ts";
 import * as pressingContract from "./contracts/miso_record/pressing.ts";
@@ -241,7 +241,7 @@ export class MisoNetworkMismatchError extends Error {
     readonly deploymentNetwork: string,
   ) {
     super(
-      `@misofm/sdk: client network "${clientNetwork}" does not match deployment network "${deploymentNetwork}"`,
+      `@misofm/platform: client network "${clientNetwork}" does not match deployment network "${deploymentNetwork}"`,
     );
   }
 }
@@ -253,7 +253,7 @@ export class MisoChainIdentifierMismatchError extends Error {
     readonly expected: string,
   ) {
     super(
-      `@misofm/sdk: endpoint chain identifier "${actual}" does not match deployment chain identifier "${expected}"`,
+      `@misofm/platform: endpoint chain identifier "${actual}" does not match deployment chain identifier "${expected}"`,
     );
   }
 }
@@ -262,7 +262,7 @@ export class MisoClientNotReadyError extends Error {
   override readonly name = "MisoClientNotReadyError";
   constructor(readonly operation: string) {
     super(
-      `@misofm/sdk: ${operation} requires an exact-chain validation lifecycle; call and await client.miso.ready() first`,
+      `@misofm/platform: ${operation} requires an exact-chain validation lifecycle; call and await client.miso.ready() first`,
     );
   }
 }
@@ -276,7 +276,7 @@ export interface MisoPlatformConfig {
    * unavailable legacy state that makes every sales API fail closed. */
   recordSales?: RecordSalesDeployment;
   /**
-   * The `@misonetwork/sdk` protocol package (miso core). Required for the
+   * The `@misofm/protocol` protocol package (miso core). Required for the
    * publish builders (`publishComposition`, `publishRecording`,
    * `publishCompositionAndRecording`) — optional if this client only ever
    * sells pressed records.
@@ -1235,7 +1235,7 @@ export class MisoPlatformClient {
   };
 }
 
-/** The full Miso client exposed by `@misofm/sdk`. */
+/** The full Miso client exposed by `@misofm/platform`. */
 export { MisoPlatformClient as MisoClient };
 
 /**

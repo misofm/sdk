@@ -12,7 +12,7 @@
 //
 // The `Release` being covered is a protocol object; the cover is a platform
 // opinion attached to it through the release's cap-gated `uid_mut` hook, which is
-// why this module ships from `@misofm/sdk` rather than the protocol SDK.
+// why this module ships from `@misofm/platform` rather than the protocol SDK.
 
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";

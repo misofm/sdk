@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // so the generated layer is always in lockstep with the on-chain ABI.
 //
 // PLATFORM + DATA-EXTENSION packages. The protocol CORE (`miso` — Composition,
-// Recording, Release, Track) generates into `@misonetwork/sdk` instead, and
+// Recording, Release, Track) generates into `@misofm/protocol` instead, and
 // this package depends on it for those bindings; adding the core here to save an
 // import is how the split this package exists to enforce gets undone.
 //

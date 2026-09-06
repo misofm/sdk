@@ -5,7 +5,7 @@
 // Move calls). Re-exported from the package root as the `contracts` namespace.
 //
 // PLATFORM + EXTENSION packages. The protocol core (`miso`: Composition,
-// Recording, Release, Track) generates into `@misonetwork/sdk` and is
+// Recording, Release, Track) generates into `@misofm/protocol` and is
 // re-exported from ITS `contracts` namespace — import it from there rather than
 // mirroring it here.
 

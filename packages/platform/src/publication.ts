@@ -21,8 +21,8 @@ import {
   deriveCompositionAdminCapId,
   deriveRecordingAdminCapId,
   deriveReleaseAdminCapId,
-} from "@misonetwork/sdk";
-import { derivePartyAdminCapId } from "@misonetwork/sdk/party";
+} from "@misofm/protocol";
+import { derivePartyAdminCapId } from "@misofm/protocol/party";
 import {
   requireOperationsDeployment,
   type AvailableOperationsDeployment,

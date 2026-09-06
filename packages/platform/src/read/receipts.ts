@@ -24,7 +24,7 @@ import * as listingContract from "../contracts/miso_record_shop/listing.ts";
 import {
   extractTypeParams2,
   getCompositionsByIds,
-} from "@misonetwork/sdk";
+} from "@misofm/protocol";
 import { normalizeStructTag, normalizeSuiAddress } from "@mysten/sui/utils";
 import { getPressingDetail } from "./catalog.ts";
 import type { MisoClient } from "./client.ts";
