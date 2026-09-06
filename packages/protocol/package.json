@@ -86,6 +86,10 @@
       "types": "./dist/party/index.d.ts",
       "default": "./dist/party/index.js"
     },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "default": "./dist/contracts.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
