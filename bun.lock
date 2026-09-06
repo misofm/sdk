@@ -4,6 +4,12 @@
   "workspaces": {
     "": {
       "name": "@misofm/sdk-monorepo",
+      "devDependencies": {
+        "@mysten/codegen": "^0.12.6",
+        "@mysten/sui": "2.28.0",
+        "@types/bun": "^1.4.0",
+        "typescript": "^7.0.2",
+      },
     },
     "packages/platform": {
       "name": "@misofm/sdk",
@@ -35,7 +41,6 @@
         "@mysten/bcs": "^2.1.1",
       },
       "devDependencies": {
-        "@mysten/codegen": "^0.12.6",
         "@mysten/sui": "2.28.0",
         "@types/bun": "^1.4.0",
         "typedoc": "^0.28.20",
@@ -242,13 +247,9 @@
 
     "zod": ["zod@4.5.4", "", {}, "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA=="],
 
-    "@0no-co/graphqlsp/typescript": ["@typescript/typescript6@6.0.2", "", { "dependencies": { "@typescript/old": "npm:typescript@^6" }, "bin": { "tsc6": "bin/tsc6" } }, "sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w=="],
-
     "@misofm/sdk/@mysten/codegen": ["@mysten/codegen@0.11.14", "", { "dependencies": { "@mysten/bcs": "^2.1.0", "@mysten/sui": "^2.24.0", "@stricli/auto-complete": "^1.2.7", "@stricli/core": "^1.2.7", "@types/node": "^25.9.3", "cosmiconfig": "^9.0.2", "prettier": "^3.8.4", "toml": "^4.1.1", "typescript": "^6.0.3", "zod": "^4.4.3" }, "bin": { "sui-ts-codegen": "dist/bin/cli.mjs", "__sui-ts-codegen_bash_complete": "dist/bin/bash-complete.mjs" } }, "sha512-QOMeI/uKzlHW9LblCDgGeByVxGBIHNRB0HpsqLGgk1hrXguv9QSZIQ5OqYEz/ZetyipncsTnyU4XQQppR7WoaA=="],
 
     "@mysten/codegen/typescript": ["@typescript/typescript6@6.0.2", "", { "dependencies": { "@typescript/old": "npm:typescript@^6" }, "bin": { "tsc6": "bin/tsc6" } }, "sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w=="],
-
-    "typedoc/typescript": ["@typescript/typescript6@6.0.2", "", { "dependencies": { "@typescript/old": "npm:typescript@^6" }, "bin": { "tsc6": "bin/tsc6" } }, "sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w=="],
 
     "@misofm/sdk/@mysten/codegen/@types/node": ["@types/node@25.9.5", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-OScDchr2fwuUmWdf4kZ9h7PcJiYDVInhJizG/biAq3cAvqwYktuy/TYGGdZNMtNTFUP7rnb0NU4TUdm82kt4Rg=="],
 

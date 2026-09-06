@@ -6,6 +6,11 @@
  * source worktrees. `sui move summary` receives each source path but writes its
  * result into a unique temporary directory; @mysten/codegen then reads only
  * that copied summary and writes the tracked bindings under `src/contracts`.
+ *
+ * A `frozen` package entry (see `sui-codegen.config.ts`) has no Move source to
+ * generate from. Its existing generated directory is left exactly as committed
+ * — `codegen-output.ts` keeps it out of the pruned set, and this runner never
+ * calls `sui move summary` or `generateFromPackageSummary` for it.
  */
 
 import {
@@ -20,16 +25,16 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { generateFromPackageSummary, type SuiCodegenConfig } from "@mysten/codegen";
-import config from "../sui-codegen.config.ts";
+import { generateFromPackageSummary } from "@mysten/codegen";
+import config, { isFrozenPackageConfig, type MisoCodegenConfig } from "../sui-codegen.config.ts";
 import { pruneRemovedPackageDirectories } from "./codegen-output.ts";
 
-const codegenConfig = config as SuiCodegenConfig;
+const codegenConfig = config as MisoCodegenConfig;
 const temporaryRoot = mkdtempSync(join(tmpdir(), "miso-sdk-codegen-"));
 const outputDir = resolve(process.cwd(), codegenConfig.output);
 // A full SDK copy can live outside the usual sibling-checkout layout. Point this
-// at the SDK checkout whose `../protocol*` siblings should supply Move source.
-// It defaults to this SDK checkout, which is the normal development layout.
+// at the SDK checkout whose `../misofm*` siblings should supply Move source. It
+// defaults to this SDK checkout, which is the normal development layout.
 const sourceConfigRoot = resolve(
   process.env.MISO_SDK_CODEGEN_SOURCE_ROOT ?? join(import.meta.dir, ".."),
 );
@@ -50,8 +55,11 @@ function normalizeGeneratedWhitespace(directory: string): void {
 try {
   pruneRemovedPackageDirectories(outputDir);
   for (const [index, packageConfig] of codegenConfig.packages.entries()) {
+    if (isFrozenPackageConfig(packageConfig)) {
+      continue;
+    }
     if (!("path" in packageConfig) || !packageConfig.path) {
-      throw new Error("Miso SDK codegen supports only source-backed packages.");
+      throw new Error("Miso SDK codegen supports only source-backed and frozen packages.");
     }
 
     const sourcePath =
