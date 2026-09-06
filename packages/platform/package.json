@@ -129,7 +129,7 @@
     "prepare": "rm -rf dist && tsc -p tsconfig.build.json --noCheck"
   },
   "dependencies": {
-    "@misofm/protocol": "workspace:*",
+    "@misofm/protocol": "0.12.0",
     "@mysten/bcs": "^2.1.1"
   },
   "devDependencies": {
