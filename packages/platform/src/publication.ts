@@ -87,8 +87,8 @@ import {
 } from "./pressing.ts";
 import { requireRecordSalesDeployment } from "./deployments.ts";
 import { allCreatedByType, createdByExactType, type PlatformExecResult } from "./execute.ts";
-import * as pressingContract from "./contracts/miso_record/pressing.ts";
-import * as listingContract from "./contracts/miso_record_shop/listing.ts";
+import * as pressingContract from "@misofm/protocol/contracts/miso_record/pressing";
+import * as listingContract from "@misofm/protocol/contracts/miso_record_shop/listing";
 
 const { composition, recording, release, track, party } = protocolContracts;
 

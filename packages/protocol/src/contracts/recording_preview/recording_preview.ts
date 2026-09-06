@@ -8,22 +8,23 @@
  * a dynamic field on the recording's UID, set/cleared via the recording's
  * cap-gated `uid_mut`.
  *
- * V1 is deliberately minimal: the value is a bare `ori::data::WalrusBlob`
- * reference — no ingestion or attestation ties the preview to the recording's
- * master. What the blob contains (codec, duration, clip offset) is client-side
- * convention, not protocol state. An attested preview standard can ship later as
- * its own extension without touching this one.
+ * V1 is deliberately minimal: the value is a bare `ori::WalrusData` blob reference
+ * — no ingestion or attestation ties the preview to the recording's master. What
+ * the blob contains (codec, duration, clip offset) is client-side convention, not
+ * protocol state. An attested preview standard can ship later as its own extension
+ * without touching this one.
  */
 
-import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.ts';
+import { MoveTuple, MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
+import type {} from "@mysten/bcs";
 import { type Transaction, type TransactionArgument } from '@mysten/sui/transactions';
-import * as data from './deps/ori/data.ts';
+import * as walrus_data from './deps/ori/walrus_data.js';
 const $moduleName = '@local-pkg/recording_preview::recording_preview';
 export const ExtensionKey = new MoveTuple({ name: `${$moduleName}::ExtensionKey`, fields: [bcs.bool()] });
 export const PreviewSetEvent = new MoveStruct({ name: `${$moduleName}::PreviewSetEvent`, fields: {
         recording_id: bcs.Address,
-        preview: data.WalrusBlob
+        preview: walrus_data.WalrusData
     } });
 export const PreviewUnsetEvent = new MoveStruct({ name: `${$moduleName}::PreviewUnsetEvent`, fields: {
         recording_id: bcs.Address

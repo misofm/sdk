@@ -43,8 +43,8 @@ import {
   type TxThunk,
 } from "@misofm/protocol";
 import { asU64, directAdminCap, disposeNewAdminCap, invokeWithAdminCap, type AdminCapAuthority, type AdminCapCustody, type U64Input } from "./vault.ts";
-import * as royaltyPool from "./contracts/royalty_pool/pool.ts";
-import * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
+import * as royaltyPool from "@misofm/protocol/contracts/royalty_pool/pool";
+import * as royaltyPoolStake from "@misofm/protocol/contracts/royalty_pool/stake";
 
 const { track, release } = contracts;
 

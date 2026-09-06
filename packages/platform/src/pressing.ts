@@ -14,9 +14,9 @@ import {
 import type { TxThunk } from "./transactions.ts";
 import { isNotFound } from "./queries.ts";
 import { asU64, type U64Input } from "./vault.ts";
-import * as pressingContract from "./contracts/miso_record/pressing.ts";
-import * as recordContract from "./contracts/miso_record/record.ts";
-import * as listingContract from "./contracts/miso_record_shop/listing.ts";
+import * as pressingContract from "@misofm/protocol/contracts/miso_record/pressing";
+import * as recordContract from "@misofm/protocol/contracts/miso_record/record";
+import * as listingContract from "@misofm/protocol/contracts/miso_record_shop/listing";
 
 const MAX_U16 = 0xffff;
 const MAX_U32 = 0xffff_ffff;

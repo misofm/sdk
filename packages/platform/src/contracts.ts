@@ -11,44 +11,44 @@
 
 // Record identity/issuance and Record Shop primary-sale mechanics. The
 // package-restricted witness constructor is intentionally not exported here.
-export * as record from "./contracts/miso_record/record.ts";
-export * as pressing from "./contracts/miso_record/pressing.ts";
-export * as listing from "./contracts/miso_record_shop/listing.ts";
+export * as record from "@misofm/protocol/contracts/miso_record/record";
+export * as pressing from "@misofm/protocol/contracts/miso_record/pressing";
+export * as listing from "@misofm/protocol/contracts/miso_record_shop/listing";
 
 // Generic royalty-pool primitive, raw-cap Actions, and the three safe crank plugins.
-export * as royaltyPool from "./contracts/royalty_pool/pool.ts";
-export * as royaltyPoolStake from "./contracts/royalty_pool/stake.ts";
-export * as vault from "./contracts/vault/vault.ts";
-export * as compositionRoyaltyPool from "./contracts/composition_royalty_pool/composition_royalty_pool.ts";
-export * as recordingRoyaltyPool from "./contracts/recording_royalty_pool/recording_royalty_pool.ts";
-export * as partyWallet from "./contracts/party_wallet/party_wallet.ts";
-export * as routedStake from "./contracts/routed_stake/routed_stake.ts";
-export * as compositionRoutedStake from "./contracts/composition_routed_stake/composition_routed_stake.ts";
-export * as compositionRoyaltyPoolPlugin from "./contracts/composition_royalty_pool_plugin/composition_royalty_pool_plugin.ts";
-export * as recordingRoyaltyPoolPlugin from "./contracts/recording_royalty_pool_plugin/recording_royalty_pool_plugin.ts";
-export * as releaseRevenueDistributorPlugin from "./contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin.ts";
+export * as royaltyPool from "@misofm/protocol/contracts/royalty_pool/pool";
+export * as royaltyPoolStake from "@misofm/protocol/contracts/royalty_pool/stake";
+export * as vault from "@misofm/protocol/contracts/vault/vault";
+export * as compositionRoyaltyPool from "@misofm/protocol/contracts/composition_royalty_pool/composition_royalty_pool";
+export * as recordingRoyaltyPool from "@misofm/protocol/contracts/recording_royalty_pool/recording_royalty_pool";
+export * as partyWallet from "@misofm/protocol/contracts/party_wallet/party_wallet";
+export * as routedStake from "@misofm/protocol/contracts/routed_stake/routed_stake";
+export * as compositionRoutedStake from "@misofm/protocol/contracts/composition_routed_stake/composition_routed_stake";
+export * as compositionRoyaltyPoolPlugin from "@misofm/protocol/contracts/composition_royalty_pool_plugin/composition_royalty_pool_plugin";
+export * as recordingRoyaltyPoolPlugin from "@misofm/protocol/contracts/recording_royalty_pool_plugin/recording_royalty_pool_plugin";
+export * as releaseRevenueDistributorPlugin from "@misofm/protocol/contracts/release_revenue_distributor_plugin/release_revenue_distributor_plugin";
 
 // Cover art (the CoverArt value type + the release attachment extension).
-export * as coverArt from "./contracts/cover_art/cover_art.ts";
-export * as releaseCoverArt from "./contracts/release_cover_art/release_cover_art.ts";
+export * as coverArt from "@misofm/protocol/contracts/cover_art/cover_art";
+export * as releaseCoverArt from "@misofm/protocol/contracts/release_cover_art/release_cover_art";
 
 // Release presentation, discovery, buyer-content, and runtime economics.
-export * as genre from "./contracts/genre/genre.ts";
-export * as releaseDescription from "./contracts/release_description/release_description.ts";
-export * as releaseDspLink from "./contracts/release_dsp_link/release_dsp_link.ts";
-export * as releaseGenre from "./contracts/release_genre/release_genre.ts";
-export * as releaseKind from "./contracts/release_kind/release_kind.ts";
-export * as releaseRevenueDistributor from "./contracts/release_revenue_distributor/release_revenue_distributor.ts";
-export * as recordingAdvisory from "./contracts/recording_advisory/recording_advisory.ts";
-export * as recordingLanguage from "./contracts/recording_language/recording_language.ts";
-export * as recordingMasterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
-export * as recordingStreamingTranscode from "./contracts/recording_streaming_transcode/recording_streaming_transcode.ts";
-export * as recordingPreview from "./contracts/recording_preview/recording_preview.ts";
+export * as genre from "@misofm/protocol/contracts/genre/genre";
+export * as releaseDescription from "@misofm/protocol/contracts/release_description/release_description";
+export * as releaseDspLink from "@misofm/protocol/contracts/release_dsp_link/release_dsp_link";
+export * as releaseGenre from "@misofm/protocol/contracts/release_genre/release_genre";
+export * as releaseKind from "@misofm/protocol/contracts/release_kind/release_kind";
+export * as releaseRevenueDistributor from "@misofm/protocol/contracts/release_revenue_distributor/release_revenue_distributor";
+export * as recordingAdvisory from "@misofm/protocol/contracts/recording_advisory/recording_advisory";
+export * as recordingLanguage from "@misofm/protocol/contracts/recording_language/recording_language";
+export * as recordingMasterReference from "@misofm/protocol/contracts/recording_master_reference/recording_master_reference";
+export * as recordingStreamingTranscode from "@misofm/protocol/contracts/recording_streaming_transcode/recording_streaming_transcode";
+export * as recordingPreview from "@misofm/protocol/contracts/recording_preview/recording_preview";
 
 // Credits extensions (per-work credit stores + their role vocabularies).
-export * as compositionCredits from "./contracts/composition_credits/composition_credits.ts";
-export * as compositionPartyRole from "./contracts/composition_credits/composition_party_role.ts";
-export * as recordingCredits from "./contracts/recording_credits/recording_credits.ts";
-export * as recordingPartyRole from "./contracts/recording_credits/recording_party_role.ts";
-export * as releaseCredits from "./contracts/release_credits/release_credits.ts";
-export * as releasePartyRole from "./contracts/release_credits/release_party_role.ts";
+export * as compositionCredits from "@misofm/protocol/contracts/composition_credits/composition_credits";
+export * as compositionPartyRole from "@misofm/protocol/contracts/composition_credits/composition_party_role";
+export * as recordingCredits from "@misofm/protocol/contracts/recording_credits/recording_credits";
+export * as recordingPartyRole from "@misofm/protocol/contracts/recording_credits/recording_party_role";
+export * as releaseCredits from "@misofm/protocol/contracts/release_credits/release_credits";
+export * as releasePartyRole from "@misofm/protocol/contracts/release_credits/release_party_role";

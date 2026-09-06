@@ -20,7 +20,7 @@
 // read walks. We show the buyer that arithmetic, in the same truncating integer
 // math the chain does.
 
-import * as listingContract from "../contracts/miso_record_shop/listing.ts";
+import * as listingContract from "@misofm/protocol/contracts/miso_record_shop/listing";
 import {
   extractTypeParams2,
   getCompositionsByIds,

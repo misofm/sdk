@@ -5,8 +5,8 @@ import { expect, test } from "bun:test";
 import { bcs } from "@mysten/sui/bcs";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
-import * as walrusData from "../src/contracts/recording_master_reference/deps/ori/walrus_data.ts";
-import * as masterReference from "../src/contracts/recording_master_reference/recording_master_reference.ts";
+import * as walrusData from "@misofm/protocol/contracts/recording_master_reference/deps/ori/walrus_data";
+import * as masterReference from "@misofm/protocol/contracts/recording_master_reference/recording_master_reference";
 import {
   getRecordingMasterReference,
   getRecordingMasterReferencesByIds,

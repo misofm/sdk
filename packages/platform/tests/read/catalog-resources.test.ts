@@ -4,8 +4,8 @@
 import { expect, test } from "bun:test";
 import type { ClientWithCoreApi } from "@mysten/sui/client";
 import { deriveSaleIds } from "../../src/pressing.ts";
-import * as listing from "../../src/contracts/miso_record_shop/listing.ts";
-import * as pressing from "../../src/contracts/miso_record/pressing.ts";
+import * as listing from "@misofm/protocol/contracts/miso_record_shop/listing";
+import * as pressing from "@misofm/protocol/contracts/miso_record/pressing";
 import {
   getListingView,
   getPressingView,

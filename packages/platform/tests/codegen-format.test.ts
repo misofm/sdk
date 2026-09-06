@@ -9,8 +9,12 @@ const directBcsAnchor = 'import type {} from "@mysten/bcs";';
 test("generated BCS modules carry exactly one direct declaration anchor", async () => {
   const generated = new Bun.Glob("src/contracts/**/*.ts");
 
-  for await (const path of generated.scan({ cwd: import.meta.dir + "/.." })) {
-    const source = await Bun.file(import.meta.dir + "/../" + path).text();
+  for await (const path of generated.scan({
+    cwd: import.meta.dir + "/../../protocol",
+  })) {
+    const source = await Bun.file(
+      import.meta.dir + "/../../protocol/" + path,
+    ).text();
     const anchorCount = source
       .split("\n")
       .filter((line) => line === directBcsAnchor).length;
@@ -28,9 +32,13 @@ test("release cover bindings use the verified transitive Ori address", async () 
   const files: string[] = [];
   let sources = "";
 
-  for await (const path of generated.scan({ cwd: import.meta.dir + "/.." })) {
+  for await (const path of generated.scan({
+    cwd: import.meta.dir + "/../../protocol",
+  })) {
     files.push(path);
-    sources += await Bun.file(import.meta.dir + "/../" + path).text();
+    sources += await Bun.file(
+      import.meta.dir + "/../../protocol/" + path,
+    ).text();
   }
 
   expect(files).toContain(

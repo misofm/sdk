@@ -21,8 +21,8 @@ import {
 } from "@misofm/protocol";
 import type { MisoClient } from "./client.ts";
 import { int, u64 } from "./internal/scalars.ts";
-import * as vaultContract from "../contracts/vault/vault.ts";
-import * as recordContract from "../contracts/miso_record/record.ts";
+import * as vaultContract from "@misofm/protocol/contracts/vault/vault";
+import * as recordContract from "@misofm/protocol/contracts/miso_record/record";
 import { deriveRecordId } from "../pressing.ts";
 import { requireRecordSalesDeployment } from "../deployments.ts";
 import type {

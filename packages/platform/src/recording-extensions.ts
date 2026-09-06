@@ -9,12 +9,12 @@ import type { Transaction, TransactionArgument, TransactionObjectArgument } from
 import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import type { TxThunk } from "./transactions.ts";
 import { invokeWithAdminCap, type AdminCapAuthority, type ObjectInput } from "./vault.ts";
-import * as advisory from "./contracts/recording_advisory/recording_advisory.ts";
-import * as language from "./contracts/recording_language/recording_language.ts";
-import * as walrusData from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
-import * as masterReference from "./contracts/recording_master_reference/recording_master_reference.ts";
-import * as preview from "./contracts/recording_preview/recording_preview.ts";
-import * as streamingTranscode from "./contracts/recording_streaming_transcode/recording_streaming_transcode.ts";
+import * as advisory from "@misofm/protocol/contracts/recording_advisory/recording_advisory";
+import * as language from "@misofm/protocol/contracts/recording_language/recording_language";
+import * as walrusData from "@misofm/protocol/contracts/recording_master_reference/deps/ori/walrus_data";
+import * as masterReference from "@misofm/protocol/contracts/recording_master_reference/recording_master_reference";
+import * as preview from "@misofm/protocol/contracts/recording_preview/recording_preview";
+import * as streamingTranscode from "@misofm/protocol/contracts/recording_streaming_transcode/recording_streaming_transcode";
 
 export interface RecordingExtensionTarget {
   readonly recordingId: ObjectInput;

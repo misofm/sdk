@@ -79,7 +79,18 @@ const config: MisoCodegenConfig = {
     { package: "@local-pkg/recording_advisory", path: source("misofm/protocol-extensions/recording_advisory") },
     { package: "@local-pkg/recording_credits", path: source("misofm/protocol-extensions/recording_credits") },
     { package: "@local-pkg/recording_language", path: source("misofm/protocol-extensions/recording_language") },
-    { package: "@local-pkg/recording_master_reference", path: source("misofm/protocol-extensions/recording_master_reference") },
+
+    // The deployed recording_master_reference package predates the ori
+    // walrus_data -> data migration: on-chain, its reference field is
+    // `ori::walrus_data::WalrusData` (an enum — Blob | QuiltPatch, with a
+    // leading BCS variant byte), not the `ori::data::WalrusBlob` struct that
+    // regenerating against current Move source now produces. The two are not
+    // wire-compatible; decoding one as the other corrupts on-chain reads.
+    // Frozen on the existing binding (carried forward from
+    // packages/platform/src/contracts) until a deployment explicitly
+    // replaces this package and its ABI actually moves to `data.ts`.
+    { package: "@local-pkg/recording_master_reference", frozen: true },
+
     { package: "@local-pkg/recording_streaming_transcode", path: source("misofm/protocol-extensions/recording_streaming_transcode") },
     { package: "@local-pkg/release_cover_art", path: source("misofm/protocol-extensions/release_cover_art") },
     { package: "@local-pkg/release_credits", path: source("misofm/protocol-extensions/release_credits") },
@@ -92,6 +103,14 @@ const config: MisoCodegenConfig = {
     // protocol-extensions) but remains deployed and canonical in
     // `deployments.ts`. Its existing generated binding is retained — see
     // `scripts/codegen-output.ts` — and never regenerated.
+    //
+    // It also predates the same ori walrus_data -> data migration as
+    // recording_master_reference above: the deployed package's reference
+    // field is the `ori::walrus_data::WalrusData` enum (Blob | QuiltPatch,
+    // leading BCS variant byte), not the `ori::data::WalrusBlob` struct.
+    // Both reasons hold independently — even if source reappeared upstream,
+    // regenerating from it would still produce a wire-incompatible binding
+    // until the deployed package itself is replaced.
     { package: "@local-pkg/recording_preview", frozen: true },
 
     // Primitives.

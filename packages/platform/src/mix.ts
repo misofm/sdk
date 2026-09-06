@@ -23,8 +23,8 @@ import {
   parseStructTag,
 } from "@mysten/sui/utils";
 import { getReleaseById, isNotFound } from "@misofm/protocol";
-import { WalrusData } from "./contracts/recording_master_reference/deps/ori/walrus_data.ts";
-import * as recordContract from "./contracts/miso_record/record.ts";
+import { WalrusData } from "@misofm/protocol/contracts/recording_master_reference/deps/ori/walrus_data";
+import * as recordContract from "@misofm/protocol/contracts/miso_record/record";
 import type { TxThunk } from "./transactions.ts";
 import {
   invokeWithAdminCap,
