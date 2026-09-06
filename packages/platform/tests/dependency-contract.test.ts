@@ -28,7 +28,8 @@ test("Seal and Sui use one exact development and peer dependency contract", asyn
   );
 
   expect(Object.keys(consumer.dependencies ?? {})).toEqual([
-    "@misofm/sdk",
+    "@misofm/platform",
+    "@misofm/protocol",
     "typescript",
   ]);
 
